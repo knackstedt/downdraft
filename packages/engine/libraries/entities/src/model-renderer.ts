@@ -661,9 +661,75 @@ export class ModelRenderer {
     return buffer;
   }
 
+  /**
+   * Upload decoded texture data (KTX2 — basisu-transcoded or concrete-format)
+   * into the bindless registry: creates a GPUTexture, copies it into a bucket
+   * layer, and returns the texture handle. Idempotent per sourceId; an
+   * existing registration is updated in place.
+   */
+  private registerDecodedTexture(sourceId: string, texData: TextureData): number {
+    const registry = this.bindless!.registry;
+    const existing = registry.getRegistration(sourceId);
+    const gpuTex = createGPUTextureFromData(this.device, texData);
+    if (existing) {
+      registry.updateFromTexture(sourceId, gpuTex);
+      return existing.handle;
+    }
+    const reg = registry.registerFromTexture(sourceId, gpuTex, {
+      format: texData.format,
+      width: texData.width,
+      height: texData.height,
+      mipCount: texData.mipLevels,
+      sampleCount: 1,
+    });
+    return reg.handle;
+  }
+
+  /**
+   * Record an albedo texture handle for a material: remember the sourceId
+   * (for later unregister/update), then write the real handle into the
+   * material's bindless slot.
+   */
+  private commitAlbedoHandle(materialKey: string, sourceId: string, handle: number): void {
+    this.meshTextureSourceId.set(materialKey, sourceId);
+    this.meshAlbedoHandle.set(materialKey, handle);
+
+    const materialIndex = this.meshMaterialIndex.get(materialKey);
+    if (materialIndex !== undefined) {
+      const matParams: MaterialParams = {
+        baseColor: this.meshBaseColor.get(materialKey) ?? [1, 1, 1, 1],
+        roughness: 1,
+        metallic: 0,
+        emissiveIntensity: 0,
+        albedoTexHandle: handle,
+        normalTexHandle: this.bindless!.registry.defaultNormalHandle,
+        metallicRoughnessTexHandle: this.bindless!.registry.defaultWhiteHandle,
+        aoTexHandle: this.bindless!.registry.defaultWhiteHandle,
+        emissiveTexHandle: this.bindless!.registry.defaultWhiteHandle,
+      };
+      this.bindless!.materialManager.updateMaterial(materialIndex, matParams);
+    }
+  }
+
   private async loadMeshTexture(materialKey: string, textureData: ArrayBuffer, version: number): Promise<void> {
     if (!this.bindless) return;
     try {
+      // KTX2 bytes (basisu or concrete vkFormat) can't go through
+      // createImageBitmap — decode via the engine codec path, which
+      // transcodes to BC7/ASTC/ETC2 when the device supports it.
+      const decoded = await decodeEmbeddedTexture(textureData, {
+        compressionFeatures: deviceCompressionFeatures(this.device),
+        srgb: true,
+      });
+      if (decoded) {
+        if (this.textureLoadVersion.get(materialKey) !== version) return;
+        const sourceId = `model:${materialKey}`;
+        const handle = this.registerDecodedTexture(sourceId, decoded);
+        this.commitAlbedoHandle(materialKey, sourceId, handle);
+        log.info("model-renderer", `Texture ready for ${materialKey}: ${decoded.width}x${decoded.height} ${decoded.format} (bindless)`);
+        return;
+      }
+
       const blob = new Blob([textureData]);
       const imageBitmap = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
 
@@ -691,25 +757,7 @@ export class ModelRenderer {
         const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm-srgb", 1, this.mipmapsEnabled);
         handle = reg.handle;
       }
-      this.meshTextureSourceId.set(materialKey, sourceId);
-      this.meshAlbedoHandle.set(materialKey, handle);
-
-      // Update the material to point at the real albedo texture.
-      const materialIndex = this.meshMaterialIndex.get(materialKey);
-      if (materialIndex !== undefined) {
-        const matParams: MaterialParams = {
-          baseColor: this.meshBaseColor.get(materialKey) ?? [1, 1, 1, 1],
-          roughness: 1,
-          metallic: 0,
-          emissiveIntensity: 0,
-          albedoTexHandle: handle,
-          normalTexHandle: this.bindless.registry.defaultNormalHandle,
-          metallicRoughnessTexHandle: this.bindless.registry.defaultWhiteHandle,
-          aoTexHandle: this.bindless.registry.defaultWhiteHandle,
-          emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
-        };
-        this.bindless.materialManager.updateMaterial(materialIndex, matParams);
-      }
+      this.commitAlbedoHandle(materialKey, sourceId, handle);
 
       log.info("model-renderer", `Texture ready for ${materialKey}: ${imageBitmap.width}x${imageBitmap.height} (bindless)`);
       imageBitmap.close();
@@ -727,15 +775,27 @@ export class ModelRenderer {
     try {
       const resp = await fetch(textureUri);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const blob = await resp.blob();
-      const imageBitmap = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+      const buffer = await resp.arrayBuffer();
+      const sourceId = `model:${materialKey}`;
+
+      const decoded = await decodeEmbeddedTexture(buffer, {
+        compressionFeatures: deviceCompressionFeatures(this.device),
+        srgb: true,
+      });
+      if (decoded) {
+        if (this.textureLoadVersion.get(materialKey) !== version) return;
+        const handle = this.registerDecodedTexture(sourceId, decoded);
+        this.commitAlbedoHandle(materialKey, sourceId, handle);
+        return;
+      }
+
+      const imageBitmap = await createImageBitmap(new Blob([buffer]), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
 
       if (this.textureLoadVersion.get(materialKey) !== version) {
         imageBitmap.close();
         return;
       }
 
-      const sourceId = `model:${materialKey}`;
       const existing = this.bindless.registry.getRegistration(sourceId);
       let handle: number;
       if (existing) {
@@ -746,24 +806,7 @@ export class ModelRenderer {
         const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm-srgb", 1, this.mipmapsEnabled);
         handle = reg.handle;
       }
-      this.meshTextureSourceId.set(materialKey, sourceId);
-      this.meshAlbedoHandle.set(materialKey, handle);
-
-      const materialIndex = this.meshMaterialIndex.get(materialKey);
-      if (materialIndex !== undefined) {
-        const matParams: MaterialParams = {
-          baseColor: this.meshBaseColor.get(materialKey) ?? [1, 1, 1, 1],
-          roughness: 1,
-          metallic: 0,
-          emissiveIntensity: 0,
-          albedoTexHandle: handle,
-          normalTexHandle: this.bindless.registry.defaultNormalHandle,
-          metallicRoughnessTexHandle: this.bindless.registry.defaultWhiteHandle,
-          aoTexHandle: this.bindless.registry.defaultWhiteHandle,
-          emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
-        };
-        this.bindless.materialManager.updateMaterial(materialIndex, matParams);
-      }
+      this.commitAlbedoHandle(materialKey, sourceId, handle);
 
       imageBitmap.close();
     } catch (e) {
@@ -779,24 +822,36 @@ export class ModelRenderer {
   private async loadMeshNormalTexture(materialKey: string, textureData: ArrayBuffer | null, textureUri: string | undefined, version: number): Promise<void> {
     if (!this.bindless) return;
     try {
-      let imageBitmap: ImageBitmap;
-      if (textureData && textureData.byteLength > 0) {
-        const blob = new Blob([textureData]);
-        imageBitmap = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-      } else if (textureUri) {
-        const resp = await fetch(textureUri);
-        const blob = await resp.blob();
-        imageBitmap = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-      } else {
+      const sourceId = `model-normal:${materialKey}`;
+
+      // KTX2 normals can't go through createImageBitmap — decode via the codec
+      // path (linear data, so srgb: false).
+      const rawData = textureData && textureData.byteLength > 0
+        ? textureData
+        : textureUri
+          ? await (await fetch(textureUri)).arrayBuffer()
+          : null;
+      if (!rawData) return;
+
+      const decoded = await decodeEmbeddedTexture(rawData, {
+        compressionFeatures: deviceCompressionFeatures(this.device),
+        srgb: false,
+      });
+      if (decoded) {
+        if (this.textureLoadVersion.get(materialKey) !== version) return;
+        const handle = this.registerDecodedTexture(sourceId, decoded);
+        this.commitNormalHandle(materialKey, sourceId, handle);
+        log.info("model-renderer", `Normal texture ready for ${materialKey}: ${decoded.width}x${decoded.height} ${decoded.format}`);
         return;
       }
+
+      const imageBitmap = await createImageBitmap(new Blob([rawData]), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
 
       if (this.textureLoadVersion.get(materialKey) !== version) {
         imageBitmap.close();
         return;
       }
 
-      const sourceId = `model-normal:${materialKey}`;
       const existing = this.bindless.registry.getRegistration(sourceId);
       let handle: number;
       if (existing) {
@@ -806,30 +861,37 @@ export class ModelRenderer {
         const reg = this.bindless.registry.registerFromImageBitmap(sourceId, imageBitmap, "rgba8unorm", 1, this.mipmapsEnabled);
         handle = reg.handle;
       }
-      this.meshNormalTextureSourceId.set(materialKey, sourceId);
-
-      // Update the material's normalTexHandle. Preserve existing albedo handle.
-      const materialIndex = this.meshMaterialIndex.get(materialKey);
-      if (materialIndex !== undefined) {
-        const albedoHandle = this.meshAlbedoHandle.get(materialKey) ?? this.bindless.registry.defaultWhiteHandle;
-        const matParams: MaterialParams = {
-          baseColor: this.meshBaseColor.get(materialKey) ?? [1, 1, 1, 1],
-          roughness: 1,
-          metallic: 0,
-          emissiveIntensity: 0,
-          albedoTexHandle: albedoHandle,
-          normalTexHandle: handle,
-          metallicRoughnessTexHandle: this.bindless.registry.defaultWhiteHandle,
-          aoTexHandle: this.bindless.registry.defaultWhiteHandle,
-          emissiveTexHandle: this.bindless.registry.defaultWhiteHandle,
-        };
-        this.bindless.materialManager.updateMaterial(materialIndex, matParams);
-      }
+      this.commitNormalHandle(materialKey, sourceId, handle);
 
       log.info("model-renderer", `Normal texture ready for ${materialKey}: ${imageBitmap.width}x${imageBitmap.height}`);
       imageBitmap.close();
     } catch (e) {
       log.error("model-renderer", `Failed to load normal texture for ${materialKey}: ${e}`);
+    }
+  }
+
+  /**
+   * Record a normal texture handle for a material and write it into the
+   * material's bindless slot, preserving the albedo handle.
+   */
+  private commitNormalHandle(materialKey: string, sourceId: string, handle: number): void {
+    this.meshNormalTextureSourceId.set(materialKey, sourceId);
+
+    const materialIndex = this.meshMaterialIndex.get(materialKey);
+    if (materialIndex !== undefined) {
+      const albedoHandle = this.meshAlbedoHandle.get(materialKey) ?? this.bindless!.registry.defaultWhiteHandle;
+      const matParams: MaterialParams = {
+        baseColor: this.meshBaseColor.get(materialKey) ?? [1, 1, 1, 1],
+        roughness: 1,
+        metallic: 0,
+        emissiveIntensity: 0,
+        albedoTexHandle: albedoHandle,
+        normalTexHandle: handle,
+        metallicRoughnessTexHandle: this.bindless!.registry.defaultWhiteHandle,
+        aoTexHandle: this.bindless!.registry.defaultWhiteHandle,
+        emissiveTexHandle: this.bindless!.registry.defaultWhiteHandle,
+      };
+      this.bindless!.materialManager.updateMaterial(materialIndex, matParams);
     }
   }
 

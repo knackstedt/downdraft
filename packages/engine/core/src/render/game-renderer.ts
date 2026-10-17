@@ -498,6 +498,13 @@ export class GameRenderer implements CanvasResizeHandler {
     if (adapter.features.has("timestamp-query")) {
       requiredFeatures.push("timestamp-query");
     }
+    // Texture compression lets the asset pipeline upload BC7/ASTC/ETC2
+    // directly instead of transcoding basisu KTX2 to RGBA32.
+    for (const f of ["texture-compression-bc", "texture-compression-astc", "texture-compression-etc2"] as const) {
+      if (adapter.features.has(f as GPUFeatureName)) {
+        requiredFeatures.push(f as GPUFeatureName);
+      }
+    }
     return adapter.requestDevice({
       requiredFeatures,
       requiredLimits: this.buildRequiredLimits(adapter),

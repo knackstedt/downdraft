@@ -6,14 +6,14 @@
 // KTX2-encoded bytes with Basis Universal supercompression (vkFormat=0). The
 // engine's KTX2 reader (parseKTX2FromBuffer) only handles KTX2 with concrete
 // vkFormats (BC/ASTC/ETC/uncompressed) — it cannot transcode Basisu. This
-// codec bridges that gap: it transcodes Basisu KTX2 → RGBA32 (uncompressed)
-// using @h00w/basis-universal-transcoder (wasm, ~486KB, lazy-loaded).
+// codec bridges that gap: it transcodes Basisu KTX2 → the best GPU format the
+// device supports using @h00w/basis-universal-transcoder (wasm, ~486KB,
+// lazy-loaded).
 //
-// Transcoding to RGBA32 is the universally-compatible first pass: every
-// WebGPU device supports rgba8unorm. The Basisu win is on-disk/download size
-// (ETC1S/UASTC are far smaller than PNG/JPG). A follow-up can transcode to
-// BC7/ASTC per-GPU for VRAM savings (the engine's createGPUTextureFromData
-// already handles compressed formats).
+// Transcode target selection (see selectBasisuTranscodeTarget): BC7 when the
+// device exposes texture-compression-bc (desktop), ASTC 4x4 for
+// texture-compression-astc and ETC2 for texture-compression-etc2 (mobile),
+// and RGBA32 otherwise — every WebGPU device supports rgba8unorm.
 //
 // The transcoder wasm is loaded lazily on first decode(). In the Vite
 // renderer the wasm URL is resolved via a `?url` import; in Node it is read
@@ -73,7 +73,40 @@ interface BasisUniversalT {
   createKTX2Transcoder(): KTX2TranscoderT;
 }
 type TranscoderTextureFormat = number;
+const cTFETC2_RGBA = 1 as TranscoderTextureFormat;
+const cTFBC7_RGBA = 6 as TranscoderTextureFormat;
+const cTFASTC_4x4_RGBA = 10 as TranscoderTextureFormat;
 const cTFRGBA32 = 13 as TranscoderTextureFormat;
+
+export interface BasisuTranscodeTarget {
+  /** @h00w/basis-universal-transcoder format enum passed to transcodeImageLevel. */
+  transcodeFormat: TranscoderTextureFormat;
+  /** WebGPU format of the emitted bytes (input for createGPUTextureFromData). */
+  gpuFormat: GPUTextureFormat;
+}
+
+/**
+ * Pick the transcode target for the device's texture-compression features.
+ * Desktop adapters expose texture-compression-bc (→ BC7, ~4x VRAM reduction
+ * vs RGBA32); mobile adapters expose astc/etc2. Falls back to RGBA32, which
+ * every WebGPU device accepts.
+ */
+export function selectBasisuTranscodeTarget(
+  compressionFeatures: readonly string[] | undefined,
+  srgb: boolean,
+): BasisuTranscodeTarget {
+  const s = srgb ? "-srgb" : "";
+  if (compressionFeatures?.includes("texture-compression-bc")) {
+    return { transcodeFormat: cTFBC7_RGBA, gpuFormat: `bc7-rgba-unorm${s}` as GPUTextureFormat };
+  }
+  if (compressionFeatures?.includes("texture-compression-astc")) {
+    return { transcodeFormat: cTFASTC_4x4_RGBA, gpuFormat: `astc-4x4-unorm${s}` as GPUTextureFormat };
+  }
+  if (compressionFeatures?.includes("texture-compression-etc2")) {
+    return { transcodeFormat: cTFETC2_RGBA, gpuFormat: `etc2-rgba8unorm${s}` as GPUTextureFormat };
+  }
+  return { transcodeFormat: cTFRGBA32, gpuFormat: `rgba8unorm${s}` as GPUTextureFormat };
+}
 
 let basisuPromise: Promise<BasisUniversalT> | null = null;
 
@@ -138,12 +171,13 @@ export function createBasisuTextureCodec(): TextureCodec {
       const levels = header.levels;
       const w0 = header.width;
       const h0 = header.height;
+      const target = selectBasisuTranscodeTarget(input.compressionFeatures, input.srgb ?? false);
 
-      // Transcode each mip level to RGBA32 and concatenate.
+      // Transcode each mip level to the target format and concatenate.
       const levelBytes: Uint8Array[] = [];
       let totalSize = 0;
       for (let level = 0; level < levels; level++) {
-        const result = transcoder.transcodeImageLevel({ format: cTFRGBA32, level });
+        const result = transcoder.transcodeImageLevel({ format: target.transcodeFormat, level });
         if (!result) {
           // Some encoders emit fewer levels than the header claims; stop at
           // the first missing level rather than failing the whole texture.
@@ -171,7 +205,7 @@ export function createBasisuTextureCodec(): TextureCodec {
         data: combined,
         width: w0,
         height: h0,
-        format: "rgba8unorm",
+        format: target.gpuFormat,
         mipLevels: levelBytes.length,
         isHDR: false,
       };

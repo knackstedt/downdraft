@@ -213,14 +213,14 @@ function generateDDS(): ArrayBuffer {
 
 // ─── KTX2 (uncompressed RGBA8, 4x4) ────────────────────────────────────────
 function generateKTX2(): ArrayBuffer {
-  // KTX2 header is 80 bytes + format description (28 bytes) + level index
+  // Layout: 80-byte header + level index (levelCount × 24 bytes: u64
+  // byteOffset, u64 byteLength, u64 uncompressedByteLength) + pixel data.
   const width = 4, height = 4;
   const pixelSize = width * height * 4; // RGBA8
   const headerSize = 80;
-  const formatSize = 28;
   const levelCount = 1;
-  const levelIndexSize = levelCount * 12; // each entry: 3 x uint64
-  const dataOffset = headerSize + formatSize + levelIndexSize;
+  const levelIndexSize = levelCount * 24;
+  const dataOffset = headerSize + levelIndexSize;
 
   const buf = new ArrayBuffer(dataOffset + pixelSize);
   const view = new DataView(buf);
@@ -242,6 +242,11 @@ function generateKTX2(): ArrayBuffer {
   // Remaining header fields (44-79) are supercompressionScheme, dfdByteOffset,
   // dfdByteLength, kvdByteOffset, kvdByteLength, supercompressionGlobalBlock
   // Set them all to 0 (already zeroed by ArrayBuffer)
+
+  // Level index entry at offset 80: {byteOffset, byteLength, uncompressedByteLength}
+  view.setBigUint64(80, BigInt(dataOffset), true);
+  view.setBigUint64(88, BigInt(pixelSize), true);
+  view.setBigUint64(96, BigInt(pixelSize), true);
 
   // Pixel data
   let offset = dataOffset;

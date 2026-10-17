@@ -43,7 +43,13 @@ export interface CharacterAnimationDef {
   filename: string;
 }
 
-/** True if the first 4 bytes are a browser-decodable image signature. */
+const KTX2_MAGIC = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/**
+ * True if the bytes have an engine-decodable image signature — a
+ * browser-decodable image (PNG/JPEG/WebP) or KTX2, which the texture codec
+ * path (decodeEmbeddedTexture) transcodes to a GPU format.
+ */
 export function isDecodableImage(bytes: Uint8Array): boolean {
   if (bytes.length < 4) return false;
   // PNG
@@ -52,6 +58,8 @@ export function isDecodableImage(bytes: Uint8Array): boolean {
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return true;
   // WebP (RIFF)
   if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) return true;
+  // KTX2 (12-byte identifier)
+  if (bytes.length >= 12 && KTX2_MAGIC.every((b, i) => bytes[i] === b)) return true;
   return false;
 }
 
@@ -84,7 +92,7 @@ export async function loadExternalTextures(
     // Keep decodable embedded textures as-is.
     let hasDecodableEmbedded = false;
     if (mat.textureData && mat.textureData.byteLength > 4) {
-      const bytes = new Uint8Array(mat.textureData, 0, 4);
+      const bytes = new Uint8Array(mat.textureData).subarray(0, 12);
       if (isDecodableImage(bytes)) hasDecodableEmbedded = true;
     }
     if (hasDecodableEmbedded) {
@@ -115,7 +123,7 @@ export async function loadExternalTextures(
             const resp = await fetch(url);
             if (!resp.ok) continue;
             const data = await resp.arrayBuffer();
-            if (data.byteLength > 4 && isDecodableImage(new Uint8Array(data, 0, 4))) {
+            if (data.byteLength > 4 && isDecodableImage(new Uint8Array(data).subarray(0, 12))) {
               mat.textureData = data;
               foundExternal = true;
               log.info("character-model", `Material[${mi}] "${mat.name}": loaded ${candidate} from ${dir}`);

@@ -83,6 +83,17 @@ export interface TextureCodecInput {
   extension: Record<string, unknown>;
   /** mimeType if known. */
   mimeType?: string;
+  /**
+   * GPU texture-compression features available on the target device
+   * (e.g. "texture-compression-bc"). Codecs may transcode directly to a
+   * compressed format the device can upload when listed here.
+   */
+  compressionFeatures?: readonly string[];
+  /**
+   * Whether the pixel data is sRGB-encoded. True for baseColor/emissive
+   * textures; false for normal/metallicRoughness/data maps. Defaults false.
+   */
+  srgb?: boolean;
 }
 
 export interface TextureCodecOutput {
@@ -204,9 +215,9 @@ export function registerDefaultCodecs(registry: GLTFCodecRegistry): void {
 // These are split into their own modules but referenced here so the registry
 // wires them on first access. Each factory returns a codec that loads its
 // WASM/JS glue only when decode() is first called.
+import { createBasisuTextureCodec } from "./basisu-codec";
 import { createDracoMeshCodec } from "./draco-codec";
 import { createMeshoptBufferViewCodec } from "./meshopt-codec";
-import { createBasisuTextureCodec } from "./basisu-codec";
 
 function createLazyDracoMeshCodec(): MeshCodec {
   return createDracoMeshCodec();

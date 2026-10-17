@@ -40,8 +40,16 @@ export function computeDeviceDescriptor(adapter: WgpuAdapter): GPUDeviceDescript
       ? ["timestamp-query-inside-passes", "timestamp-query-inside-encoders"]
       : []),
   ].filter((f) => adapter.features.has(f as GPUFeatureName));
+  // Texture compression: request whichever families the adapter exposes so
+  // the asset pipeline can transcode basisu KTX2 to a native compressed
+  // format (BC7 desktop / ASTC+ETC2 mobile) instead of RGBA32.
+  const compressionFeatures = [
+    "texture-compression-bc",
+    "texture-compression-astc",
+    "texture-compression-etc2",
+  ].filter((f) => adapter.features.has(f as GPUFeatureName));
   return {
-    requiredFeatures: timestampFeatures as GPUFeatureName[],
+    requiredFeatures: [...timestampFeatures, ...compressionFeatures] as GPUFeatureName[],
     requiredLimits,
   };
 }

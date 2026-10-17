@@ -17,6 +17,7 @@
 // sample layerIndex.
 // ============================================================================
 
+import { compressedBlockInfo, isCompressedFormat } from "../../assets/loader-texture";
 import { createLogger } from "../../util/logger";
 
 const log = createLogger();
@@ -513,10 +514,16 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
       log.error("bindless", `bucket ${b.keyStr} exhausted maxPages=${this.maxPagesPerBucket}; texture registration failed`);
       throw new Error(`BindlessTextureRegistry: bucket ${b.keyStr} full (maxPages=${this.maxPagesPerBucket})`);
     }
+    // Compressed formats aren't renderable — RENDER_ATTACHMENT must be
+    // omitted or createTexture validation rejects the array page (compressed
+    // bucket mips come pre-baked via copyTextureToTexture, never blit-gen).
+    const isCompressed = isCompressedFormat(b.key.format);
+    const usage =
+      TEXTURE_BINDING_USAGE | COPY_DST_USAGE | COPY_SRC_USAGE | (isCompressed ? 0 : RENDER_ATTACHMENT_USAGE);
     const tex = this.device.createTexture({
       size: [b.key.width, b.key.height, this.layersPerPage],
       format: b.key.format,
-      usage: TEXTURE_BINDING_USAGE | COPY_DST_USAGE | COPY_SRC_USAGE | RENDER_ATTACHMENT_USAGE,
+      usage,
       mipLevelCount: b.key.mipCount,
       sampleCount: b.key.sampleCount,
       label: `bindless_${b.keyStr}_page${b.pages.length}`,
@@ -577,11 +584,23 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   ): void {
     const dst = b.pages[page];
     const encoder = this.device.createCommandEncoder();
+    // Compressed formats copy in block-aligned physical extents (the mip's
+    // physical size is block-rounded); uncompressed formats copy in texels.
+    const compressed = isCompressedFormat(key.format);
+    const { blockWidth, blockHeight } = compressedBlockInfo(key.format);
     for (let mip = 0; mip < key.mipCount; mip++) {
+      const mw = Math.max(1, key.width >> mip);
+      const mh = Math.max(1, key.height >> mip);
       encoder.copyTextureToTexture(
         { texture: src, mipLevel: mip, origin: [0, 0, 0] },
         { texture: dst, mipLevel: mip, origin: [0, 0, layer] },
-        { width: key.width >> mip, height: key.height >> mip, depthOrArrayLayers: 1 },
+        compressed
+          ? {
+              width: Math.max(1, Math.ceil(mw / blockWidth)) * blockWidth,
+              height: Math.max(1, Math.ceil(mh / blockHeight)) * blockHeight,
+              depthOrArrayLayers: 1,
+            }
+          : { width: mw, height: mh, depthOrArrayLayers: 1 },
       );
     }
     this.device.queue.submit([encoder.finish()]);

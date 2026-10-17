@@ -3,7 +3,7 @@ import type { BindlessTextureRegistry, TextureBucketKey } from "../render/bindle
 import { createBlackTextureView, createDefaultTextureView } from "../render/gpu-utils";
 import type { PBRMaterialResources } from "../render/passes/opaque";
 import type { TextureData } from "./loader-texture";
-import { createGPUTextureFromData, createSampler, loadTexture } from "./loader-texture";
+import { createGPUTextureFromData, createSampler, decodeEmbeddedTexture, deviceCompressionFeatures, loadTexture } from "./loader-texture";
 import type { PluginMaterialData } from "./model-to-mesh";
 
 export interface BridgedMaterial {
@@ -51,9 +51,10 @@ export async function bridgeMaterial(
 
   // Load albedo texture
   let albedoView: GPUTextureView;
+  const compressionFeatures = deviceCompressionFeatures(device);
   if (pluginMaterial.textureUri) {
     const uri = textureBasePath ? `${textureBasePath}/${pluginMaterial.textureUri}` : pluginMaterial.textureUri;
-    const texData = await loadTexture(uri);
+    const texData = await loadTexture(uri, { compressionFeatures, srgb: true });
     const gpuTex = createGPUTextureFromData(device, texData);
     textures.push(gpuTex);
     albedoView = gpuTex.createView();
@@ -62,7 +63,13 @@ export async function bridgeMaterial(
       registry.registerFromTexture(albedoSourceId, gpuTex, bucketKeyFromTexture(gpuTex));
     }
   } else if (pluginMaterial.textureData) {
-    const texData: TextureData = {
+    // Embedded image bytes — KTX2 (basisu/concrete) decodes to real texels;
+    // anything else keeps the historical white-placeholder behavior.
+    const decoded = await decodeEmbeddedTexture(pluginMaterial.textureData, {
+      compressionFeatures,
+      srgb: true,
+    });
+    const texData: TextureData = decoded ?? {
       width: 1,
       height: 1,
       data: new Uint8Array([255, 255, 255, 255]),
@@ -85,7 +92,7 @@ export async function bridgeMaterial(
   let normalView: GPUTextureView;
   if (pluginMaterial.normalTextureUri) {
     const uri = textureBasePath ? `${textureBasePath}/${pluginMaterial.normalTextureUri}` : pluginMaterial.normalTextureUri;
-    const texData = await loadTexture(uri);
+    const texData = await loadTexture(uri, { compressionFeatures });
     const gpuTex = createGPUTextureFromData(device, texData);
     textures.push(gpuTex);
     normalView = gpuTex.createView();
