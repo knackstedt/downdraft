@@ -233,6 +233,10 @@ export class DeferredLightingPass extends RenderPass {
   private spotLightBuffer: GPUBuffer | null = null;
   private lightViewProjBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
+  /** Identity refs the cached bindGroup was built from — recreated only when
+   *  one changes (graph recompile/recovery produce fresh GPUTextureViews). */
+  private bgKey: readonly unknown[] = [];
+  private cameraScratch = new Float32Array(52);
   private iblBindGroup: GPUBindGroup | null = null;
   private iblBindGroupLayout: GPUBindGroupLayout | null = null;
   private dummyDepthTexture: GPUTexture | null = null;
@@ -311,7 +315,7 @@ export class DeferredLightingPass extends RenderPass {
     invViewProj: Mat4,
     cameraPos: [number, number, number],
   ): void {
-    const data = new Float32Array(52);
+    const data = this.cameraScratch;
     data.set(viewProj as Float32Array, 0);
     data.set(prevViewProj as Float32Array, 16);
     data.set(invViewProj as Float32Array, 32);
@@ -340,6 +344,20 @@ export class DeferredLightingPass extends RenderPass {
     shadowSampler: GPUSampler | null,
   ): GPUBindGroup | null {
     if (!this.pipeline) return null;
+    // Bind groups are recreated only when a bound resource's identity
+    // changes — the same views persist across frames (and viewports) until
+    // the graph reallocates its physical textures.
+    const key = [
+      gbufferViews.albedo, gbufferViews.normal, gbufferViews.metallicEmissive,
+      gbufferViews.depth, shadowView, shadowSampler,
+    ];
+    if (
+      this.bindGroup &&
+      key.length === this.bgKey.length &&
+      key.every((v, i) => v === this.bgKey[i])
+    ) {
+      return this.bindGroup;
+    }
     const entries: GPUBindGroupEntry[] = [
       { binding: 0, resource: { buffer: this.cameraBuffer! } },
       { binding: 1, resource: gbufferViews.albedo },
@@ -368,10 +386,13 @@ export class DeferredLightingPass extends RenderPass {
     entries.push({ binding: 9, resource: { buffer: this.lightViewProjBuffer! } });
     entries.push({ binding: 10, resource: { buffer: this.spotLightBuffer! } });
 
-    return this.device.createBindGroup({
+    const bg = this.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
       entries,
     });
+    this.bindGroup = bg;
+    this.bgKey = key;
+    return bg;
   }
 
   setIBLBindGroup(bg: GPUBindGroup): void {
@@ -417,10 +438,13 @@ export class DeferredLightingPass extends RenderPass {
     const shadowView = this.shadowHandle ? ctx.getView(this.shadowHandle) : null;
     const bindGroup = this.createBindGroup(gbufferViews, shadowView, ctx.shadowSampler);
 
-    // Update camera and lighting uniforms
+    // Update camera and lighting uniforms. Light data + light viewProj are
+    // identical across viewports — write them once on the first viewport.
     this.updateCamera(ctx.viewProj, ctx.prevViewProj, ctx.invViewProj, ctx.cameraPos);
-    this.updateLightViewProj(ctx.lightViewProj);
-    this.updateLights(ctx.lightData);
+    if (!(ctx.viewportIdx > 0)) {
+      this.updateLightViewProj(ctx.lightViewProj);
+      this.updateLights(ctx.lightData);
+    }
 
     if (!bindGroup) return;
 
@@ -440,5 +464,7 @@ export class DeferredLightingPass extends RenderPass {
     this.spotLightBuffer?.destroy();
     this.lightViewProjBuffer?.destroy();
     this.dummyDepthTexture?.destroy();
+    this.bindGroup = null;
+    this.bgKey = [];
   }
 }

@@ -1544,9 +1544,14 @@ export class ModelRenderer {
     this.device.queue.writeBuffer(
       this.uniformBuffer,
       instanceIndex === 0 ? mesh0Offset : instanceBaseOffset,
-      new Float32Array(staging.buffer, 0, needFloats) as Float32Array<ArrayBuffer>,
+      (needFloats === staging.length
+        ? staging
+        : new Float32Array(staging.buffer, 0, needFloats)) as Float32Array<ArrayBuffer>,
     );
 
+    // Track the bound pipeline within this loop — consecutive meshes usually
+    // share one, and each redundant setPipeline is an encoder command.
+    let lastPipeline: GPURenderPipeline | null = null;
     for (let r = 0; r < meshCount; r++) {
       const res = resources[r];
       // Compute the uniform offset for this instance + mesh.
@@ -1558,22 +1563,18 @@ export class ModelRenderer {
       // otherwise the standard non-skinned pipeline.
       const slotIdx = uniformOffset / ModelRenderer.UNIFORM_SIZE;
       const mBg = this.perSlotBindGroups[slotIdx] ?? this.bindGroup;
-      if (res.skinned && this.skinnedPipeline && res.skinVertexBuffer) {
-        passEncoder.setPipeline(this.skinnedPipeline);
-        if (this.perSlotBindGroups.length > 0) passEncoder.setBindGroup(0, mBg, [0]);
-        else passEncoder.setBindGroup(0, mBg!, [uniformOffset]);
-        passEncoder.setVertexBuffer(0, res.vertexBuffer);
-        passEncoder.setVertexBuffer(1, res.skinVertexBuffer);
-        passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
-        passEncoder.drawIndexed(res.indexCount);
-      } else {
-        passEncoder.setPipeline(this.pipeline);
-        if (this.perSlotBindGroups.length > 0) passEncoder.setBindGroup(0, mBg, [0]);
-        else passEncoder.setBindGroup(0, mBg!, [uniformOffset]);
-        passEncoder.setVertexBuffer(0, res.vertexBuffer);
-        passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
-        passEncoder.drawIndexed(res.indexCount);
+      const skinned = res.skinned && this.skinnedPipeline && res.skinVertexBuffer;
+      const pipeline = skinned ? this.skinnedPipeline : this.pipeline;
+      if (pipeline !== lastPipeline) {
+        passEncoder.setPipeline(pipeline!);
+        lastPipeline = pipeline;
       }
+      if (this.perSlotBindGroups.length > 0) passEncoder.setBindGroup(0, mBg, [0]);
+      else passEncoder.setBindGroup(0, mBg!, [uniformOffset]);
+      passEncoder.setVertexBuffer(0, res.vertexBuffer);
+      if (skinned) passEncoder.setVertexBuffer(1, res.skinVertexBuffer);
+      passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
+      passEncoder.drawIndexed(res.indexCount);
     }
   }
 
@@ -1647,13 +1648,15 @@ export class ModelRenderer {
     this.device.queue.writeBuffer(
       this.uniformBuffer,
       resources[0].uniformOffset,
-      new Float32Array(staging.buffer, 0, needFloats) as Float32Array<ArrayBuffer>,
+      (needFloats === staging.length
+        ? staging
+        : new Float32Array(staging.buffer, 0, needFloats)) as Float32Array<ArrayBuffer>,
     );
 
+    passEncoder.setPipeline(this.maskPipeline);
     for (let r = 0; r < meshCount; r++) {
       const res = resources[r];
       const uniformOffset = res.uniformOffset;
-      passEncoder.setPipeline(this.maskPipeline);
       passEncoder.setBindGroup(0, this.bindGroup, [uniformOffset]);
       passEncoder.setVertexBuffer(0, res.vertexBuffer);
       passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);
@@ -1722,13 +1725,15 @@ export class ModelRenderer {
     this.device.queue.writeBuffer(
       this.uniformBuffer,
       resources[0].uniformOffset,
-      new Float32Array(staging.buffer, 0, needFloats) as Float32Array<ArrayBuffer>,
+      (needFloats === staging.length
+        ? staging
+        : new Float32Array(staging.buffer, 0, needFloats)) as Float32Array<ArrayBuffer>,
     );
 
+    passEncoder.setPipeline(this.depthPipeline);
     for (let r = 0; r < meshCount; r++) {
       const res = resources[r];
       const uniformOffset = res.uniformOffset;
-      passEncoder.setPipeline(this.depthPipeline);
       passEncoder.setBindGroup(0, this.bindGroup, [uniformOffset]);
       passEncoder.setVertexBuffer(0, res.vertexBuffer);
       passEncoder.setIndexBuffer(res.indexBuffer, res.indexFormat);

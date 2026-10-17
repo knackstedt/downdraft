@@ -61,6 +61,50 @@ describe("TrackedRenderPass", () => {
     expect(pass.bindGroupChanges).toBe(1);
   });
 
+  it("setBindGroup should rebind when dynamic offsets change on the same group", () => {
+    const mockGpuPass = {
+      setPipeline: vi.fn(),
+      setBindGroup: vi.fn(),
+      setVertexBuffer: vi.fn(),
+      setIndexBuffer: vi.fn(),
+      draw: vi.fn(),
+      drawIndexed: vi.fn(),
+      end: vi.fn(),
+    } as unknown as GPURenderPassEncoder;
+    const pass = new TrackedRenderPass(mockGpuPass);
+    const group = {} as GPUBindGroup;
+
+    pass.setBindGroup(0, group, [0]);
+    pass.setBindGroup(0, group, [256]);
+    expect(mockGpuPass.setBindGroup).toHaveBeenCalledTimes(2);
+    expect(mockGpuPass.setBindGroup).toHaveBeenLastCalledWith(0, group, [256]);
+
+    // Identical offsets — deduped
+    pass.setBindGroup(0, group, [256]);
+    expect(mockGpuPass.setBindGroup).toHaveBeenCalledTimes(2);
+  });
+
+  it("setVertexBuffer should rebind when offset changes on the same buffer", () => {
+    const mockGpuPass = {
+      setPipeline: vi.fn(),
+      setBindGroup: vi.fn(),
+      setVertexBuffer: vi.fn(),
+      setIndexBuffer: vi.fn(),
+      draw: vi.fn(),
+      drawIndexed: vi.fn(),
+      end: vi.fn(),
+    } as unknown as GPURenderPassEncoder;
+    const pass = new TrackedRenderPass(mockGpuPass);
+    const buf = {} as GPUBuffer;
+
+    pass.setVertexBuffer(0, buf, 0);
+    pass.setVertexBuffer(0, buf, 128);
+    expect(mockGpuPass.setVertexBuffer).toHaveBeenCalledTimes(2);
+    expect(mockGpuPass.setVertexBuffer).toHaveBeenLastCalledWith(0, buf, 128);
+    pass.setVertexBuffer(0, buf, 128);
+    expect(mockGpuPass.setVertexBuffer).toHaveBeenCalledTimes(2);
+  });
+
   it("draw and drawIndexed should track draw calls + triangles", () => {
     const mockGpuPass = {
       setPipeline: vi.fn(),

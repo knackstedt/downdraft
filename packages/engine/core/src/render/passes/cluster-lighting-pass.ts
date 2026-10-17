@@ -279,6 +279,9 @@ export class ClusterLightingPass extends RenderPass {
   private _cameraView: StructView | null = null;
   private _cameraBuf: Float32Array | null = null;
   private bindGroup: GPUBindGroup | null = null;
+  /** Identity refs the cached bindGroup was built from — recreated only when
+   *  one changes (graph recompile/recovery produce fresh GPUTextureViews). */
+  private bgKey: readonly unknown[] = [];
   private clusterBindGroup: GPUBindGroup | null = null;
   private iblBindGroup: GPUBindGroup | null = null;
   private iblBindGroupLayout: GPUBindGroupLayout | null = null;
@@ -366,6 +369,20 @@ export class ClusterLightingPass extends RenderPass {
     shadowSampler: GPUSampler | null,
   ): GPUBindGroup | null {
     if (!this.pipeline) return null;
+    // Recreate only when a bound resource's identity changes — the same
+    // views persist across frames (and viewports) until the graph
+    // reallocates its physical textures.
+    const key = [
+      gbufferViews.albedo, gbufferViews.normal, gbufferViews.metallicEmissive,
+      gbufferViews.depth, shadowView, shadowSampler,
+    ];
+    if (
+      this.bindGroup &&
+      key.length === this.bgKey.length &&
+      key.every((v, i) => v === this.bgKey[i])
+    ) {
+      return this.bindGroup;
+    }
     const entries: GPUBindGroupEntry[] = [
       { binding: 0, resource: { buffer: this.cameraBuffer! } },
       { binding: 1, resource: gbufferViews.albedo },
@@ -392,10 +409,13 @@ export class ClusterLightingPass extends RenderPass {
     entries.push({ binding: 7, resource: { buffer: this.lightBuffer! } });
     entries.push({ binding: 8, resource: { buffer: this.lightViewProjBuffer! } });
 
-    return this.device.createBindGroup({
+    const bg = this.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
       entries,
     });
+    this.bindGroup = bg;
+    this.bgKey = key;
+    return bg;
   }
 
   createClusterBindGroup(): GPUBindGroup | null {
@@ -456,8 +476,12 @@ export class ClusterLightingPass extends RenderPass {
     if (!bindGroup) return;
 
     this.updateCamera(ctx.viewProj, ctx.prevViewProj, ctx.invViewProj, ctx.cameraPos);
-    this.updateLightViewProj(ctx.lightViewProj);
-    this.updateLights(ctx.lightData);
+    // Light data + light viewProj are identical across viewports — write
+    // them once on the first viewport.
+    if (!(ctx.viewportIdx > 0)) {
+      this.updateLightViewProj(ctx.lightViewProj);
+      this.updateLights(ctx.lightData);
+    }
 
     if (!this.clusterBindGroup) {
       this.clusterBindGroup = this.createClusterBindGroup();
@@ -480,6 +504,9 @@ export class ClusterLightingPass extends RenderPass {
     this.lightBuffer?.destroy();
     this.lightViewProjBuffer?.destroy();
     this.dummyDepthTexture?.destroy();
+    this.bindGroup = null;
+    this.bgKey = [];
+    this.clusterBindGroup = null;
     this._cameraView = null;
     this._cameraBuf = null;
   }

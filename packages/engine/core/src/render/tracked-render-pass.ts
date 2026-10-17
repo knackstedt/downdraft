@@ -1,3 +1,5 @@
+const NO_OFFSETS: readonly number[] = [];
+
 export interface ITrackedRenderPass {
   readonly drawCalls: number;
   readonly triangles: number;
@@ -21,15 +23,21 @@ export class TrackedRenderPass implements ITrackedRenderPass {
   private state: {
     pipeline: GPURenderPipeline | null;
     bindGroups: Map<number, GPUBindGroup>;
+    bindGroupOffsets: Map<number, readonly number[]>;
     vertexBuffers: Map<number, GPUBuffer>;
+    vertexBufferOffsets: Map<number, number>;
     indexBuffer: GPUBuffer | null;
     indexFormat: GPUIndexFormat | null;
+    indexBufferOffset: number;
   } = {
     pipeline: null,
     bindGroups: new Map(),
+    bindGroupOffsets: new Map(),
     vertexBuffers: new Map(),
+    vertexBufferOffsets: new Map(),
     indexBuffer: null,
     indexFormat: null,
+    indexBufferOffset: 0,
   };
   private pass: GPURenderPassEncoder;
   private _drawCalls: number = 0;
@@ -51,9 +59,12 @@ export class TrackedRenderPass implements ITrackedRenderPass {
     this.pass = pass;
     this.state.pipeline = null;
     this.state.bindGroups.clear();
+    this.state.bindGroupOffsets.clear();
     this.state.vertexBuffers.clear();
+    this.state.vertexBufferOffsets.clear();
     this.state.indexBuffer = null;
     this.state.indexFormat = null;
+    this.state.indexBufferOffset = 0;
     this._drawCalls = 0;
     this._triangles = 0;
     this._pipelineSwitches = 0;
@@ -98,28 +109,42 @@ export class TrackedRenderPass implements ITrackedRenderPass {
   }
 
   setBindGroup(index: number, group: GPUBindGroup, dynamicOffsets?: number[]): void {
+    const offsets = dynamicOffsets ?? NO_OFFSETS;
     const existing = this.state.bindGroups.get(index);
-    if (existing !== group) {
+    const existingOffsets = this.state.bindGroupOffsets.get(index);
+    // Same group with different dynamic offsets is still a rebind — the
+    // offsets select which uniform range the draw reads.
+    const offsetsDiffer = !existingOffsets ||
+      existingOffsets.length !== offsets.length ||
+      existingOffsets.some((v, i) => v !== offsets[i]);
+    if (existing !== group || offsetsDiffer) {
       this.pass.setBindGroup(index, group, dynamicOffsets ?? []);
       this.state.bindGroups.set(index, group);
+      this.state.bindGroupOffsets.set(index, offsets.slice());
       this._bindGroupChanges++;
     }
   }
 
   setVertexBuffer(slot: number, buffer: GPUBuffer, offset: number = 0): void {
     const existing = this.state.vertexBuffers.get(slot);
-    if (existing !== buffer) {
+    if (existing !== buffer || this.state.vertexBufferOffsets.get(slot) !== offset) {
       this.pass.setVertexBuffer(slot, buffer, offset);
       this.state.vertexBuffers.set(slot, buffer);
+      this.state.vertexBufferOffsets.set(slot, offset);
       this._bufferRebinds++;
     }
   }
 
   setIndexBuffer(buffer: GPUBuffer, format: GPUIndexFormat, offset: number = 0): void {
-    if (this.state.indexBuffer !== buffer || this.state.indexFormat !== format) {
+    if (
+      this.state.indexBuffer !== buffer ||
+      this.state.indexFormat !== format ||
+      this.state.indexBufferOffset !== offset
+    ) {
       this.pass.setIndexBuffer(buffer, format, offset);
       this.state.indexBuffer = buffer;
       this.state.indexFormat = format;
+      this.state.indexBufferOffset = offset;
       this._bufferRebinds++;
     }
   }
