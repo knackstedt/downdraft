@@ -1,6 +1,6 @@
 {
   "name": "@downdraft/engine",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/knackstedt/downdraft.git",
@@ -894,7 +894,7 @@
     "zustand": "^5.0.2"
   },
   "peerDependencies": {
-    "@downdraft/platform-native": "^0.5.2"
+    "@downdraft/platform-native": "^0.6.0"
   },
   "peerDependenciesMeta": {
     "@downdraft/platform-native": {

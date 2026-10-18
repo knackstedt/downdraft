@@ -37,7 +37,7 @@
     },
     "packages/cli": {
       "name": "@downdraft/cli",
-      "version": "0.5.2",
+      "version": "0.6.0",
       "bin": {
         "draft": "src/index.ts",
       },
@@ -51,7 +51,7 @@
     },
     "packages/engine": {
       "name": "@downdraft/engine",
-      "version": "0.5.2",
+      "version": "0.6.0",
       "dependencies": {
         "@bokuweb/zstd-wasm": "^0.0.27",
         "@dimforge/rapier3d-compat": "^0.19.3",
@@ -77,7 +77,7 @@
         "@types/dns-packet": "^5.6.5",
       },
       "peerDependencies": {
-        "@downdraft/platform-native": "^0.5.2",
+        "@downdraft/platform-native": "^0.6.0",
       },
       "optionalPeers": [
         "@downdraft/platform-native",
@@ -85,20 +85,20 @@
     },
     "packages/platform-native": {
       "name": "@downdraft/platform-native",
-      "version": "0.5.2",
+      "version": "0.6.0",
       "dependencies": {
-        "@downdraft/engine": "^0.5.2",
+        "@downdraft/engine": "^0.6.0",
         "koffi": "^3.2.1",
       },
       "devDependencies": {
         "typescript": "^5",
       },
       "optionalDependencies": {
-        "@downdraft/native-darwin-arm64": "^0.5.2",
-        "@downdraft/native-darwin-x64": "^0.5.2",
-        "@downdraft/native-linux-arm64": "^0.5.2",
-        "@downdraft/native-linux-x64": "^0.5.2",
-        "@downdraft/native-win32-x64": "^0.5.2",
+        "@downdraft/native-darwin-arm64": "^0.6.0",
+        "@downdraft/native-darwin-x64": "^0.6.0",
+        "@downdraft/native-linux-arm64": "^0.6.0",
+        "@downdraft/native-linux-x64": "^0.6.0",
+        "@downdraft/native-win32-x64": "^0.6.0",
       },
     },
   },
@@ -148,8 +148,6 @@
     "@downdraft/cli": ["@downdraft/cli@workspace:packages/cli"],
 
     "@downdraft/engine": ["@downdraft/engine@workspace:packages/engine"],
-
-    "@downdraft/native-darwin-arm64": ["@downdraft/native-darwin-arm64@0.5.2", "", { "os": "darwin", "cpu": "arm64" }, "sha512-X6SoxwhIADIeeWmi4JVxWdhjkILy2TZuzEThBLHm3xNvZWmOdNuD9ZhOOhlSoKrYFMThj6c9wHqo2+sNZqPzFQ=="],
 
     "@downdraft/platform-native": ["@downdraft/platform-native@workspace:packages/platform-native"],
 
