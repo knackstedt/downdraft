@@ -11,13 +11,18 @@
 
 import {
     calculateViewProj,
-    createLogger, createValidatedShaderModule, DEPTH_FORMAT,
+    createGPUTextureFromData,
+    createLogger, createValidatedShaderModule,
+    decodeEmbeddedTexture,
+    DEPTH_FORMAT,
+    deviceCompressionFeatures,
     MSAA_SAMPLE_COUNT,
     pipelinePool,
     type BindlessMaterialManager,
     type BindlessTextureRegistry,
     type CameraState,
-    type MaterialParams
+    type MaterialParams,
+    type TextureData
 } from "@downdraft/engine";
 import type { MaterialData, MeshData } from "@downdraft/engine/libraries/models";
 import MODEL_WGSL from "./shaders/model.wgsl?raw" with { type: "text" };
@@ -1527,9 +1532,11 @@ export class ModelRenderer {
     // fs_outline). Defaults: 0 width, black color.
     uniforms[39] = 0.0;
     uniforms[40] = 0.0; uniforms[41] = 0.0; uniforms[42] = 0.0;
-    // boneBase (u32, slot 44) — index of this node's bone region inside the
-    // shared skinMatrices storage buffer. Only read by vs_skinned.
-    this.reusableUniformsU32[44] =
+    // boneBase (u32, slot 43 — outlineColor is a vec3 occupying slots 40-42;
+    // slots 44-46 are the WGSL _padSkin* tail) — index of this node's bone
+    // region inside the shared skinMatrices storage buffer. Only read by
+    // vs_skinned.
+    this.reusableUniformsU32[43] =
       this.skinBaseByNode.get(nodeId)
       ?? this.skinBaseByNode.get(ModelRenderer.DEFAULT_SKIN_NODE)
       ?? 0;
