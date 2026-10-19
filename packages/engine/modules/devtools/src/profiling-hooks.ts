@@ -100,7 +100,9 @@ export function wireProfilingBridge(opts: WireProfilingBridgeOptions): Profiling
     if (!entry) continue;
     const host = "attachProfilingSAB" in entry ? entry : entry.host;
     const workerTag = "attachProfilingSAB" in entry ? undefined : entry.workerTag;
-    void host?.attachProfilingSAB(sab, { workerTag, layout });
+    // Best-effort: an RPC failure here (worker mid-restart, dead worker
+    // postMessage) must not surface as an unhandled rejection.
+    Promise.resolve(host?.attachProfilingSAB(sab, { workerTag, layout })).catch(() => {});
   }
 
   return bridge;

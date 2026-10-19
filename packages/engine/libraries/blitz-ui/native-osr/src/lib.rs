@@ -292,9 +292,24 @@ fn fold_redraw(d: &mut OsrDoc) {
     }
 }
 
+/// Resolve pending DOM damage before a hit test. Mutations (set_inner_html
+/// & friends) drop nodes from the slab eagerly but only flag ancestors
+/// dirty — layout/paint child lists still reference the dead NodeIds until
+/// the next resolve(), and hit_inner's Node::with() unwraps them. Frame
+/// rastering resolves eventually, but pointer dispatch hit-tests first;
+/// without this every pointer move in the mutate→frame window panics.
+fn resolve_pending_damage(d: &mut OsrDoc) {
+    if !doc_has_damage(d) {
+        return;
+    }
+    let anim_now = d.t0.elapsed().as_secs_f64();
+    d.doc.inner_mut().resolve(anim_now);
+}
+
 /// Dispatch a UiEvent through the EventDriver, observing DOM events via
 /// QueueingHandler (replaces the default NoopEventHandler dispatch).
 fn dispatch(d: &mut OsrDoc, ui_event: UiEvent) {
+    resolve_pending_damage(d);
     let mut driver = EventDriver::new(
         &mut d.doc,
         QueueingHandler {
@@ -1126,6 +1141,9 @@ pub extern "C" fn dd_osr_wheel(
             return -1;
         };
         let d = g.get();
+        // set_hover_to hit-tests — resolve first so a pending mutation's
+        // stale layout/paint child lists can't panic the descent.
+        resolve_pending_damage(d);
         let coords = pointer_coords(d, x, y);
         // The driver resolves a wheel's scroll target from hover_node_id,
         // which only moves with pointer events — a parked mouse (or a hover
@@ -1206,6 +1224,9 @@ pub extern "C" fn dd_osr_hit_test(handle: *mut OsrDoc, x: f64, y: f64) -> c_int 
             return 0;
         };
         let d = g.get();
+        // element_from_point hit-tests — resolve first so a pending
+        // mutation's stale layout/paint child lists can't panic the descent.
+        resolve_pending_damage(d);
         let doc = d.doc.inner();
         let scale = doc.viewport().scale_f64();
         let lx = (x / scale) as f32;

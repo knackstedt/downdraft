@@ -109,7 +109,30 @@ impl HeadlessShell {
         }
     }
 
+    /// DOM mutations (vdom diffs, snapshots) drop nodes eagerly but only
+    /// flag ancestors dirty — layout/paint child lists keep the dead
+    /// NodeIds until the next resolve(), and hit_inner's Node::with()
+    /// unwraps them. Pointer dispatch hit-tests before render()'s resolve,
+    /// so resolve pending damage first or the move panics on a stale key.
+    fn resolve_pending_damage(&mut self) {
+        let doc = self.doc.inner();
+        let root = doc.root_node();
+        let pending = root.has_damaged_descendants()
+            || root.has_dirty_descendants()
+            || root.damage().is_some_and(|dmg| !dmg.is_empty());
+        drop(doc);
+        if !pending {
+            return;
+        }
+        let t = match self.anim_start {
+            Some(start) => Instant::now().duration_since(start).as_secs_f64(),
+            None => 0.0,
+        };
+        self.doc.inner_mut().resolve(t);
+    }
+
     fn dispatch(&mut self, input: &PendingInput) {
+        self.resolve_pending_damage();
         match input {
             PendingInput::Pointer {
                 kind,

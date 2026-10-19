@@ -261,4 +261,40 @@ describe.skipIf(!haveLib)("osr click/focus reconciliation", () => {
     expect(ev.some((e) => e.t === "blur" && e.n === field)).toBe(true);
     expect(doc.focusedNode()).not.toBe(field);
   });
+
+  it("pointer input right after setInnerHtml hit-tests the fresh tree", () => {
+    // Regression: set_inner_html drops children from the slab eagerly but
+    // only flags ancestors dirty — ancestors' paint_children still hold the
+    // dead NodeIds until the next resolve(), and Node::with() unwraps them.
+    // A pointer move landing in that mutate→frame window used to panic in
+    // blitz-dom's hit_inner (caught by the ffi shim, event lost). Dispatch
+    // must resolve pending damage before any hit test.
+    const doc = open();
+    const body = doc.query("body");
+    doc.setInnerHtml(
+      body,
+      `<div id="fresh" data-action="go" style="position:absolute;left:20px;top:20px;width:80px;height:30px">F</div>`,
+    );
+    // No frame() between the mutation and the input — this is the window.
+    clickSeq(doc, A.x, A.y);
+    const fresh = doc.query("#fresh");
+    const ev = evts(doc);
+    expect(ev.some((e) => e.t === "click" && e.n === fresh)).toBe(true);
+    doc.destroy();
+  });
+
+  it("wheel right after setInnerHtml hit-tests the fresh tree", () => {
+    // dd_osr_wheel re-hit-tests at the event's coords before dispatch —
+    // same stale paint_children window as pointer moves.
+    const doc = open();
+    const body = doc.query("body");
+    doc.setInnerHtml(
+      body,
+      `<div id="fresh" style="position:absolute;left:20px;top:20px;width:80px;height:30px">F</div>`,
+    );
+    doc.wheel(A.x, A.y, 0, 24);
+    // The assertion is survival: pre-fix the wheel's set_hover_to panicked
+    // on the dropped child's stale id (caught → -1 → no scroll/damage).
+    doc.destroy();
+  });
 });
