@@ -638,7 +638,7 @@ export class NativeCanvas2D {
   createImageData(w: number, h: number): any {
     const data = new Uint8ClampedArray(w * h * 4);
     const ImageDataCtor = (globalThis as any).ImageData;
-    if (ImageDataCtor) return new ImageDataCtor(w, h, data);
+    if (ImageDataCtor) return new ImageDataCtor(data, w, h);
     return { data, width: w, height: h, colorSpace: "srgb" };
   }
 
@@ -660,7 +660,7 @@ export class NativeCanvas2D {
       }
     }
     const ImageDataCtor = (globalThis as any).ImageData;
-    if (ImageDataCtor) return new ImageDataCtor(w, h, data);
+    if (ImageDataCtor) return new ImageDataCtor(data, w, h);
     // Fallback: return a plain object shaped like ImageData (for Bun native mode
     // where the ImageData constructor is not available).
     return { data, width: w, height: h, colorSpace: "srgb" };

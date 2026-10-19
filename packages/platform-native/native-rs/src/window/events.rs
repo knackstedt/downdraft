@@ -49,6 +49,11 @@ pub enum Ev {
     Key {
         down: bool,
         keycode: i32,
+        /// Codepoint of the resolved logical character (layout + modifiers
+        /// applied — "A" under Shift, "é" on AZERTY), 0 for non-character
+        /// keys. The keycode stays unshifted for scancode-style matching;
+        /// JS needs this to synthesize a DOM-correct `key`/insert text.
+        logical: i32,
         mods: i32,
         repeat: i32,
     },
@@ -231,12 +236,14 @@ pub fn write(wid: u32, ev: Ev, out_data: *mut c_void) -> i32 {
             Ev::Key {
                 down,
                 keycode,
+                logical,
                 mods,
                 repeat,
             } => {
                 *iout.add(0) = keycode;
                 *iout.add(1) = mods;
                 *iout.add(2) = if down { repeat } else { 0 };
+                *iout.add(3) = logical;
                 if down {
                     KEY_DOWN
                 } else {
@@ -446,6 +453,7 @@ pub fn translate_window_event(
                 Ev::Key {
                     down,
                     keycode,
+                    logical: super::keys::logical_char_codepoint(&event),
                     mods: ctx.mods,
                     repeat: if event.repeat { 1 } else { 0 },
                 },

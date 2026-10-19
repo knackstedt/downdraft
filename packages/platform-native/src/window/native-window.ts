@@ -1027,7 +1027,7 @@ export class NativeWindow extends MiniEventTarget {
         this.dispatchEvent({
           type: "keydown",
           keyCode: domKeyCode,
-          key: keycodeToKey(keycode),
+          key: domKey(keycode, eventView[3]),
           code: keycodeToCode(keycode),
           repeat,
           ...this.modifiers(mod),
@@ -1046,7 +1046,7 @@ export class NativeWindow extends MiniEventTarget {
         this.dispatchEvent({
           type: "keyup",
           keyCode: domKeyCode,
-          key: keycodeToKey(keycode),
+          key: domKey(keycode, eventView[3]),
           code: keycodeToCode(keycode),
           repeat: false,
           ...this.modifiers(mod),
@@ -1503,6 +1503,18 @@ function keycodeToKey(keycode: number): string {
     return String.fromCharCode(keycode);
   }
   return SPECIAL_KEYS[keycode]?.[0] ?? `Unknown(${keycode})`;
+}
+
+// Wire slot 3 carries the resolved logical codepoint (layout + modifiers
+// applied — "A" under Shift, "@" for Shift+2, "é" on AZERTY). This is what
+// DOM `key` (and text insertion) must report; the keycode itself stays
+// unshifted. 0 means a named key — and old shims leave garbage here, so the
+// fallback applies to anything that isn't a valid scalar.
+function domKey(keycode: number, logicalCp: number): string {
+  if (logicalCp >= 0x20 && logicalCp <= 0x10ffff && !(logicalCp >= 0xd800 && logicalCp <= 0xdfff)) {
+    return String.fromCodePoint(logicalCp);
+  }
+  return keycodeToKey(keycode);
 }
 
 function keycodeToCode(keycode: number): string {

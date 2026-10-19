@@ -33,6 +33,21 @@ pub fn wire_keycode(event: &KeyEvent) -> i32 {
     }
 }
 
+/// The DOM-`key` companion to wire_keycode: the codepoint of the resolved
+/// logical character (winit applies layout + modifiers — Shift+a is "A"),
+/// or 0 for named/unidentified keys and multi-char logicals. JS synthesizes
+/// `key` (and text insertion) from this; the wire keycode above stays
+/// unshifted so scancode-style hotkey matching is unaffected.
+pub fn logical_char_codepoint(event: &KeyEvent) -> i32 {
+    if let Key::Character(s) = &event.logical_key {
+        let mut chars = s.chars();
+        if let (Some(ch), None) = (chars.next(), chars.next()) {
+            return ch as i32;
+        }
+    }
+    0
+}
+
 /// PhysicalKey::Code → wire keycode (US-layout positional — the fallback for
 /// non-character keys and for keys whose logical value is unidentified).
 fn code_keycode(code: KeyCode) -> i32 {

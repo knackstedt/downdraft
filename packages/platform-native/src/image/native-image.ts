@@ -225,10 +225,20 @@ export function installImagePolyfills(): void {
       height: number;
       data: Uint8ClampedArray;
 
-      constructor(width: number, height: number, data?: Uint8ClampedArray) {
-        this.width = width;
-        this.height = height;
-        this.data = data ?? new Uint8ClampedArray(width * height * 4);
+      // DOM spec order is (data, width, height?) / (width, height). The legacy
+      // (width, height, data) order this polyfill originally used is still
+      // accepted for backward compatibility — the first arg's type
+      // disambiguates.
+      constructor(a: number | Uint8ClampedArray, b: number, c?: number | Uint8ClampedArray) {
+        if (typeof a === "number") {
+          this.width = a;
+          this.height = b;
+          this.data = (c as Uint8ClampedArray | undefined) ?? new Uint8ClampedArray(a * b * 4);
+        } else {
+          this.data = a;
+          this.width = b;
+          this.height = typeof c === "number" ? c : a.length / (b * 4);
+        }
       }
     };
   }
