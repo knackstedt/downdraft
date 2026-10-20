@@ -54,11 +54,11 @@ jobs:
           node-version: "22"
 
       # pkg-config deps for -sys crates (cpal/alsa, gilrs/libudev, winit/wayland,
-      # xkbcommon, audio_thread_priority/libdbus via dbus-sys) — python3 for
-      # stylo's mako codegen.
+      # xkbcommon, audio_thread_priority/libdbus via dbus-sys,
+      # fontique/fontconfig) — python3 for stylo's mako codegen.
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3 libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3 libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libdbus-1-dev libfontconfig-dev
 
       - name: Install Rust toolchain (pinned by rust-toolchain.toml)
         run: |

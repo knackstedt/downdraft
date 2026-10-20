@@ -131,7 +131,8 @@ async function run(scale: number): Promise<{ ms: number }> {
 console.log(`resolution-scale bench — ${W}x${H}, ${OVERDRAW}x overdraw, ${FRAMES} frames/scale`);
 console.log(`${"scale".padStart(6)} ${"target".padStart(11)} ${"ms/frame".padStart(9)} ${"vs 1.0".padStart(8)}`);
 let baseline = 0;
-for (const s of SCALES) {
+for (let i = 0; i < SCALES.length; i++) {
+  const s = SCALES[i];
   const r = await run(s);
   if (s === 1) baseline = r.ms;
   const t = { w: Math.round(W * s), h: Math.round(H * s) };

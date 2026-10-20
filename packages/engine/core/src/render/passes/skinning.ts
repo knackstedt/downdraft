@@ -1,4 +1,5 @@
 
+import { pipelinePool } from "../pipeline-pool";
 import { createValidatedShaderModule } from "../shader-validator";
 const SKINNING_COMPUTE_SHADER = `
 struct BoneTransform {

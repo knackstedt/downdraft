@@ -8,6 +8,7 @@
 // skips; DD_REQUIRE_GPU=1 turns the skip into a hard failure for jobs that
 // exist specifically to run it.
 import { describe, expect, it } from "bun:test";
+import type { WgpuAdapter, WgpuDevice } from "./wgpu-device";
 
 async function tryBootGpu() {
   const { installGPU } = await import("./install");
@@ -18,7 +19,7 @@ async function tryBootGpu() {
   // Request the same descriptor the host uses so feature-gated paths
   // (pipeline-cache, texture compression, timestamp queries) get exercised.
   const { computeDeviceDescriptor } = await import("./device-request");
-  const device = await adapter.requestDevice(computeDeviceDescriptor(adapter));
+  const device = await adapter.requestDevice(computeDeviceDescriptor(adapter as unknown as WgpuAdapter));
   return { adapter, device };
 }
 
@@ -180,7 +181,7 @@ describe("render smoke (native wgpu)", () => {
     const { flushPipelineCache } = await import("./pipeline-cache");
     const shim = (await import("./wgpu-ffi")).loadWgpuAsync();
     expect(shim).not.toBeNull();
-    const sizeBefore = Number(shim!.wgpu_shim_pipeline_cache_data_size(device.ptr));
+    const sizeBefore = Number(shim!.wgpu_shim_pipeline_cache_data_size((device as unknown as WgpuDevice).ptr));
     // Create a pipeline so the cache has content, then read the blob back.
     const shader = device.createShaderModule({
       code: `
@@ -194,9 +195,9 @@ describe("render smoke (native wgpu)", () => {
       fragment: { module: shader, entryPoint: "fs_main", targets: [{ format: "rgba8unorm" }] },
       primitive: { topology: "triangle-list" },
     });
-    const sizeAfter = Number(shim!.wgpu_shim_pipeline_cache_data_size(device.ptr));
+    const sizeAfter = Number(shim!.wgpu_shim_pipeline_cache_data_size((device as unknown as WgpuDevice).ptr));
     expect(sizeAfter).toBeGreaterThanOrEqual(sizeBefore);
     // Flush path must not throw (writes under DOWNDRAFT_USER_DATA when set).
-    expect(() => flushPipelineCache(device)).not.toThrow();
+    expect(() => flushPipelineCache(device as unknown as WgpuDevice)).not.toThrow();
   });
 });

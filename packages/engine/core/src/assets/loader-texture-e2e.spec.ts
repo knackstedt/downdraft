@@ -1,6 +1,7 @@
 // Real-device e2e: native wgpu adapter → texture-compression-bc → basisu
 // transcode → BC7 texture upload → bindless array copy. Skips when no native
 // adapter is available (pure-TS CI legs).
+import type { WgpuAdapter } from "@downdraft/platform-native/gpu/wgpu-device";
 import { describe, expect, it } from "bun:test";
 
 (globalThis as Record<string, unknown>).GPUTextureUsage ??= {
@@ -24,7 +25,7 @@ async function tryCreateDevice() {
   if (!adapterPtr) return null;
   const features = queryNativeFeatures(adapterPtr, false);
   const has = (f: string) => (features as unknown as { has(f: string): boolean }).has(f);
-  const desc = computeDeviceDescriptor({ features: { has }, limits: {} } as GPUAdapter);
+  const desc = computeDeviceDescriptor({ features: { has }, limits: {} } as unknown as WgpuAdapter);
   const wireFeatures = serializeRequiredFeatures(desc.requiredFeatures as unknown as string[]);
   const wireLimits = serializeRequiredLimits(desc.requiredLimits as Record<string, number>);
   const devicePtr = wgpu.wgpu_shim_request_device(

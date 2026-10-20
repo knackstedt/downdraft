@@ -34,14 +34,14 @@ beforeEach(() => {
   // resolveNativeUserDataDir prefers XDG_CONFIG_HOME over ~/.config —
   // hermetic per-test root without depending on homedir() env semantics.
   process.env.XDG_CONFIG_HOME = join(tmpHome, ".config");
-  for (const k of ENV_KEYS) if (k !== "XDG_CONFIG_HOME") delete process.env[k];
+  ENV_KEYS.forEach((k) => { if (k !== "XDG_CONFIG_HOME") delete process.env[k]; });
 });
 
 afterEach(() => {
-  for (const k of ENV_KEYS) {
+  ENV_KEYS.forEach((k) => {
     if (savedEnv[k] === undefined) delete process.env[k];
     else process.env[k] = savedEnv[k];
-  }
+  });
 });
 
 const APP = "spec-app";

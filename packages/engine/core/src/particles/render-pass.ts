@@ -3,6 +3,7 @@ import { f32, mat4x4f, vec3f, wgsl } from "@downdraft/engine/shader-graph";
 import { type Mat4 } from "wgpu-matrix";
 import type { GraphRenderContext } from "../index";
 import { RenderPass } from "../index";
+import { pipelinePool } from "../render/pipeline-pool";
 import { createValidatedShaderModule } from "../render/shader-validator";
 import type { ParticleGPUData } from "./particle-data";
 import { packParticleBuffer } from "./particle-data";

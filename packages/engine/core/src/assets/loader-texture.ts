@@ -245,13 +245,13 @@ export interface EmbeddedTextureOptions {
 export function deviceCompressionFeatures(device: GPUDevice): string[] {
   const supported = (device as { features?: { has?(name: string): boolean } }).features;
   const features: string[] = [];
-  for (const name of ["texture-compression-bc", "texture-compression-astc", "texture-compression-etc2"]) {
+  ["texture-compression-bc", "texture-compression-astc", "texture-compression-etc2"].forEach((name) => {
     try {
       if (supported?.has?.(name)) features.push(name);
     } catch {
       // Feature sets that throw on unknown names — treat as absent.
     }
-  }
+  });
   return features;
 }
 
@@ -340,10 +340,10 @@ export function parseKTX2FromBuffer(buffer: ArrayBuffer): TextureData | null {
   const total = slices.reduce((s, l) => s + l.length, 0);
   const payload = new Uint8Array(total);
   let off = 0;
-  for (const l of slices) {
+  slices.forEach((l) => {
     payload.set(data.subarray(l.offset, l.offset + l.length), off);
     off += l.length;
-  }
+  });
 
   return {
     width: header.pixelWidth,

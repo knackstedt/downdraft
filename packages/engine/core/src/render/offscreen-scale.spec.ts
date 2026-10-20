@@ -1,6 +1,7 @@
 // offscreen-scale.spec.ts — ResolutionScaleOffscreen contract tests (mock
 // device) plus a real-device blit→readback check when a native adapter is
 // available (DOWNDRAFT_GPU=swiftshader / DD_REQUIRE_GPU=1 in CI).
+import type { WgpuAdapter } from "@downdraft/platform-native/gpu/wgpu-device";
 import { describe, expect, it } from "bun:test";
 import { ResolutionScaleOffscreen } from "./offscreen-scale";
 
@@ -166,7 +167,7 @@ async function tryCreateDevice() {
   if (!adapterPtr) return null;
   const features = queryNativeFeatures(adapterPtr, false);
   const has = (f: string) => (features as unknown as { has(f: string): boolean }).has(f);
-  const desc = computeDeviceDescriptor({ features: { has }, limits: {} } as GPUAdapter);
+  const desc = computeDeviceDescriptor({ features: { has }, limits: {} } as unknown as WgpuAdapter);
   const wireFeatures = serializeRequiredFeatures(desc.requiredFeatures as unknown as string[]);
   const wireLimits = serializeRequiredLimits(desc.requiredLimits as Record<string, number>);
   const devicePtr = wgpu.wgpu_shim_request_device(
@@ -261,13 +262,13 @@ describe("ResolutionScaleOffscreen — real device", () => {
     await readBuf.mapAsync(GPUMapMode.READ);
     const px = new Uint8Array(readBuf.getMappedRange());
     // Corners + center — upscale must cover the whole canvas.
-    for (const [x, y] of [[0, 0], [63, 0], [0, 63], [63, 63], [32, 32]]) {
+    [[0, 0], [63, 0], [0, 63], [63, 63], [32, 32]].forEach(([x, y]) => {
       const i = (y * CANVAS + x) * 4;
       expect(px[i]).toBe(255);
       expect(px[i + 1]).toBe(0);
       expect(px[i + 2]).toBe(0);
       expect(px[i + 3]).toBe(255);
-    }
+    });
     readBuf.unmap();
     mode.destroy();
   });

@@ -230,6 +230,7 @@ describe("GameRenderer — one-shot rendering", () => {
 describe("GameRenderer — per-viewport work dedup", () => {
   class CountingPass extends RenderPass {
     override passType = PassType.Custom;
+    name: string;
     count = 0;
     constructor(name: string, viewDependent: boolean) {
       super();
