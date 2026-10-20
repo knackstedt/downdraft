@@ -22,7 +22,8 @@ import { createNativeBridge } from "./bridge/native-bridge";
 import { resolveNativeUserDataDir } from "./bridge/user-data-dir";
 import { installDOMPolyfills } from "./dom/dom-polyfills";
 import { initNativeGamepad, startGamepadEnrichment } from "./gamepad/index";
-import { computeDeviceDescriptor } from "./gpu/device-request";
+import { acquireAdapterAndDevice, type AcquiredGpu } from "./gpu/adapter-boot";
+import type { GpuBootPlan } from "./gpu/adapter-policy";
 import { installGPU } from "./gpu/install";
 import { GpuPassMailbox } from "./gpu/pass-channel";
 import { GpuShareBroker } from "./gpu/share-broker";
@@ -157,7 +158,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   // can never double-adopt.
   const earlyPromise = (globalThis as any).__ddEarlyHostPromise;
   let early = (globalThis as any).__ddEarlyHost as
-    | { window?: NativeWindow; gpu?: WgpuGPU; adapter?: WgpuAdapter | null; device?: WgpuDevice | null; surfaceConfigured?: boolean }
+    | { window?: NativeWindow; gpu?: WgpuGPU; adapter?: WgpuAdapter | null; device?: WgpuDevice | null; surfaceConfigured?: boolean; gpuPlan?: GpuBootPlan }
     | undefined;
   if (!early && earlyPromise && typeof earlyPromise.then === "function") {
     early = await Promise.resolve(earlyPromise).catch(() => null) as typeof early;
@@ -238,13 +239,19 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   window.start();
   mark("event-loop");
 
-  // 2c. Kick the adapter request — genuinely asynchronous on platform libs
-  //     that export wgpu_shim_request_adapter_async (the GPU wait runs on a
-  //     detached Rust thread), so the installs below overlap with it. An
-  //     adopted early boot already resolved it.
-  const adapterPromise = earlyDeviceOk
-    ? Promise.resolve(early!.adapter)
-    : gpu.requestAdapter({ powerPreference: "high-performance" });
+  // 2c. Kick the adapter+device acquire — the adapter wait is genuinely
+  //     asynchronous on platform libs that export the _async exports (the
+  //     GPU wait runs on a detached Rust thread), so the installs below
+  //     overlap with it. Runs the adapter policy: denylist, software
+  //     fallback, and the crash sentinel. An adopted early boot already
+  //     resolved it (its own acquire armed the same sentinel).
+  const acquiredPromise: Promise<AcquiredGpu | null> = earlyDeviceOk
+    ? Promise.resolve({
+        adapter: early!.adapter!, device: early!.device!,
+        info: early!.adapter!.nativeInfo, softwareFallback: !!early!.adapter!.__ddSoftwareAdapter,
+        plan: early!.gpuPlan!,
+      })
+    : acquireAdapterAndDevice(gpu, { appId: config.appId });
 
   // 2d. rAF globals + DOM polyfills — the Worker polyfill must exist before
   //     the services worker spawns under Node (Bun has a native Worker).
@@ -277,17 +284,19 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   //    not request a second device or reconfigure the surface. The limits/
   //    features below are the UNION of what the host and GameRenderer
   //    request (clamped to what the adapter supports).
-  const adapter = await adapterPromise;
-  mark("adapter");
-  if (!adapter) throw new Error("No GPU adapter found");
-
-  // Limits/features are the union of host + GameRenderer needs, clamped to
-  // the adapter — shared with the dev shell's early boot so an adopted
-  // device was requested with the identical descriptor.
-  const device = earlyDeviceOk
-    ? early!.device!
-    : await adapter.requestDevice(computeDeviceDescriptor(adapter));
-  mark("device");
+  const acquired = await acquiredPromise;
+  mark("adapter+device");
+  if (!acquired) throw new Error("No GPU adapter found");
+  const { adapter, device } = acquired;
+  const gpuPlan: GpuBootPlan | null = acquired.plan ?? null;
+  // First presented frame (or clean teardown) proves the GPU stack healthy —
+  // disarms the crash sentinel planGpuBoot armed before the adapter request.
+  if (gpuPlan) {
+    (globalThis as any).__ddGpuBootHealthy = gpuPlan.markHealthy;
+    if (acquired.softwareFallback) {
+      (globalThis as any).__ddGpuSoftwareFallback = true;
+    }
+  }
 
   // Install the shader validation guard so all createShaderModule calls
   // route through getCompilationInfo() validation. This catches malformed
@@ -465,6 +474,8 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       // instance/device handles (use-after-free in the shim).
       if (host.destroyed) return;
       host.destroyed = true;
+      // Clean teardown isn't a GPU crash — disarm the boot sentinel.
+      gpuPlan?.markHealthy();
       // Sync kill-switch for attached worker views: mark every shared-device
       // cell set dead so workers stop *starting* FFI calls on handles we're
       // about to free. The broker's retire() writes the same cells (it also

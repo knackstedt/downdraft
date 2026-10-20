@@ -308,10 +308,33 @@ fn log_uncaptured(err: Error) {
 
 // ── Instance / adapter / device ──
 
+/// Map a backend selector to a wgpu Backends set — 0 keeps the default
+/// (all compiled-in backends, narrowed by WGPU_BACKEND when set). Used by
+/// DOWNDRAFT_GPU_BACKEND / the per-app gpu.backend setting to try alternate
+/// drivers when the default pick is unstable (e.g. a crashy Vulkan wrapper).
+fn backend_selector(id: i32) -> Option<Backends> {
+    match id {
+        1 => Some(Backends::VULKAN),
+        2 => Some(Backends::GL),
+        3 => Some(Backends::METAL),
+        4 => Some(Backends::DX12),
+        _ => None,
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn wgpu_shim_create_instance() -> Handle {
+    wgpu_shim_create_instance_ex(0)
+}
+
+#[no_mangle]
+pub extern "C" fn wgpu_shim_create_instance_ex(backend_id: i32) -> Handle {
     ffi!(ptr::null_mut(), {
-        let instance = Instance::new(InstanceDescriptor::new_without_display_handle_from_env());
+        let mut desc = InstanceDescriptor::new_without_display_handle_from_env();
+        if let Some(backends) = backend_selector(backend_id) {
+            desc.backends = backends;
+        }
+        let instance = Instance::new(desc);
         let handle = boxed(instance.clone());
         G_INSTANCES
             .lock()
@@ -335,27 +358,47 @@ fn force_fallback_adapter() -> bool {
     matches!(std::env::var("DOWNDRAFT_GPU").as_deref(), Ok("swiftshader"))
 }
 
+/// Shared adapter request. `force_fallback` is the per-request flag the JS
+/// side sets on retries (env can't be flipped mid-process — the runtime's
+/// process.env mutation doesn't reach libc environ); the DOWNDRAFT_GPU env
+/// still wins so harnesses that spawn with it keep working.
+fn do_request_adapter(instance: &Instance, power_preference: i32, force_fallback: bool) -> Handle {
+    let options = RequestAdapterOptions {
+        power_preference: enums::power_preference(power_preference as u32),
+        force_fallback_adapter: force_fallback || force_fallback_adapter(),
+        compatible_surface: None,
+        apply_limit_buckets: false,
+    };
+    match block_on_gpu(instance.request_adapter(&options)) {
+        Some(Ok(adapter)) => boxed(adapter),
+        Some(Err(e)) => {
+            eprintln!("[wgpu_shim] adapter request failed: {e}");
+            ptr::null_mut()
+        }
+        None => {
+            eprintln!("[wgpu_shim] adapter request timed out");
+            ptr::null_mut()
+        }
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn wgpu_shim_request_adapter(instance: Handle, power_preference: i32) -> Handle {
+    wgpu_shim_request_adapter_ex(instance, power_preference, 0)
+}
+
+#[no_mangle]
+pub extern "C" fn wgpu_shim_request_adapter_ex(
+    instance: Handle,
+    power_preference: i32,
+    force_fallback: i32,
+) -> Handle {
     ffi!(ptr::null_mut(), unsafe {
-        let instance = obj::<Instance>(instance);
-        let options = RequestAdapterOptions {
-            power_preference: enums::power_preference(power_preference as u32),
-            force_fallback_adapter: force_fallback_adapter(),
-            compatible_surface: None,
-            apply_limit_buckets: false,
-        };
-        match block_on_gpu(instance.request_adapter(&options)) {
-            Some(Ok(adapter)) => boxed(adapter),
-            Some(Err(e)) => {
-                eprintln!("[wgpu_shim] adapter request failed: {e}");
-                ptr::null_mut()
-            }
-            None => {
-                eprintln!("[wgpu_shim] adapter request timed out");
-                ptr::null_mut()
-            }
-        }
+        do_request_adapter(
+            obj::<Instance>(instance),
+            power_preference,
+            force_fallback != 0,
+        )
     })
 }
 
@@ -524,31 +567,21 @@ where
 
 #[no_mangle]
 pub extern "C" fn wgpu_shim_request_adapter_async(instance: Handle, power_preference: i32) -> u64 {
+    wgpu_shim_request_adapter_async_ex(instance, power_preference, 0)
+}
+
+#[no_mangle]
+pub extern "C" fn wgpu_shim_request_adapter_async_ex(
+    instance: Handle,
+    power_preference: i32,
+    force_fallback: i32,
+) -> u64 {
     ffi!(0, unsafe {
         // Clone the Arc-backed instance — the JS side may release its box
         // while the request is still in flight.
         let instance = obj::<Instance>(instance).clone();
-        let pp = enums::power_preference(power_preference as u32);
-        let force_fallback = force_fallback_adapter();
-        spawn_op(move || {
-            let options = RequestAdapterOptions {
-                power_preference: pp,
-                force_fallback_adapter: force_fallback,
-                compatible_surface: None,
-                apply_limit_buckets: false,
-            };
-            match block_on_gpu(instance.request_adapter(&options)) {
-                Some(Ok(adapter)) => boxed(adapter),
-                Some(Err(e)) => {
-                    eprintln!("[wgpu_shim] adapter request failed: {e}");
-                    ptr::null_mut()
-                }
-                None => {
-                    eprintln!("[wgpu_shim] adapter request timed out");
-                    ptr::null_mut()
-                }
-            }
-        })
+        let force_fallback = force_fallback != 0;
+        spawn_op(move || do_request_adapter(&instance, power_preference, force_fallback))
     })
 }
 
@@ -3536,7 +3569,20 @@ pub extern "C" fn wgpu_shim_surface_pick_format(
             Some(f) => (0u32..1024)
                 .find(|c| enums::texture_format(*c) == Some(*f))
                 .unwrap_or(0),
-            None => 0,
+            None => {
+                // GLES surfaces can legitimately report an empty format list
+                // (caps probing isn't implemented for every EGL path) — return
+                // the caller's first parseable candidate and let configure()
+                // validate rather than hard-failing surface setup here.
+                for i in 0..count {
+                    let code = *candidates.add(i);
+                    if enums::texture_format(code).is_some() {
+                        eprintln!("[wgpu_shim] surface_pick_format: empty caps — using first candidate {code}");
+                        return code;
+                    }
+                }
+                0
+            }
         }
     })
 }

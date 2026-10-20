@@ -21,6 +21,8 @@ export { resolveNativeUserDataDir } from "./bridge/user-data-dir";
 export { VirtualCanvas, VirtualCanvasContext } from "./compat/virtual-canvas-context";
 export { dlopen, ptr, readMappedRange, type CFunction } from "./ffi/ffi-adapter";
 export { findShimLibrary, libFileName, PLATFORM_DIR, resolveNativeLibrary, resolvePlatformLibrary, resolveShimLibrary, RUST_TRIPLE } from "./ffi/lib-paths";
+export { acquireAdapterAndDevice, type AcquiredGpu, type AcquireGpuOptions } from "./gpu/adapter-boot";
+export { CRASH_LATCH_THRESHOLD, denyReasonForAdapter, planGpuBoot, readGpuState, resolveGpuPolicy, type AdapterIdentity, type GpuAdapterMode, type GpuBackend, type GpuBootPlan, type GpuPersistedState, type GpuPolicy, type GpuPolicyInput } from "./gpu/adapter-policy";
 export { borrowGpuBuffer, borrowGpuTexture, importGpuBuffer, importGpuTexture, type BorrowedTextureMeta } from "./gpu/borrow";
 export { createGpuWorkerContext, type GpuAttachMsg, type GpuDetachedMsg, type GpuDetachMsg, type GpuReadyMsg, type GpuWorkerContext } from "./gpu/gpu-worker-context";
 export { installGPU, resetGPU } from "./gpu/install";
@@ -40,7 +42,7 @@ export { installRestartHook, requestGameRestart, type RestartHookOptions } from 
 export { captureScreenshot, encodePNG, paddedReadbackToRGBA } from "./screenshot/screenshot";
 export { initNativeSecrets, type SecretsStore } from "./secrets/index";
 export { createHostServices, scopeServicesForPlugin, type HostServices, type HostServicesApi, type HostServicesOptions } from "./services/host-services";
+export { globalHotkeySupported, keysymFor, parseAccelerator, registerGlobalHotkey } from "./window/global-hotkeys";
 export { NativeCanvasContext, NativeSurface } from "./window/native-surface";
 export { NativeWindow } from "./window/native-window";
-export { globalHotkeySupported, keysymFor, parseAccelerator, registerGlobalHotkey } from "./window/global-hotkeys";
 

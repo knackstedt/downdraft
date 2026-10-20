@@ -25,6 +25,10 @@ Native ABI is versioned: every cdylib exports `dd_abi_version`, checked at load 
 
 Game detection: a directory is a game when it has `downdraft.config.json` or `src/native-entry.ts`.
 
+## GPU adapter policy — auto hardware/software selection
+
+The host's adapter/device acquisition goes through `packages/platform-native/src/gpu/adapter-policy.ts` + `adapter-boot.ts` — never call raw `gpu.requestAdapter()` for an app boot (specs may; the raw path is unguarded). Policy precedence: `downdraft.config.json` `"gpu"` block < env (`DOWNDRAFT_GPU` = `swiftshader`|`hardware`|`auto`, `DOWNDRAFT_GPU_BACKEND`, `DOWNDRAFT_GPU_FALLBACK`, `DOWNDRAFT_GPU_DENY`) < persisted crash latch. Defaults are `adapter:auto` + `softwareFallback:true` — apps get reliable software rendering for free; games set `"gpu": { "adapter": "hardware" }` (or whatever) in `downdraft.config.json` to opt out of the default. A built-in denylist (`venus`, `gfxstream` — drivers that `abort()` inside `requestDevice`) rejects adapters after info query but before device creation. Boot deaths are tracked by a `<userData>/gpu/hardware-boot.pending` sentinel: armed before the hardware attempt, disarmed on first presented frame or clean exit; a stale sentinel next boot counts a crash, and `CRASH_LATCH_THRESHOLD` consecutive deaths latch `latchedAdapter:"software"` in `gpu-state.json` until an explicit hardware choice or a proven-healthy hardware boot clears it. `DOWNDRAFT_GPU_BACKEND=gl` (virgl/GLES) is experimental — offscreen works, Wayland presentation does not.
+
 ## Where the docs live
 
 This file is agent rules + commands only. Architecture and design decisions moved to the docs:

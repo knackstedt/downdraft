@@ -373,6 +373,29 @@ const WGPU_ASYNC_SPEC: Record<string, CFunction> = {
   wgpu_shim_pipeline_cache_data: { args: ["ptr", "ptr", "u64"], returns: "u64" },
 };
 
+// ── Extended request symbols ──
+// Optional additions: per-request variants that take explicit flags the
+// env-var-only originals can't express (process.env mutation at runtime
+// doesn't reach the lib's environ — the Rust env check is a spawn-time
+// control only):
+//   wgpu_shim_create_instance_ex      — backend selector (vulkan/gl/…)
+//   wgpu_shim_request_adapter_ex      — per-request force_fallback flag for
+//                                       the software-adapter retry path
+//   wgpu_shim_request_adapter_async_ex
+// Same dlopen-optional pattern as WGPU_ASYNC_SPEC: a lib that predates them
+// fails only this load.
+const WGPU_EX_SPEC: Record<string, CFunction> = {
+  wgpu_shim_create_instance_ex: { args: ["i32"], returns: "ptr" },
+  wgpu_shim_request_adapter_ex: { args: ["ptr", "i32", "i32"], returns: "ptr" },
+  wgpu_shim_request_adapter_async_ex: { args: ["ptr", "i32", "i32"], returns: "u64" },
+};
+
+export interface WgpuExSymbols {
+  wgpu_shim_create_instance_ex: (backendId: number) => ptr;
+  wgpu_shim_request_adapter_ex: (instance: ptr, powerPreference: number, forceFallback: number) => ptr;
+  wgpu_shim_request_adapter_async_ex: (instance: ptr, powerPreference: number, forceFallback: number) => number | bigint;
+}
+
 export interface WgpuAsyncSymbols {
   wgpu_shim_request_adapter_async: (instance: ptr, powerPreference: number) => number | bigint;
   wgpu_shim_request_device_async: (
@@ -417,6 +440,7 @@ export interface WgpuAsyncSymbols {
 
 let _wgpu: WgpuShimSymbols | null = null;
 let _wgpuAsync: WgpuAsyncSymbols | null | undefined;
+let _wgpuEx: WgpuExSymbols | null | undefined;
 
 function wgpuShimPath(): string {
   if (process.env.WGPU_SHIM_PATH) {
@@ -449,6 +473,22 @@ export function loadWgpuAsync(): WgpuAsyncSymbols | null {
     _wgpuAsync = null;
   }
   return _wgpuAsync;
+}
+
+/**
+ * The optional extended-request symbols (per-request force_fallback +
+ * backend-selected instance creation), or null when the resolved platform
+ * library predates them.
+ */
+export function loadWgpuEx(): WgpuExSymbols | null {
+  if (_wgpuEx !== undefined) return _wgpuEx;
+  try {
+    const { symbols } = dlopen(wgpuShimPath(), WGPU_EX_SPEC);
+    _wgpuEx = symbols as unknown as WgpuExSymbols;
+  } catch {
+    _wgpuEx = null;
+  }
+  return _wgpuEx;
 }
 
 /**

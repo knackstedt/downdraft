@@ -10,6 +10,7 @@
 
 import { createLogger } from "@downdraft/engine/util/logger";
 import type { ptr } from "../ffi/ffi-adapter";
+import { resolveGpuPolicy, type GpuBackend } from "./adapter-policy";
 import {
     formatName,
     isBGRAFormat,
@@ -34,7 +35,7 @@ import {
 import { initPipelineCache } from "./pipeline-cache";
 import { trackForRelease, untrack } from "./registry";
 import { WgpuCommandEncoder } from "./wgpu-encoder";
-import { loadWgpuAsync, wgpu } from "./wgpu-ffi";
+import { loadWgpuAsync, loadWgpuEx, wgpu } from "./wgpu-ffi";
 import {
     WgpuBindGroup,
     WgpuBindGroupLayout,
@@ -117,11 +118,27 @@ export function getLiveDevices(): ReadonlySet<WgpuDevice> {
 // WgpuGPU — the navigator.gpu equivalent
 // ============================================================================
 
+/** Backend selector ids — mirror backend_selector() in native-rs gpu/mod.rs. */
+const BACKEND_IDS: Record<Exclude<GpuBackend, "auto">, number> = {
+  vulkan: 1,
+  gl: 2,
+  metal: 3,
+  dx12: 4,
+};
+
 export class WgpuGPU {
   private instancePtr: ptr = 0;
 
   constructor() {
-    this.instancePtr = wgpu.wgpu_shim_create_instance();
+    // Backend restriction (gpu.backend / DOWNDRAFT_GPU_BACKEND) must happen at
+    // instance creation — the adapter set is enumerated from it. "auto" and
+    // libs that predate the _ex export take the original env-driven path
+    // (WGPU_BACKEND still applies there).
+    const backend = resolveGpuPolicy().backend;
+    const ex = backend !== "auto" ? loadWgpuEx() : null;
+    this.instancePtr = ex
+      ? ex.wgpu_shim_create_instance_ex(BACKEND_IDS[backend as Exclude<GpuBackend, "auto">] ?? 0)
+      : wgpu.wgpu_shim_create_instance();
     if (!this.instancePtr) throw new Error("Failed to create wgpu instance");
   }
 
@@ -155,21 +172,36 @@ export class WgpuGPU {
     return formatName(wgpu.wgpu_shim_get_preferred_format());
   }
 
-  async requestAdapter(options?: GPURequestAdapterOptions): Promise<WgpuAdapter | null> {
+  async requestAdapter(
+    options?: GPURequestAdapterOptions & { forceFallbackAdapter?: boolean },
+  ): Promise<WgpuAdapter | null> {
     const powerPref = options?.powerPreference === "low-power" ? 1 : 2;
+    // Per-request software-adapter flag — the software-fallback retry in
+    // acquireAdapterAndDevice. Goes through the _ex exports when the lib has
+    // them; on older libs the flag is silently dropped (the spawn-time
+    // DOWNDRAFT_GPU env still forces fallback inside the shim).
+    const forceFallback = options?.forceFallbackAdapter ? 1 : 0;
     let adapterPtr: ptr = 0;
+    const ex = loadWgpuEx();
     const asyncShim = loadWgpuAsync();
-    if (asyncShim) {
+    if (ex && asyncShim) {
       // Async path: the GPU wait runs on a detached Rust thread — this
       // promise genuinely yields so module load and the event pump keep
       // running instead of blocking inside a synchronous FFI spin.
+      const token = ex.wgpu_shim_request_adapter_async_ex(this.instancePtr, powerPref, forceFallback);
+      adapterPtr = (await awaitGpuOp(token, this.instancePtr)) ?? 0;
+    } else if (asyncShim) {
       const token = asyncShim.wgpu_shim_request_adapter_async(this.instancePtr, powerPref);
       adapterPtr = (await awaitGpuOp(token, this.instancePtr)) ?? 0;
+    } else if (ex) {
+      adapterPtr = ex.wgpu_shim_request_adapter_ex(this.instancePtr, powerPref, forceFallback);
     } else {
       adapterPtr = wgpu.wgpu_shim_request_adapter(this.instancePtr, powerPref);
     }
     if (!adapterPtr) return null;
-    return new WgpuAdapter(adapterPtr, this.instancePtr);
+    const adapter = new WgpuAdapter(adapterPtr, this.instancePtr);
+    adapter.__ddSoftwareAdapter = !!forceFallback;
+    return adapter;
   }
 }
 
@@ -207,10 +239,20 @@ export class WgpuAdapter {
   private _limits: GPUSupportedLimits | null = null;
   private _features: GPUSupportedFeatures | null = null;
   private _info: NativeAdapterInfo | null | undefined;
+  /** True when this adapter was returned by a force_fallback request — the
+   *  software rasterizer (llvmpipe/lavapipe) the deny/failover path asks
+   *  for. Set by WgpuGPU.requestAdapter. */
+  __ddSoftwareAdapter = false;
 
   constructor(ptr: ptr, instancePtr: ptr) {
     this.ptr = ptr;
     this.instancePtr = instancePtr;
+  }
+
+  /** Free the native adapter handle — used when a denylisted adapter is
+   *  rejected before requestDevice. */
+  release(): void {
+    try { wgpu.wgpu_shim_release_adapter(this.ptr); } catch { /* best-effort */ }
   }
 
   /** Structured adapter info (deviceType, backend, driver) — null if the FFI query failed. */

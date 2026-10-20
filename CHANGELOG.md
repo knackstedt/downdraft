@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## Unreleased
+
+### Added
+
+- **GPU adapter policy + automatic software fallback** (`platform-native/src/gpu/adapter-policy.ts`, `adapter-boot.ts`) — the native host's adapter/device acquisition is now policy-driven instead of a raw `requestAdapter` call. Some virtualization drivers (Mesa **Venus** on virtio-gpu, Android-emulator **gfxstream**) `abort()` the process inside `requestDevice` rather than returning an error, so the policy rejects denied adapters after the info query but before device creation, then retries on wgpu's software fallback adapter (llvmpipe/lavapipe). `softwareFallback` defaults to **on** — apps get reliable software rendering for free.
+- **`downdraft.config.json` `"gpu"` block** — per-app GPU settings, the settings-file half of the toggle: `{ "gpu": { "adapter": "auto"|"hardware"|"software", "backend": "auto"|"vulkan"|"gl"|"metal"|"dx12", "softwareFallback": bool, "deny": [substrings] } }`.
+- **Env overrides** — `DOWNDRAFT_GPU=swiftshader|hardware|auto` (existing var, now feeds the policy), `DOWNDRAFT_GPU_BACKEND`, `DOWNDRAFT_GPU_FALLBACK=0|1`, `DOWNDRAFT_GPU_DENY=a,b`.
+- **Hardware-boot crash sentinel** — `<userData>/gpu/hardware-boot.pending` is armed before every hardware adapter attempt and disarmed on the first presented frame or clean exit; a stale sentinel on the next boot counts a hardware-boot death, and `CRASH_LATCH_THRESHOLD` (2) consecutive deaths write `latchedAdapter: "software"` into `gpu-state.json` so crashy drivers stop being retried. Explicit hardware/software choices override the latch; a proven-healthy hardware boot clears it.
+- **New wgpu shim exports** (additive — no ABI bump): `wgpu_shim_create_instance_ex(backend_id)` restricts the instance to one backend (`DOWNDRAFT_GPU_BACKEND`/`gpu.backend`), `wgpu_shim_request_adapter_ex` + `wgpu_shim_request_adapter_async_ex` take a per-request `force_fallback` flag (runtime `process.env` mutation doesn't reach the native library's libc environ, so fallback can't be toggled mid-process via env). `wgpu_shim_surface_pick_format` now falls back to the first requested candidate when a surface reports empty capabilities (GLES probing).
+
+### Changed
+
+- **`DOWNDRAFT_GPU=auto` is the default adapter mode** — hardware-first with automatic software failover; `draft test`'s `--renderer=cpu|gpu` mapping is unchanged.
+- **`WGPU_BACKEND=gl` is experimental** — the virgl GLES path creates devices and renders offscreen, but Wayland surface presentation fails (wgpu's GLES path needs a display handle on the instance); `gl` is selectable via `gpu.backend`/`DOWNDRAFT_GPU_BACKEND` for probing only.
+
 ## [0.5.0](https://github.com/knackstedt/downdraft/compare/v0.4.9...v0.5.0) (2026-10-15)
 
 ### Breaking

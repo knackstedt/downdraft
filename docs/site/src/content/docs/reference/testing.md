@@ -123,7 +123,7 @@ The CLI reads and sets a number of environment variables. This is the complete l
 |---|---|---|
 | `MCP_PORT` | `<port>` | MCP HTTP transport port (unset = ephemeral, auto-discovered via `~/.downdraft/port/<pid>`; `draft test` auto-allocates a free port via `findFreePort()`) |
 | `MCP_TIMEOUT_MS` | `120000` | MCP proxy IPC round-trip timeout (ms) — must exceed the longest `wait_for_condition` call |
-| `DOWNDRAFT_GPU` | `swiftshader` \| `hardware` | Read by the native adapter request (`native-rs/src/gpu/mod.rs`): `swiftshader` forces wgpu's fallback/software adapter (SwiftShader/lavapipe), `hardware` keeps the caller's power preference; also forwarded to the game env as the harness's `gpu:` launch option |
+| `DOWNDRAFT_GPU` | `swiftshader` \| `hardware` \| `auto` | Read by the GPU adapter policy (`platform-native/src/gpu/adapter-policy.ts`): `swiftshader` forces wgpu's fallback/software adapter (SwiftShader/lavapipe/llvmpipe), `hardware` insists on the real adapter (no software failover), `auto` tries hardware first and falls back when the driver is denied/fails (default for `draft dev`). Also forwarded to the game env as the harness's `gpu:` launch option |
 | `DOWNDRAFT_DETERMINISTIC` | `1` | Skip autosave, no devtools auto-open/error dialogs, paused render loop (on-demand via `set_test_state`/`capture_screenshot`). Reaches the game as `downdraft.deterministic` on the bridge; sim seed stays game-supplied (`simConfig.seed`) |
 | `DOWNDRAFT_HEADED` | `1` | Show the winit window in deterministic mode (without it `window.ts` suppresses `win.show()`) |
 | `DOWNDRAFT_TEST_BUILT` | `1` | Launch the built app instead of the dev server |
@@ -146,6 +146,9 @@ The CLI reads and sets a number of environment variables. This is the complete l
 | `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/cli/src/debug.ts` | `1` disables the devtools UI entirely — forces `devtools.ui` to `"none"` (set by `draft debug --no-devtools`) |
 | `DOWNDRAFT_MULTI_INSTANCE` | `packages/platform-native/src/host-lifecycle.ts` | `1` opts out of the per-game `singleton.lock` |
 | `DOWNDRAFT_GPU_TIMESTAMPS` | `packages/platform-native/src/native-host.ts` | `1` enables the extended wgpu timestamp features (`timestamp-query-inside-passes`) on non-CPU adapters — off by default due to device-loss on lavapipe-class rasterizers and some discrete Vulkan drivers |
+| `DOWNDRAFT_GPU_BACKEND` | `packages/platform-native/src/gpu/adapter-policy.ts` | `auto` \| `vulkan` \| `gl` \| `metal` \| `dx12` — restricts the wgpu instance to one backend at creation. `gl` selects the GLES backend (virgl under virglrenderer) — experimental: offscreen rendering works but Wayland surface presentation does not |
+| `DOWNDRAFT_GPU_FALLBACK` | `packages/platform-native/src/gpu/adapter-policy.ts` | `0`/`1` — enables/disables the automatic software-adapter failover in `auto` adapter mode (default `1`) |
+| `DOWNDRAFT_GPU_DENY` | `packages/platform-native/src/gpu/adapter-policy.ts` | Comma-separated substrings (matched against adapter driver/name/backend) extending the built-in denylist (`venus`, `gfxstream`) of drivers that abort the process inside `requestDevice` |
 
 ### E2E test verification — checking for JS errors
 

@@ -216,6 +216,10 @@ export class NativeCanvasContext {
         if (!NativeCanvasContext.loggedFirstAcquire) {
           NativeCanvasContext.loggedFirstAcquire = true;
           log.info("surface", `first swapchain acquire ok — fmt=${this.format} ${this.width}x${this.height}`);
+          // A presented frame proves the GPU stack healthy — disarm the
+          // hardware-boot crash sentinel (see gpu/adapter-policy.ts).
+          try { (globalThis as { __ddGpuBootHealthy?: () => void }).__ddGpuBootHealthy?.(); }
+          catch { /* best-effort */ }
         }
         this.acquireFailures = 0;
         this.currentTexture = new WgpuTexture(texPtr, {

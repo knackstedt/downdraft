@@ -203,7 +203,7 @@ draft test --game=my-game --headed
 |---|---|---|
 | `MCP_PORT` | `<port>` | MCP HTTP transport port |
 | `MCP_TIMEOUT_MS` | `120000` | MCP proxy IPC round-trip timeout (ms) |
-| `DOWNDRAFT_GPU` | `swiftshader` \| `hardware` | WebGPU backend selection |
+| `DOWNDRAFT_GPU` | `swiftshader` \| `hardware` | WebGPU adapter selection (`auto` = hardware-first with software failover) |
 | `DOWNDRAFT_DETERMINISTIC` | `1` | Fixed seed, paused render loop, no autosave |
 | `DOWNDRAFT_HEADED` | `1` | Show the window in deterministic mode |
 
@@ -223,6 +223,10 @@ draft test --game=my-game --headed
 | `DOWNDRAFT_STRICT_DIAGNOSTICS` | `packages/engine/core/src/module/diagnostics.ts` | `0`/`1` force-disable/enable module DI validation (else = Vite dev mode) |
 | `DOWNDRAFT_MCP` | `packages/engine/core/src/util/logger.ts` | `1` routes logs to stderr (keeps stdout clean for MCP JSON-RPC) |
 | `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/cli/src/debug.ts` | `1` disables the devtools UI entirely — forces `devtools.ui` to `"none"` (set by `draft debug --no-devtools`) |
+| `DOWNDRAFT_GPU` | `packages/platform-native/src/gpu/adapter-policy.ts` | `swiftshader` (software only) \| `hardware` (real adapter only) \| `auto` (hardware-first, software failover — default) |
+| `DOWNDRAFT_GPU_BACKEND` | `packages/platform-native/src/gpu/adapter-policy.ts` | `auto` \| `vulkan` \| `gl` \| `metal` \| `dx12` — restrict the wgpu instance to one backend (`gl` is experimental — no Wayland presentation) |
+| `DOWNDRAFT_GPU_FALLBACK` | `packages/platform-native/src/gpu/adapter-policy.ts` | `0`/`1` — toggle the automatic software-adapter failover (default `1`) |
+| `DOWNDRAFT_GPU_DENY` | `packages/platform-native/src/gpu/adapter-policy.ts` | Comma-separated substrings extending the built-in adapter denylist (`venus`, `gfxstream`) |
 
 ## Examples
 

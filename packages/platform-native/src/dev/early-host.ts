@@ -21,7 +21,7 @@
 import { acquireSingleInstanceLock } from "../bridge/singleton-lock";
 import { NativeWindow } from "../window/native-window";
 import { SplashScreen } from "../window/splash-screen";
-// wgpu-device + device-request stay DYNAMIC — they're the heavy end of the
+// wgpu-device + adapter-boot stay DYNAMIC — they're the heavy end of the
 // shim graph, and the whole point of this module is that the window maps
 // before that graph finishes transforming. See bootEarlyHost below.
 import type { WgpuAdapter, WgpuDevice, WgpuGPU } from "../gpu/wgpu-device";
@@ -39,6 +39,9 @@ export interface EarlyHostParts {
   gpu: WgpuGPU;
   adapter: WgpuAdapter | null;
   device: WgpuDevice | null;
+  /** The GPU boot plan — handed to the adopting createNativeHost so its
+   *  teardown can disarm the crash sentinel. */
+  gpuPlan: GpuBootPlan | null;
   /** True when the surface ctx was configured + splash attached — the host
    *  skips its own configure when adopting. */
   surfaceConfigured: boolean;
@@ -84,14 +87,16 @@ export async function bootEarlyHost(cfg: {
     // The window is already live; only now pull the wgpu-device graph —
     // its transform overlaps the WM-visible window instead of blocking it.
     const { WgpuGPU } = await import("../gpu/wgpu-device");
-    const { computeDeviceDescriptor } = await import("../gpu/device-request");
+    const { acquireAdapterAndDevice } = await import("../gpu/adapter-boot");
     const gpu = new WgpuGPU();
     (globalThis as any).__wgpuInstancePtr = gpu.getInstancePtr();
 
-    const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });
-    const device = adapter
-      ? await adapter.requestDevice(computeDeviceDescriptor(adapter))
-      : null;
+    const acquired = await acquireAdapterAndDevice(gpu, { appId: cfg.appId });
+    const adapter = acquired?.adapter ?? null;
+    const device = acquired?.device ?? null;
+    // Hand the sentinel's healthy hook to the first presented frame — the
+    // splash presents through the same canvas context.
+    if (acquired) (globalThis as any).__ddGpuBootHealthy = acquired.plan.markHealthy;
 
     let surfaceConfigured = false;
     if (device) {
@@ -104,7 +109,11 @@ export async function bootEarlyHost(cfg: {
       }
     }
 
-    const parts: EarlyHostParts = { window, gpu, adapter, device, surfaceConfigured };
+    const parts: EarlyHostParts = {
+      window, gpu, adapter, device,
+      gpuPlan: acquired?.plan ?? null,
+      surfaceConfigured,
+    };
     (globalThis as any).__ddEarlyHost = parts;
     return parts;
   } catch {
