@@ -253,6 +253,15 @@ export function resolveGpuPolicy(input: GpuPolicyInput = {}): GpuPolicy {
     }
   }
 
+  // The software adapter doesn't exist on every backend — GLES has no
+  // fallback adapters at all (llvmpipe lives on Vulkan, WARP on Dx12). A
+  // software resolution must therefore relax a GL-only backend restriction
+  // so the fallback adapter can come from any backend.
+  if (policy.adapter === "software" && policy.backend === "gl") {
+    source.push("backend=gl → auto (software adapter)");
+    policy.backend = "auto";
+  }
+
   policy.source = source.join(" → ");
   return policy;
 }

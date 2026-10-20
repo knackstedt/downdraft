@@ -336,6 +336,30 @@ enum PumpState {
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 static PUMP_STATE: (Mutex<PumpState>, Condvar) = (Mutex::new(PumpState::Cold), Condvar::new());
 
+/// The event loop's owned display handle, stashed once the pump thread has
+/// built the EventLoop. wgpu's GLES backend needs the platform display
+/// (e.g. the wl_display) bound at InstanceDescriptor.display to present on
+/// Wayland; Vulkan/Metal/Dx12 ignore it.
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+static DISPLAY_HANDLE: Mutex<Option<winit::event_loop::OwnedDisplayHandle>> = Mutex::new(None);
+
+/// The event loop's display handle, bringing the pump thread up if needed.
+/// Called at wgpu instance creation (which precedes the first window) so
+/// GLES can bind the platform display for presentation. `None` when the
+/// loop can't start (headless) or was never reached.
+#[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
+pub(crate) fn ensure_display() -> Option<winit::event_loop::OwnedDisplayHandle> {
+    ensure_pump();
+    DISPLAY_HANDLE.lock().unwrap().clone()
+}
+
+/// Non-Linux desktop / mobile builds: the GLES-Wayland display bind is
+/// irrelevant (Metal/Dx12/ANativeWindow paths don't use it).
+#[cfg(any(target_os = "android", target_os = "macos"))]
+pub(crate) fn ensure_display() -> Option<winit::event_loop::OwnedDisplayHandle> {
+    None
+}
+
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 fn pump_thread_main() {
     let (lock, cond) = &PUMP_STATE;
@@ -366,6 +390,7 @@ fn pump_thread_main() {
         }
     };
     *LOOP_PROXY.lock().unwrap() = Some(el.create_proxy());
+    *DISPLAY_HANDLE.lock().unwrap() = Some(el.owned_display_handle());
     // Wait blocks the pump thread on the OS poll until events arrive —
     // zero wakeups while idle. Default Poll would spin a core.
     el.set_control_flow(winit::event_loop::ControlFlow::Wait);

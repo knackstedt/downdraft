@@ -330,6 +330,7 @@ export class WgpuAdapter {
 
     const device = new WgpuDevice(devicePtr, this.instancePtr);
     device.adapterInfo = this.nativeInfo;
+    device.adapterBackend = device.adapterInfo?.backend ?? null;
     device.adapterPtr = this.ptr;
     trackForRelease(device, () => wgpu.wgpu_shim_release_device(devicePtr));
     // Attach the persistent pipeline cache when the feature was granted —
@@ -365,6 +366,9 @@ export class WgpuDevice {
   /** Adapter info captured at requestDevice() — null on worker-attached views
    *  (the shared-device attach path never sees the adapter). */
   adapterInfo: NativeAdapterInfo | null = null;
+  /** The adapter's backend string — survives worker attach (travels in the
+   *  GpuDeviceHandle) where the full NativeAdapterInfo doesn't. */
+  adapterBackend: string | null = null;
   /** Raw wgpu adapter handle — needed for surface-capability queries
    *  (get_capabilities takes &Adapter). 0 on worker-attached devices. */
   adapterPtr: ptr = 0;
@@ -391,6 +395,8 @@ export class WgpuDevice {
   // via __ddClearLostWatchers(), releasing the reaction chains.
   private lostWatchers = new Set<(info: GPUDeviceLostInfo) => void>();
   private lostInfo: GPUDeviceLostInfo | null = null;
+  /** One-shot log gate for the GL viewFormats strip below. */
+  private static warnedGlViewFormats = false;
 
   get lost(): Promise<GPUDeviceLostInfo> {
     if (this.lostInfo) return Promise.resolve(this.lostInfo);
@@ -509,11 +515,21 @@ export class WgpuDevice {
     const { width, height, depthOrArrayLayers } = parseExtent3D(descriptor.size);
 
     // Forward viewFormats so callers can reinterpret the texture (e.g.
-    // rgba8unorm surface viewed as rgba8unorm-srgb).
+    // rgba8unorm surface viewed as rgba8unorm-srgb). GLES devices lack the
+    // VIEW_FORMATS downlevel flag — views then can't alias across formats,
+    // so drop the list (the base view still works; srgb reinterpretation
+    // degrades to a gamma shift rather than a hard validation error).
     let viewFormatsArr: Uint32Array | null = null;
     const vf = (descriptor as any).viewFormats as string[] | undefined;
     if (vf && vf.length > 0) {
-      viewFormatsArr = new Uint32Array(vf.map((f) => parseFormat(f)));
+      if (this.adapterBackend === "gl") {
+        if (!WgpuDevice.warnedGlViewFormats) {
+          WgpuDevice.warnedGlViewFormats = true;
+          log.warn("gpu", "GLES device lacks view-format reinterpretation — dropping viewFormats (srgb views degrade to a gamma shift)");
+        }
+      } else {
+        viewFormatsArr = new Uint32Array(vf.map((f) => parseFormat(f)));
+      }
     }
 
     const texPtr = wgpu.wgpu_shim_create_texture(
@@ -531,6 +547,7 @@ export class WgpuDevice {
     ) as unknown as number;
     if (!texPtr) throw new Error(`Failed to create texture (${width}x${height})`);
     const texture = new WgpuTexture(texPtr, descriptor);
+    if (this.adapterBackend === "gl") texture.__ddGlNoViewFormats = true;
     trackForRelease(texture, () => wgpu.wgpu_shim_release_texture(texPtr));
     return texture;
   }

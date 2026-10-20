@@ -80,6 +80,11 @@ export interface GpuDeviceHandle {
   /** Handle generation — bumped when the owner re-creates the device after
    *  loss. Workers compare it against cell 0 and must re-attach on change. */
   generation: number;
+  /** The adapter's backend ("vulkan"/"gl"/…) — attached workers get no
+   *  adapter handle to query, so device quirks that depend on the backend
+   *  (e.g. GLES lacking view-format reinterpretation) travel in the
+   *  handle. */
+  backend?: string;
 }
 
 /**
@@ -135,6 +140,7 @@ export function shareDevice(device: WgpuDevice, cells: DeviceStateCells): GpuDev
     instancePtr: device.getInstancePtr(),
     queuePtr: device.queue.ptr,
     generation,
+    backend: device.adapterInfo?.backend,
   };
 }
 
@@ -321,6 +327,9 @@ export function attachSharedDevice(
       && Atomics.load(i64, CELL_DETACH_REQ) === 0n;
   };
   const rawDevice = new WgpuDevice(handle.devicePtr, handle.instancePtr, { ownsHandle: false });
+  // Backend-dependent device quirks travel in the handle — the full
+  // NativeAdapterInfo is unavailable to attached views.
+  rawDevice.adapterBackend = handle.backend ?? null;
   // The view's queue is this thread's own device_get_queue clone — NOT the
   // owner's queue box from handle.queuePtr. The owner releases its box on
   // destroy(); a worker-side wrapper around it would dangle. A clone keeps

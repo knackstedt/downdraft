@@ -117,6 +117,21 @@ describe("resolveGpuPolicy", () => {
     expect(p.explicitAdapter).toBe(false);
   });
 
+  it("relaxes a restrictive backend when the software adapter is selected (no GL fallbacks)", () => {
+    process.env.DOWNDRAFT_GPU = "swiftshader";
+    process.env.DOWNDRAFT_GPU_BACKEND = "gl";
+    const p = resolveGpuPolicy({ appId: APP });
+    expect(p.adapter).toBe("software");
+    expect(p.backend).toBe("auto");
+  });
+
+  it("keeps a restrictive backend for hardware attempts", () => {
+    process.env.DOWNDRAFT_GPU = "hardware";
+    process.env.DOWNDRAFT_GPU_BACKEND = "gl";
+    const p = resolveGpuPolicy({ appId: APP });
+    expect(p.backend).toBe("gl");
+  });
+
   it("explicit hardware beats the persisted latch", () => {
     writeState({ latchedAdapter: "software", hardwareBootCrashes: 3 });
     process.env.DOWNDRAFT_GPU = "hardware";

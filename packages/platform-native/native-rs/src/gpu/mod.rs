@@ -132,6 +132,9 @@ thread_local! {
 struct ShimDevice {
     device: Device,
     queue: Queue,
+    /// The adapter this device came from — surface configure needs it to
+    /// clamp requested usages/formats against real surface capabilities.
+    adapter: Adapter,
     lost: std::sync::Arc<Mutex<Option<(u32, String)>>>,
     /// wgpu persistent pipeline cache, attached by
     /// wgpu_shim_pipeline_cache_init — consulted by every pipeline create
@@ -334,6 +337,19 @@ pub extern "C" fn wgpu_shim_create_instance_ex(backend_id: i32) -> Handle {
         if let Some(backends) = backend_selector(backend_id) {
             desc.backends = backends;
         }
+        // wgpu's GLES backend cannot present on Wayland without the
+        // platform display handle (the EGL platform display comes from it).
+        // GPU instances are created before the first window — the pump
+        // thread's EventLoop may not exist yet — so bring it up when GL is
+        // actually in play (it's second-tier, absent from the default
+        // backend set, so primary-backend boots pay nothing). Unused by
+        // Vulkan/Metal/Dx12.
+        if desc.backends.contains(Backends::GL) {
+            let display = crate::window::ensure_display();
+            if let Some(d) = display {
+                desc.display = Some(Box::new(d));
+            }
+        }
         let instance = Instance::new(desc);
         let handle = boxed(instance.clone());
         G_INSTANCES
@@ -482,7 +498,10 @@ unsafe fn parse_device_desc(
 /// callback, uncaptured-error hook, G_DEVICE registration). Shared by the
 /// sync and async request paths — runs on whichever thread completed the
 /// request; all touched state is Mutex-guarded.
-fn finish_device_request(res: Option<Result<(Device, Queue), RequestDeviceError>>) -> Handle {
+fn finish_device_request(
+    adapter: &Adapter,
+    res: Option<Result<(Device, Queue), RequestDeviceError>>,
+) -> Handle {
     match res {
         Some(Ok((device, queue))) => {
             let lost = std::sync::Arc::new(Mutex::new(None));
@@ -496,6 +515,7 @@ fn finish_device_request(res: Option<Result<(Device, Queue), RequestDeviceError>
             boxed(ShimDevice {
                 device,
                 queue,
+                adapter: adapter.clone(),
                 lost,
                 pipeline_cache: Mutex::new(None),
             })
@@ -528,7 +548,7 @@ pub extern "C" fn wgpu_shim_request_device(
             features_ptr,
             feature_count,
         );
-        finish_device_request(block_on_gpu(adapter.request_device(&desc)))
+        finish_device_request(adapter, block_on_gpu(adapter.request_device(&desc)))
     })
 }
 
@@ -605,7 +625,9 @@ pub extern "C" fn wgpu_shim_request_device_async(
             feature_count,
         );
         let adapter = adapter.clone();
-        spawn_op(move || finish_device_request(block_on_gpu(adapter.request_device(&desc))))
+        spawn_op(move || {
+            finish_device_request(&adapter, block_on_gpu(adapter.request_device(&desc)))
+        })
     })
 }
 
@@ -3410,10 +3432,24 @@ pub extern "C" fn wgpu_shim_surface_configure(
             .unwrap()
             .remove(&(surface as usize));
         let dev = obj::<ShimDevice>(device);
+        // Clamp the requested usage to what the surface actually offers —
+        // reduced-feature backends (GLES/virgl) commonly expose only
+        // COLOR_TARGET, and configure() validates hard against the caps.
+        let caps = obj::<Surface>(surface).get_capabilities(&dev.adapter);
+        let mut usage_bits = TextureUsages::from_bits_retain(usage) & caps.usages;
+        if usage_bits.is_empty() {
+            usage_bits = caps.usages;
+        }
+        if usage_bits != TextureUsages::from_bits_retain(usage) {
+            eprintln!(
+                "[wgpu_shim] surface_configure: usage {usage:#x} clamped to {:?} by surface caps",
+                usage_bits
+            );
+        }
         obj::<Surface>(surface).configure(
             &dev.device,
             &SurfaceConfiguration {
-                usage: TextureUsages::from_bits_retain(usage),
+                usage: usage_bits,
                 format,
                 // Transient 0-size windows must never reach the HAL (same
                 // guard as the C shim).

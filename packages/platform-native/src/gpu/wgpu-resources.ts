@@ -154,6 +154,11 @@ export class WgpuTexture {
    *  textures — presenting an unwritten texture shows a blank frame instead
    *  of retaining the last one, which breaks games with dirty-tracking. */
   __ddWritten = false;
+  /** Set by WgpuDevice.createTexture on GLES devices — view-format
+   *  reinterpretation is unavailable (no VIEW_FORMATS downlevel flag), so
+   *  createView() coerces non-base format requests to the texture format
+   *  rather than minting a guaranteed-invalid view. */
+  __ddGlNoViewFormats = false;
   private destroyed = false;
   /** Memoized default view. The render loop calls createView() several
    *  times per frame on the same surface/depth texture; each call minted a
@@ -190,7 +195,10 @@ export class WgpuTexture {
   }
 
   private makeView(descriptor?: GPUTextureViewDescriptor): WgpuTextureView {
-    const format = descriptor?.format ? parseFormat(descriptor.format) : 0;
+    let format = descriptor?.format ? parseFormat(descriptor.format) : 0;
+    if (this.__ddGlNoViewFormats && descriptor?.format && descriptor.format !== this.format) {
+      format = parseFormat(this.format);
+    }
     const dimension = parseViewDimension(descriptor?.dimension);
     const aspect = parseAspect(descriptor?.aspect);
     // Cube/cube-array views default to 6 / 6*N array layers when omitted.

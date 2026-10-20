@@ -15,7 +15,7 @@ All notable changes to this project will be documented in this file. See [standa
 ### Changed
 
 - **`DOWNDRAFT_GPU=auto` is the default adapter mode** — hardware-first with automatic software failover; `draft test`'s `--renderer=cpu|gpu` mapping is unchanged.
-- **`WGPU_BACKEND=gl` is experimental** — the virgl GLES path creates devices and renders offscreen, but Wayland surface presentation fails (wgpu's GLES path needs a display handle on the instance); `gl` is selectable via `gpu.backend`/`DOWNDRAFT_GPU_BACKEND` for probing only.
+- **`backend:"gl"` (virgl GLES) presents on Wayland — experimental** — the event loop's `OwnedDisplayHandle` is now bound to `InstanceDescriptor.display` when GL is requested (required for wgpu's EGL/Wayland presentation), the surface configure path clamps requested usages to real caps, and `viewFormats` are dropped with format-mismatched views coerced to the base format (GLES lacks `VIEW_FORMATS` downlevel flags). Caveats: srgb view reinterpretation degrades to a gamma shift, `captureScreenshot` is unavailable (GLES surfaces expose no `COPY_SRC`), and GLES feature coverage is narrower than Vulkan. Opt-in via `gpu.backend:"gl"`/`DOWNDRAFT_GPU_BACKEND=gl`; the auto backend set is unchanged.
 
 ## [0.5.0](https://github.com/knackstedt/downdraft/compare/v0.4.9...v0.5.0) (2026-10-15)
 
