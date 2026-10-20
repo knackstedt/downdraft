@@ -129,15 +129,18 @@ const BACKEND_IDS: Record<Exclude<GpuBackend, "auto">, number> = {
 export class WgpuGPU {
   private instancePtr: ptr = 0;
 
-  constructor() {
+  /** @param backend — explicit backend restriction. Defaults to the
+   *  resolved policy's backend; the GL-fallback retry passes "gl" to build
+   *  a second instance on the GLES backend. */
+  constructor(backend?: GpuBackend) {
     // Backend restriction (gpu.backend / DOWNDRAFT_GPU_BACKEND) must happen at
     // instance creation — the adapter set is enumerated from it. "auto" and
     // libs that predate the _ex export take the original env-driven path
     // (WGPU_BACKEND still applies there).
-    const backend = resolveGpuPolicy().backend;
-    const ex = backend !== "auto" ? loadWgpuEx() : null;
+    const resolved = backend ?? resolveGpuPolicy().backend;
+    const ex = resolved !== "auto" ? loadWgpuEx() : null;
     this.instancePtr = ex
-      ? ex.wgpu_shim_create_instance_ex(BACKEND_IDS[backend as Exclude<GpuBackend, "auto">] ?? 0)
+      ? ex.wgpu_shim_create_instance_ex(BACKEND_IDS[resolved as Exclude<GpuBackend, "auto">] ?? 0)
       : wgpu.wgpu_shim_create_instance();
     if (!this.instancePtr) throw new Error("Failed to create wgpu instance");
   }

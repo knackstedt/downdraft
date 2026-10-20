@@ -16,11 +16,6 @@ import { wgpu } from "../gpu/wgpu-ffi";
 import { fireGlobalHotkey } from "./global-hotkeys";
 import { NativeSurface } from "./native-surface";
 import {
-    KMOD_ALT,
-    KMOD_CTRL,
-    KMOD_GUI,
-    KMOD_SHIFT,
-    win,
     DD_EVENT_DROP_FILE,
     DD_EVENT_FOCUS_GAINED,
     DD_EVENT_FOCUS_LOST,
@@ -49,9 +44,14 @@ import {
     DD_WIN_RESIZABLE,
     DD_WIN_SKIP_TASKBAR,
     DD_WIN_TRANSPARENT,
-    wireButtonsToDom,
+    KMOD_ALT,
+    KMOD_CTRL,
+    KMOD_GUI,
+    KMOD_SHIFT,
+    win,
     winExt,
-    winMulti
+    winMulti,
+    wireButtonsToDom
 } from "./window-ffi";
 
 // Lazily bound — wgpu-device.ts pulls the whole JS shim graph (encoder,
@@ -366,6 +366,26 @@ export class NativeWindow extends MiniEventTarget {
       () => this.getDisplayInfo().scaleFactor,
     );
     this.startTime = performance.now();
+  }
+
+  /**
+   * Move the wgpu surface onto a different instance. wgpu surfaces are
+   * instance-scoped — when the GPU fallback path acquires its device on a
+   * secondary-backend instance (the GL tier), the surface made at window
+   * creation is incompatible and must be recreated. rebindSurface zeroes
+   * the configured dims so the next acquire lazily reconfigures.
+   */
+  recreateGpuSurface(instancePtr: ptr): void {
+    if (this.surfacePtr) {
+      try { wgpu.wgpu_shim_surface_unconfigure(this.surfacePtr); } catch { /* best-effort */ }
+      try { wgpu.wgpu_shim_release_surface(this.surfacePtr); } catch { /* best-effort */ }
+      this.surfacePtr = 0;
+    }
+    this.surfacePtr = win.dd_window_create_wgpu_surface(instancePtr, this.windowHandle) as unknown as number;
+    if (!this.surfacePtr) {
+      throw new Error("Failed to recreate wgpu surface on the fallback instance");
+    }
+    this.surface?.rebindSurface(this.surfacePtr);
   }
 
   /**

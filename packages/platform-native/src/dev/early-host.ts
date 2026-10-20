@@ -91,7 +91,10 @@ export async function bootEarlyHost(cfg: {
     const gpu = new WgpuGPU();
     (globalThis as any).__wgpuInstancePtr = gpu.getInstancePtr();
 
-    const acquired = await acquireAdapterAndDevice(gpu, { appId: cfg.appId });
+    const acquired = await acquireAdapterAndDevice(gpu, { appId: cfg.appId, window });
+    // The GL fallback tier may have won on a second wgpu instance — the
+    // parts carry the winner so native-host installs it (not the dead one).
+    const winnerGpu = acquired?.gpu ?? gpu;
     const adapter = acquired?.adapter ?? null;
     const device = acquired?.device ?? null;
     // Hand the sentinel's healthy hook to the first presented frame — the
@@ -101,7 +104,7 @@ export async function bootEarlyHost(cfg: {
     let surfaceConfigured = false;
     if (device) {
       const ctx = surface.getContext("webgpu")!;
-      const format = gpu.getPreferredCanvasFormat();
+      const format = winnerGpu.getPreferredCanvasFormat();
       ctx.configure({ device: device as unknown as GPUDevice, format, usage: 0x0010 | 0x0002 | 0x0001 });
       surfaceConfigured = true;
       if (cfg.splash !== false) {
@@ -110,7 +113,7 @@ export async function bootEarlyHost(cfg: {
     }
 
     const parts: EarlyHostParts = {
-      window, gpu, adapter, device,
+      window, gpu: winnerGpu, adapter, device,
       gpuPlan: acquired?.plan ?? null,
       surfaceConfigured,
     };

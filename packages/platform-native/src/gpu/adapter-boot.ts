@@ -19,9 +19,10 @@
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
+import type { ptr } from "../ffi/ffi-adapter";
 import { denyReasonForAdapter, planGpuBoot, type GpuBootPlan, type GpuPolicyInput } from "./adapter-policy";
 import { computeDeviceDescriptor } from "./device-request";
-import type { NativeAdapterInfo, WgpuAdapter, WgpuDevice, WgpuGPU } from "./wgpu-device";
+import { WgpuGPU, type NativeAdapterInfo, type WgpuAdapter, type WgpuDevice } from "./wgpu-device";
 
 const log = createLogger("info");
 
@@ -30,12 +31,19 @@ export interface AcquireGpuOptions extends GpuPolicyInput {
   /** Device descriptor factory — native-host and the early boot pass
    *  computeDeviceDescriptor so the union limits/features stay identical. */
   describeDevice?: (adapter: WgpuAdapter) => GPUDeviceDescriptor;
+  /** Live window — the GL fallback tier rebinds its wgpu surface onto the
+   *  winning instance (surfaces are instance-scoped). */
+  window?: { recreateGpuSurface?(instancePtr: ptr): void } | null;
 }
 
 export interface AcquiredGpu {
   adapter: WgpuAdapter;
   device: WgpuDevice;
   info: NativeAdapterInfo | null;
+  /** The wgpu instance the winning adapter/device live on — the caller's
+   *  `gpu` argument for the primary path, a fresh GL-instance WgpuGPU when
+   *  the GL fallback tier won. */
+  gpu: WgpuGPU;
   /** The device came from the software/fallback adapter. */
   softwareFallback: boolean;
   plan: GpuBootPlan;
@@ -52,7 +60,7 @@ export async function acquireAdapterAndDevice(
 
   log.info("gpu",
     `gpu policy: adapter=${policy.adapter} backend=${policy.backend} ` +
-    `softwareFallback=${policy.softwareFallback} (${policy.source})`);
+    `softwareFallback=${policy.softwareFallback} glFallback=${policy.glFallback} (${policy.source})`);
 
   const requestAdapter = (forceFallback: boolean) =>
     gpu.requestAdapter({ powerPreference, forceFallbackAdapter: forceFallback });
@@ -61,6 +69,13 @@ export async function acquireAdapterAndDevice(
   let usedSoftware = false;
 
   const mayFallback = policy.softwareFallback && policy.adapter !== "hardware";
+  // GL middle tier (mode:"stability" / glFallback): after the primary
+  // backend's adapter is denied or dead, retry on a GLES instance — e.g.
+  // virgl over a virtio GPU — before dropping to the software rasterizer.
+  // Only when the backend wasn't pinned (a pinned backend means the caller
+  // chose it deliberately).
+  const mayGlFallback =
+    policy.glFallback && policy.adapter === "auto" && policy.backend === "auto";
 
   if (plan.tryHardwareFirst) {
     adapter = await requestAdapter(false);
@@ -69,28 +84,55 @@ export async function acquireAdapterAndDevice(
       if (reason) {
         adapter.release();
         adapter = null;
-        if (mayFallback) {
-          log.warn("gpu", `${reason} — falling back to the software adapter`);
+        if (mayFallback || mayGlFallback) {
+          log.warn("gpu", `${reason} — trying the ${mayGlFallback ? "GL backend" : "software adapter"}`);
         } else {
           log.error("gpu", `${reason} — no software fallback permitted (adapter=${policy.adapter})`);
         }
       }
-    } else if (mayFallback) {
-      log.warn("gpu", "hardware adapter request returned null — trying the software adapter");
+    } else if (mayFallback || mayGlFallback) {
+      log.warn("gpu", "hardware adapter request returned null");
     }
   }
 
   // Device request on the hardware adapter — a clean failure (returned
-  // error, not a process abort) retries on the software adapter.
+  // error, not a process abort) retries on the lower tiers.
   if (adapter && !adapter.__ddSoftwareAdapter) {
     try {
       const device = await adapter.requestDevice(describe(adapter));
-      return finish(adapter, device, false, plan);
+      return finish(adapter, device, gpu, false, plan);
     } catch (e) {
-      if (!mayFallback) throw e;
-      log.warn("gpu", `hardware device request failed — falling back to the software adapter (${(e as Error).message ?? e})`);
+      if (!mayFallback && !mayGlFallback) throw e;
+      log.warn("gpu", `hardware device request failed — falling back (${(e as Error).message ?? e})`);
       adapter.release();
       adapter = null;
+    }
+  }
+
+  // GL tier — a second instance on the GLES backend. The losing instance's
+  // surface must be rebound: wgpu surfaces are instance-scoped. The dead
+  // primary instance is left registered (it's the event pump's process-
+  // events target) — leaking it is cheaper than unsafe teardown order.
+  if (!adapter && mayGlFallback) {
+    const glGpu = new WgpuGPU("gl");
+    const glAdapter = await glGpu.requestAdapter({ powerPreference });
+    if (glAdapter) {
+      const reason = denyReasonForAdapter(glAdapter.nativeInfo, policy.deny);
+      if (reason) {
+        log.warn("gpu", `${reason} — trying the software adapter`);
+        glAdapter.release();
+      } else {
+        try {
+          const device = await glAdapter.requestDevice(describe(glAdapter));
+          adoptGpuInstance(glGpu, gpu, opts.window);
+          return finish(glAdapter, device, glGpu, false, plan);
+        } catch (e) {
+          log.warn("gpu", `GL device request failed — falling back to the software adapter (${(e as Error).message ?? e})`);
+          glAdapter.release();
+        }
+      }
+    } else {
+      log.warn("gpu", "no GL adapter — trying the software adapter");
     }
   }
 
@@ -104,12 +146,34 @@ export async function acquireAdapterAndDevice(
   }
   if (!adapter) return null;
   const device = await adapter.requestDevice(describe(adapter));
-  return finish(adapter, device, usedSoftware, plan);
+  return finish(adapter, device, gpu, usedSoftware, plan);
+}
+
+/**
+ * Point the process at the wgpu instance that actually produced the device
+ * (the GL fallback tier wins on a second instance). Repoint the gpu/instance
+ * globals so navigator.gpu and future surface creation hit the winner, and
+ * rebind the window's surface — wgpu surfaces are instance-scoped.
+ */
+function adoptGpuInstance(winner: WgpuGPU, previous: WgpuGPU, window: AcquireGpuOptions["window"]): void {
+  if (winner === previous) return;
+  const g = globalThis as Record<string, unknown> & { navigator?: { gpu?: unknown } };
+  const ptr = winner.getInstancePtr();
+  g.__nativeGpu = winner;
+  g.__wgpuInstancePtr = ptr;
+  const nav = g.navigator;
+  if (nav?.gpu === previous) {
+    try { nav.gpu = winner; } catch { /* getter-only */ }
+  }
+  try { window?.recreateGpuSurface?.(ptr); } catch (e) {
+    log.warn("gpu", `surface rebind onto the fallback instance failed (${(e as Error).message ?? e})`);
+  }
 }
 
 function finish(
   adapter: WgpuAdapter,
   device: WgpuDevice,
+  gpu: WgpuGPU,
   usedSoftware: boolean,
   plan: GpuBootPlan,
 ): AcquiredGpu {
@@ -119,5 +183,5 @@ function finish(
   } else {
     log.info("gpu", `adapter: ${info?.name ?? "?"} (driver ${info?.driver ?? "?"}, backend ${info?.backend ?? "?"})`);
   }
-  return { adapter, device, info, softwareFallback: usedSoftware, plan };
+  return { adapter, device, gpu, info, softwareFallback: usedSoftware, plan };
 }

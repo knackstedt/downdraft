@@ -224,6 +224,7 @@ draft test --game=my-game --headed
 | `DOWNDRAFT_MCP` | `packages/engine/core/src/util/logger.ts` | `1` routes logs to stderr (keeps stdout clean for MCP JSON-RPC) |
 | `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/cli/src/debug.ts` | `1` disables the devtools UI entirely — forces `devtools.ui` to `"none"` (set by `draft debug --no-devtools`) |
 | `DOWNDRAFT_GPU` | `packages/platform-native/src/gpu/adapter-policy.ts` | `swiftshader` (software only) \| `hardware` (real adapter only) \| `auto` (hardware-first, software failover — default) |
+| `DOWNDRAFT_GPU_MODE` | `packages/platform-native/src/gpu/adapter-policy.ts` | `performance` \| `stability` — preset matching `downdraft.config.json` `"gpu": { "mode": … }`: `performance` (games) = hardware-only, never silently degrade; `stability` (desktop apps) = graceful chain vulkan → gl(virgl) → software |
 | `DOWNDRAFT_GPU_BACKEND` | `packages/platform-native/src/gpu/adapter-policy.ts` | `auto` \| `vulkan` \| `gl` \| `metal` \| `dx12` — restrict the wgpu instance to one backend (`gl`/virgl is experimental — presents on Wayland with reduced features, no screenshots) |
 | `DOWNDRAFT_GPU_FALLBACK` | `packages/platform-native/src/gpu/adapter-policy.ts` | `0`/`1` — toggle the automatic software-adapter failover (default `1`) |
 | `DOWNDRAFT_GPU_DENY` | `packages/platform-native/src/gpu/adapter-policy.ts` | Comma-separated substrings extending the built-in adapter denylist (`venus`, `gfxstream`) |

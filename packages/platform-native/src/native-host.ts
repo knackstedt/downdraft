@@ -247,11 +247,11 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   //     resolved it (its own acquire armed the same sentinel).
   const acquiredPromise: Promise<AcquiredGpu | null> = earlyDeviceOk
     ? Promise.resolve({
-        adapter: early!.adapter!, device: early!.device!,
+        adapter: early!.adapter!, device: early!.device!, gpu: early!.gpu!,
         info: early!.adapter!.nativeInfo, softwareFallback: !!early!.adapter!.__ddSoftwareAdapter,
         plan: early!.gpuPlan!,
       })
-    : acquireAdapterAndDevice(gpu, { appId: config.appId });
+    : acquireAdapterAndDevice(gpu, { appId: config.appId, window });
 
   // 2d. rAF globals + DOM polyfills — the Worker polyfill must exist before
   //     the services worker spawns under Node (Bun has a native Worker).
@@ -287,7 +287,10 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   const acquired = await acquiredPromise;
   mark("adapter+device");
   if (!acquired) throw new Error("No GPU adapter found");
-  const { adapter, device } = acquired;
+  const { adapter, device, gpu: activeGpu } = acquired;
+  // The GL fallback tier may have won on a second instance — use the
+  // winner's WgpuGPU (installGPU's globals were already repointed by the
+  // acquire's adopt step when the instances differ).
   const gpuPlan: GpuBootPlan | null = acquired.plan ?? null;
   // First presented frame (or clean teardown) proves the GPU stack healthy —
   // disarms the crash sentinel planGpuBoot armed before the adapter request.
@@ -315,7 +318,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   // 4. Configure the surface context — the early boot already configured
   //    it (splash presenting) when its parts were adopted.
   const ctx = surface.getContext("webgpu")!;
-  const format = gpu.getPreferredCanvasFormat();
+  const format = activeGpu.getPreferredCanvasFormat();
   if (!(earlyDeviceOk && early?.surfaceConfigured)) {
     ctx.configure({ device: gpuDevice, format, usage: 0x0010 | 0x0002 | 0x0001 }); // RENDER_ATTACHMENT | COPY_DST | COPY_SRC
   }
@@ -455,7 +458,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   const host: NativeHostContext = {
     window,
     surface,
-    gpu,
+    gpu: activeGpu,
     adapter,
     device,
     appId: config.appId,

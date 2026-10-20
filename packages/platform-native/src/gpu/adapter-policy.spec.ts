@@ -17,6 +17,7 @@ import {
 // env afterwards so specs stay hermetic.
 const ENV_KEYS = [
   "DOWNDRAFT_GPU",
+  "DOWNDRAFT_GPU_MODE",
   "DOWNDRAFT_GPU_BACKEND",
   "DOWNDRAFT_GPU_FALLBACK",
   "DOWNDRAFT_GPU_DENY",
@@ -76,6 +77,48 @@ describe("resolveGpuPolicy", () => {
     expect(p.softwareFallback).toBe(false);
     expect(p.deny).toContain("foo");
     expect(p.explicitAdapter).toBe(true);
+  });
+
+  it("mode=performance presets hardware-only — no fallback chain (games)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gpu-cfg-"));
+    writeConfig(dir, { mode: "performance" });
+    const p = resolveGpuPolicy({ appId: APP, gameDir: dir });
+    expect(p.adapter).toBe("hardware");
+    expect(p.softwareFallback).toBe(false);
+    expect(p.glFallback).toBe(false);
+    expect(p.explicitAdapter).toBe(true);
+  });
+
+  it("mode=stability presets the graceful chain — auto + software + gl tier", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gpu-cfg-"));
+    writeConfig(dir, { mode: "stability" });
+    const p = resolveGpuPolicy({ appId: APP, gameDir: dir });
+    expect(p.adapter).toBe("auto");
+    expect(p.softwareFallback).toBe(true);
+    expect(p.glFallback).toBe(true);
+  });
+
+  it("granular fields override the mode preset they sit beside", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gpu-cfg-"));
+    writeConfig(dir, { mode: "stability", softwareFallback: false });
+    const p = resolveGpuPolicy({ appId: APP, gameDir: dir });
+    expect(p.glFallback).toBe(true); // preset applied
+    expect(p.softwareFallback).toBe(false); // explicit field wins
+  });
+
+  it("DOWNDRAFT_GPU_MODE applies the preset and outranks config fields", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gpu-cfg-"));
+    writeConfig(dir, { adapter: "software" });
+    process.env.DOWNDRAFT_GPU_MODE = "performance";
+    const p = resolveGpuPolicy({ appId: APP, gameDir: dir });
+    expect(p.adapter).toBe("hardware");
+    expect(p.softwareFallback).toBe(false);
+  });
+
+  it("performance mode counts as an explicit choice — beats the latch", () => {
+    writeState({ latchedAdapter: "software", hardwareBootCrashes: 3 });
+    process.env.DOWNDRAFT_GPU_MODE = "performance";
+    expect(resolveGpuPolicy({ appId: APP }).adapter).toBe("hardware");
   });
 
   it("walks up from the gameDir for downdraft.config.json", () => {

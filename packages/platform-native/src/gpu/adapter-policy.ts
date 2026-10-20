@@ -4,13 +4,21 @@
 // The "GPU settings" for an app, highest precedence first:
 //
 //   1. Spawn-time env vars — DOWNDRAFT_GPU (swiftshader|hardware|auto),
-//      DOWNDRAFT_GPU_BACKEND (vulkan|gl), DOWNDRAFT_GPU_FALLBACK (0|1),
-//      DOWNDRAFT_GPU_DENY (comma-separated driver/name substrings).
+//      DOWNDRAFT_GPU_MODE (performance|stability), DOWNDRAFT_GPU_BACKEND
+//      (vulkan|gl), DOWNDRAFT_GPU_FALLBACK (0|1), DOWNDRAFT_GPU_DENY
+//      (comma-separated driver/name substrings).
 //   2. downdraft.config.json "gpu" block — the per-app settings file:
-//        { "gpu": { "adapter": "auto"|"hardware"|"software",
+//        { "gpu": { "mode": "performance"|"stability",
+//                   "adapter": "auto"|"hardware"|"software",
 //                   "backend": "auto"|"vulkan"|"gl",
 //                   "softwareFallback": true|false,
+//                   "glFallback": true|false,
 //                   "deny": ["driver-substring", ...] } }
+//      "mode" is the coarse app knob — a preset: "performance" (games)
+//      means hardware-only, never silently degrade; "stability" (desktop
+//      apps) means the graceful chain vulkan → gl(virgl) → software.
+//      The granular fields may be set beside it to override individual
+//      pieces of the preset.
 //      Resolved from DD_GAME_DIR, else by walking up from cwd — games set
 //      it declaratively; standalone configs flow through `draft dev`.
 //   3. Persisted engine state — <userData>/gpu/gpu-state.json. The boot
@@ -52,12 +60,22 @@ export type GpuAdapterMode = "auto" | "hardware" | "software";
 /** Backend restrictor — maps onto wgpu_shim_create_instance_ex. */
 export type GpuBackend = "auto" | "vulkan" | "gl" | "metal" | "dx12";
 
+/** Graphics-mode preset — the "app settings" knob:
+ *    performance — hardware adapter or nothing (games): no fallback chain.
+ *    stability   — degrade gracefully (desktop apps): try the primary
+ *                  backend, then the GL backend (virgl), then software. */
+export type GpuMode = "performance" | "stability";
+
 export interface GpuPolicy {
   adapter: GpuAdapterMode;
   backend: GpuBackend;
   /** auto mode: retry on the software adapter when the hardware attempt
    *  fails, is denied, or crashed last boot. */
   softwareFallback: boolean;
+  /** auto+backend:auto: after the primary hardware attempt fails or is
+   *  denied, retry on the GLES backend (virgl/ANGLE) before dropping to
+   *  the software adapter. Set by mode:"stability" or "glFallback":true. */
+  glFallback: boolean;
   /** Extra denylist substrings (matched case-insensitively against the
    *  adapter's driver|name|backend). */
   deny: string[];
@@ -113,6 +131,20 @@ export function denyReasonForAdapter(
 
 const ADAPTER_MODES: ReadonlySet<string> = new Set(["auto", "hardware", "software"]);
 const BACKENDS: ReadonlySet<string> = new Set(["auto", "vulkan", "gl", "metal", "dx12"]);
+const GPU_MODES: ReadonlySet<string> = new Set(["performance", "stability"]);
+
+/** Apply a mode preset — granular fields set alongside it still win. */
+function applyMode(policy: GpuPolicy, mode: GpuMode): void {
+  if (mode === "performance") {
+    policy.adapter = "hardware";
+    policy.softwareFallback = false;
+    policy.glFallback = false;
+  } else {
+    policy.adapter = "auto";
+    policy.softwareFallback = true;
+    policy.glFallback = true;
+  }
+}
 
 /** dir → parsed "gpu" block (null = no config / no block). Cached — the
  *  file is static per boot and the resolver runs on several call sites. */
@@ -203,14 +235,20 @@ export function resolveGpuPolicy(input: GpuPolicyInput = {}): GpuPolicy {
     adapter: "auto",
     backend: "auto",
     softwareFallback: true,
+    glFallback: false,
     deny: [],
     explicitAdapter: false,
     source: "",
   };
 
-  // downdraft.config.json "gpu" block
+  // downdraft.config.json "gpu" block — mode preset first, then the
+  // explicit granular fields (they outrank the preset they sit beside).
   const cfg = readGpuConfigBlock(input.gameDir);
   if (Object.keys(cfg).length) source.push("downdraft.config.json");
+  if (typeof cfg.mode === "string" && GPU_MODES.has(cfg.mode)) {
+    applyMode(policy, cfg.mode as GpuMode);
+    source.push(`mode=${cfg.mode}`);
+  }
   if (typeof cfg.adapter === "string" && ADAPTER_MODES.has(cfg.adapter)) {
     policy.adapter = cfg.adapter as GpuAdapterMode;
   }
@@ -219,11 +257,18 @@ export function resolveGpuPolicy(input: GpuPolicyInput = {}): GpuPolicy {
   }
   const cfgFallback = parseBool(cfg.softwareFallback);
   if (cfgFallback !== undefined) policy.softwareFallback = cfgFallback;
+  const cfgGl = parseBool(cfg.glFallback);
+  if (cfgGl !== undefined) policy.glFallback = cfgGl;
   if (Array.isArray(cfg.deny)) {
     policy.deny.push(...cfg.deny.filter((d): d is string => typeof d === "string"));
   }
 
   // env — spawn-time overrides, outrank the config file
+  const envMode = process.env.DOWNDRAFT_GPU_MODE;
+  if (envMode && GPU_MODES.has(envMode)) {
+    applyMode(policy, envMode as GpuMode);
+    source.push(`DOWNDRAFT_GPU_MODE=${envMode}`);
+  }
   const envGpu = process.env.DOWNDRAFT_GPU;
   if (envGpu === "swiftshader") { policy.adapter = "software"; source.push("DOWNDRAFT_GPU=swiftshader"); }
   else if (envGpu === "hardware") { policy.adapter = "hardware"; source.push("DOWNDRAFT_GPU=hardware"); }
