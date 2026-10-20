@@ -8,9 +8,10 @@
 // ============================================================================
 
 import { loadOsrLib } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
+import type { RendererInputBus } from "@downdraft/engine/module/renderer-module";
 import { describe, expect, test } from "bun:test";
 import { createDocCore, createLocalBackend, type DocBackend, type DocGpuView } from "./doc-backend";
-import { HtmlUiHost } from "./host";
+import { HtmlUiHost, type UiZoomKeysOptions } from "./host";
 import { Fragment, jsx, jsxs, renderHtml } from "./jsx-runtime";
 import type { UiToWorker, WorkerToUi } from "./protocol";
 
@@ -453,30 +454,67 @@ describe.skipIf(!hasLib)("html-ui gpu-direct", () => {
   });
 });
 
+function fakeGpuDevice(): GPUDevice {
+  (globalThis as { GPUShaderStage?: unknown }).GPUShaderStage ??=
+    { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 };
+  return {
+    createShaderModule: () => ({}),
+    createBindGroupLayout: () => ({}),
+    createSampler: () => ({}),
+    createPipelineLayout: () => ({}),
+    createRenderPipeline: () => ({}),
+    createBuffer: () => ({}),
+    createBindGroup: () => ({}),
+    createTexture: () => ({ createView: () => ({}), destroy: () => {} }),
+    queue: { writeTexture() {}, writeBuffer() {}, copyExternalImageToTexture() {} },
+  } as unknown as GPUDevice;
+}
+
+function fakeHost(opts?: { zoomKeys?: boolean | UiZoomKeysOptions }): { host: HtmlUiHost; msgs: UiToWorker[] } {
+  const msgs: UiToWorker[] = [];
+  const backend: DocBackend = {
+    kind: "local",
+    post: (m) => { msgs.push(m); },
+    onMessage: () => {},
+    dispose: () => {},
+  };
+  return { host: new HtmlUiHost(fakeGpuDevice(), "rgba8unorm", backend, opts), msgs };
+}
+
+/** Input-bus stub: captures onKeyDown/onPointerDown handlers and replays
+ *  events in priority order honoring stopPropagation (lower p runs first). */
+function fakeInputBus() {
+  type KeyFn = (e: KeyboardEvent, c: { stopPropagation(): void }) => void;
+  type PtrFn = (e: PointerEvent, c: { stopPropagation(): void }) => void;
+  const keys: { fn: KeyFn; p: number }[] = [];
+  const ptrDowns: { fn: PtrFn; p: number }[] = [];
+  const bus = {
+    onPointerMove: () => () => {},
+    onPointerDown: (fn: PtrFn, p = 0) => { ptrDowns.push({ fn, p }); return () => {}; },
+    onPointerUp: () => () => {},
+    onWheel: () => () => {},
+    onKeyDown: (fn: KeyFn, p = 0) => { keys.push({ fn, p }); return () => {}; },
+    onKeyUp: () => () => {},
+    onDrag: () => () => {},
+  } as unknown as RendererInputBus;
+  const dispatch = <E>(handlers: { fn: (e: E, c: { stopPropagation(): void }) => void; p: number }[], e: E) => {
+    let stopped = false, calls = 0;
+    const ctrl = { stopPropagation: () => { stopped = true; } };
+    [...handlers].sort((a, b) => a.p - b.p).forEach((h) => {
+      if (stopped) return;
+      calls++;
+      h.fn(e, ctrl);
+    });
+    return { stopped, calls };
+  };
+  return {
+    bus,
+    keyDown: (e: Partial<KeyboardEvent>) => dispatch(keys, e as KeyboardEvent),
+    pointerDown: (e: Partial<PointerEvent>) => dispatch(ptrDowns, e as PointerEvent),
+  };
+}
+
 describe("html-ui host surface-fit", () => {
-  function fakeHost(): { host: HtmlUiHost; msgs: UiToWorker[] } {
-    const msgs: UiToWorker[] = [];
-    (globalThis as { GPUShaderStage?: unknown }).GPUShaderStage ??=
-      { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 };
-    const device = {
-      createShaderModule: () => ({}),
-      createBindGroupLayout: () => ({}),
-      createSampler: () => ({}),
-      createPipelineLayout: () => ({}),
-      createRenderPipeline: () => ({}),
-      createBuffer: () => ({}),
-      createBindGroup: () => ({}),
-      createTexture: () => ({ createView: () => ({}), destroy: () => {} }),
-      queue: { writeTexture() {}, writeBuffer() {}, copyExternalImageToTexture() {} },
-    } as unknown as GPUDevice;
-    const backend: DocBackend = {
-      kind: "local",
-      post: (m) => { msgs.push(m); },
-      onMessage: () => {},
-      dispose: () => {},
-    };
-    return { host: new HtmlUiHost(device, "rgba8unorm", backend), msgs };
-  }
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   test("fit panel: rect tracks immediately, doc relayout is deferred", async () => {
@@ -538,6 +576,113 @@ describe("html-ui host surface-fit", () => {
     msgs.length = 0;
     host.setSurfaceSize(200, 100, 1); // same rect + same zoom → skip
     expect(msgs.some((m) => m.type === "resize")).toBe(false);
+    host.dispose();
+  });
+});
+
+describe("html-ui host zoom keys", () => {
+  const resizes = (msgs: UiToWorker[]) =>
+    msgs.filter((m): m is Extract<UiToWorker, { type: "resize" }> => m.type === "resize");
+
+  test("off by default — Ctrl+= is not consumed", () => {
+    const { host, msgs } = fakeHost();
+    const { bus, keyDown } = fakeInputBus();
+    host.bindInput(bus);
+    host.mount({ id: "p", rect: { x: 0, y: 0, w: 100, h: 50 }, scale: 1, html: "<div/>" });
+    msgs.length = 0;
+    const r = keyDown({ key: "=", code: "Equal", ctrlKey: true });
+    expect(r.stopped).toBe(false);
+    expect(host.uiZoom).toBe(1);
+    expect(resizes(msgs).length).toBe(0);
+    host.dispose();
+  });
+
+  test("Ctrl+= steps the shared zoom and relayouts every panel", () => {
+    const { host, msgs } = fakeHost({ zoomKeys: true });
+    const { bus, keyDown } = fakeInputBus();
+    host.bindInput(bus);
+    host.mount({ id: "p", rect: { x: 0, y: 0, w: 100, h: 50 }, scale: 1, html: "<div/>" });
+    msgs.length = 0;
+    const r = keyDown({ key: "=", code: "Equal", ctrlKey: true });
+    expect(r.stopped).toBe(true); // consumed before panels/docs see it
+    expect(host.uiZoom).toBeCloseTo(1.25);
+    const rs = resizes(msgs);
+    expect(rs.length).toBe(1);
+    // Doc lays out at rect/zoom CSS px; raster scale = panel scale × eff zoom.
+    expect(rs[0]!.cssW).toBeCloseTo(80);
+    expect(rs[0]!.cssH).toBeCloseTo(40);
+    expect(rs[0]!.scale).toBeCloseTo(1.25);
+    host.dispose();
+  });
+
+  test("Ctrl+- zooms out, Ctrl+0 resets, keys match key and code", () => {
+    const { host, msgs } = fakeHost({ zoomKeys: true });
+    const { bus, keyDown } = fakeInputBus();
+    host.bindInput(bus);
+    host.mount({ id: "p", rect: { x: 0, y: 0, w: 100, h: 50 }, scale: 1, html: "<div/>" });
+    keyDown({ key: "-", code: "Minus", ctrlKey: true });
+    expect(host.uiZoom).toBeCloseTo(1 / 1.25);
+    // Numpad variants hit the same paths (code-based match).
+    keyDown({ key: "+", code: "NumpadAdd", ctrlKey: true });
+    expect(host.uiZoom).toBeCloseTo(1);
+    keyDown({ key: "=", code: "Equal", ctrlKey: true });
+    keyDown({ key: "=", code: "Equal", ctrlKey: true });
+    expect(host.uiZoom).toBeCloseTo(1.25 * 1.25);
+    keyDown({ key: "0", code: "Digit0", ctrlKey: true });
+    expect(host.uiZoom).toBe(1);
+    host.dispose();
+  });
+
+  test("bounds clamp and plain keys without ctrl are ignored", () => {
+    const { host } = fakeHost({ zoomKeys: { min: 0.5, max: 2 } });
+    const { bus, keyDown } = fakeInputBus();
+    host.bindInput(bus);
+    host.setUiZoom(100);
+    expect(host.uiZoom).toBe(2);
+    host.setUiZoom(0.01);
+    expect(host.uiZoom).toBe(0.5);
+    const r = keyDown({ key: "=", code: "Equal" }); // no ctrl — not a zoom key
+    expect(r.stopped).toBe(false);
+    expect(host.uiZoom).toBe(0.5);
+    // Ctrl+Alt is left alone too (AltGr-style chords belong to the doc).
+    const r2 = keyDown({ key: "=", code: "Equal", ctrlKey: true, altKey: true });
+    expect(r2.stopped).toBe(false);
+    host.dispose();
+  });
+
+  test("app zoom composes with a fit panel's surface zoom", () => {
+    const { host, msgs } = fakeHost({ zoomKeys: true });
+    host.mount({ id: "p", rect: { x: 0, y: 0, w: 100, h: 50 }, scale: 1, html: "<div/>", fit: true });
+    host.setSurfaceSize(200, 100, 2); // surface dpr 2
+    msgs.length = 0;
+    host.setUiZoom(2);
+    const rs = resizes(msgs);
+    expect(rs.length).toBe(1);
+    // eff zoom = surface 2 × app 2 → doc lays out at 200/4 = 50 CSS px wide.
+    expect(rs[0]!.cssW).toBeCloseTo(50);
+    expect(rs[0]!.scale).toBeCloseTo(4);
+    // A later surface resize keeps the app zoom — setSurfaceSize only
+    // rewrites the base zoom, the multiplier survives.
+    msgs.length = 0;
+    host.setSurfaceSize(300, 150, 2);
+    const rs2 = resizes(msgs);
+    expect(rs2[0]!.cssW).toBeCloseTo(75);
+    host.dispose();
+  });
+
+  test("pointer input converts through the effective zoom", () => {
+    const { host, msgs } = fakeHost({ zoomKeys: true });
+    const { bus, pointerDown } = fakeInputBus();
+    host.bindInput(bus);
+    host.mount({ id: "p", rect: { x: 0, y: 0, w: 100, h: 50 }, scale: 1, html: "<div/>" });
+    host.setUiZoom(2);
+    msgs.length = 0;
+    pointerDown({ clientX: 40, clientY: 20, button: 0 } as Partial<PointerEvent>);
+    const down = msgs.find((m) => m.type === "input" && m.msg.kind === "down") as
+      Extract<UiToWorker, { type: "input" }> | undefined;
+    expect(down).toBeTruthy();
+    expect((down!.msg as { x: number }).x).toBeCloseTo(20);
+    expect((down!.msg as { y: number }).y).toBeCloseTo(10);
     host.dispose();
   });
 });

@@ -6,7 +6,7 @@ export type { HtmlUiContext, HtmlUiOptions, UISubscribable } from "./create-html
 export { createDocCore, createLocalBackend, createWorkerBackend } from "./doc-backend";
 export type { DocBackend, DocGpuHooks, DocGpuView } from "./doc-backend";
 export { HtmlUiHost } from "./host";
-export type { PanelActionHandler, PanelEventHandler, PanelRect, PanelSpec, UiPanelHandle } from "./host";
+export type { PanelActionHandler, PanelEventHandler, PanelRect, PanelSpec, UiPanelHandle, UiZoomKeysOptions } from "./host";
 export { Fragment, jsx, jsxDEV, jsxs, renderHtml } from "./jsx-runtime";
 export type { Child, Component, VNode } from "./jsx-runtime";
 export type { DocInputMsg, DocMutation, NavNodeInfo, UiPointerMsg, UiToWorker, WorkerToUi } from "./protocol";

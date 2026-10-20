@@ -71,6 +71,20 @@ export interface PanelSpec {
 export type PanelEventHandler = (ev: OsrDomEvent) => void;
 export type PanelActionHandler = (data: Record<string, string>, ev: OsrDomEvent) => void;
 
+/** Tuning for the host's opt-in Ctrl+= / Ctrl+- / Ctrl+0 app-zoom keys —
+ *  a shared UI-zoom factor multiplied on top of every panel's `zoom`. */
+export interface UiZoomKeysOptions {
+  /** Multiplicative step per keypress (must be > 1). Default 1.25. */
+  step?: number;
+  /** Zoom clamps. Defaults 0.25 / 4. */
+  min?: number;
+  max?: number;
+  /** Ctrl+0 reset target. Default 1. */
+  reset?: number;
+  /** Starting zoom (restore a persisted value). Default `reset`. */
+  initial?: number;
+}
+
 interface Panel {
   id: string;
   spec: PanelSpec;
@@ -219,6 +233,23 @@ export class HtmlUiHost {
    *  loaded cdylib supports appendHtml/trimChildren. */
   private caps = { incrementalDom: false };
 
+  /** App-level UI zoom (zoomKeys) — a multiplier applied on top of each
+   *  panel's own `zoom` everywhere the doc scale or input conversion uses
+   *  it. `p.zoom` stays the consumer/surface-provided base so per-resize
+   *  `setRect`/`setSurfaceSize` calls can't clobber the user's zoom. */
+  private zoomKeysEnabled = false;
+  private zoomCfg = { step: 1.25, min: 0.25, max: 4, reset: 1 };
+  private userZoom = 1;
+
+  private clampUiZoom(z: number): number {
+    return Math.min(this.zoomCfg.max, Math.max(this.zoomCfg.min, z));
+  }
+
+  /** Effective doc zoom = panel base zoom × the app UI zoom. */
+  private effZoom(p: Panel): number {
+    return p.zoom * this.userZoom;
+  }
+
   readonly blit: PanelBlitPass;
 
   constructor(
@@ -231,6 +262,10 @@ export class HtmlUiHost {
       /** Upload panels via the worker's shared-device view (native only).
        *  Default true; false forces the SAB upload path. */
       gpuUpload?: boolean;
+      /** Browser-style Ctrl+= / Ctrl+- / Ctrl+0 app-zoom keys — a shared
+       *  UI-zoom multiplier over every panel's `zoom`. `true` takes the
+       *  defaults; an object tunes step/bounds/initial. Default off. */
+      zoomKeys?: boolean | UiZoomKeysOptions;
     },
   ) {
     this.blit = new PanelBlitPass(device, format);
@@ -239,6 +274,16 @@ export class HtmlUiHost {
     this.profilingTag = opts?.profilingTag ?? "ui";
     this.gpuUpload = opts?.gpuUpload !== false
       && !(typeof process !== "undefined" && process.env?.DOWNDRAFT_NO_UI_GPU === "1");
+    const zk = typeof opts?.zoomKeys === "object" ? opts.zoomKeys : {};
+    this.zoomKeysEnabled = opts?.zoomKeys !== undefined && opts.zoomKeys !== false;
+    this.zoomCfg = {
+      step: zk.step && zk.step > 1 ? zk.step : 1.25,
+      min: zk.min && zk.min > 0 ? zk.min : 0.25,
+      max: zk.max && zk.max > 0 ? zk.max : 4,
+      reset: zk.reset && zk.reset > 0 ? zk.reset : 1,
+    };
+    if (this.zoomCfg.max < this.zoomCfg.min) this.zoomCfg.max = this.zoomCfg.min;
+    this.userZoom = this.clampUiZoom(zk.initial ?? this.zoomCfg.reset);
     // The doc-backend story isn't settled while a gpu-direct upgrade is
     // still possible — the gpuReady ack logs the final form at info.
     const gpuDirectPossible = this.gpuUpload
@@ -338,7 +383,8 @@ export class HtmlUiHost {
     this.order.push(id);
     // Doc viewport scale = raster px per CSS px = scale * zoom; layout size
     // is rect/zoom CSS px so the raster still covers rect*scale texture px.
-    this.send({ type: "create", id, cssW: spec.rect.w / zoom, cssH: spec.docH ?? spec.rect.h / zoom, scale: scale * zoom, html: spec.html, maxFps: spec.maxFps, smoothWheel: spec.smoothWheel });
+    const eff = zoom * this.userZoom;
+    this.send({ type: "create", id, cssW: spec.rect.w / eff, cssH: spec.docH ?? spec.rect.h / eff, scale: scale * eff, html: spec.html, maxFps: spec.maxFps, smoothWheel: spec.smoothWheel });
     // GPU-direct: create the panel texture eagerly so the worker's texBind
     // lands before its first upload — the host knows raster dims at mount.
     if (this.gpuReady) this.bindPanelTex(panel);
@@ -452,8 +498,8 @@ export class HtmlUiHost {
       // convert to doc CSS px here the same way local() does.
       sendPointer: (msg) => this.input(p.id,
         msg.kind === "wheel"
-          ? { ...msg, x: msg.x / p.zoom, y: msg.y / p.zoom, deltaX: msg.deltaX / p.zoom, deltaY: msg.deltaY / p.zoom }
-          : { ...msg, x: msg.x / p.zoom, y: msg.y / p.zoom }),
+          ? { ...msg, x: msg.x / this.effZoom(p), y: msg.y / this.effZoom(p), deltaX: msg.deltaX / this.effZoom(p), deltaY: msg.deltaY / this.effZoom(p) }
+          : { ...msg, x: msg.x / this.effZoom(p), y: msg.y / this.effZoom(p) }),
       navSnapshot: (sel) => new Promise((resolve) => {
         const reqId = this.nextReqId++;
         this.navReqs.set(reqId, resolve);
@@ -494,9 +540,28 @@ export class HtmlUiHost {
     });
   }
 
+  /** The shared UI-zoom multiplier — `1` unless the `zoomKeys` shortcut or
+   *  `setUiZoom` changed it. */
+  get uiZoom(): number { return this.userZoom; }
+
+  /** Set the app UI zoom (clamped to the zoomKeys bounds; default
+   *  0.25–4). Every panel re-lays out at the new effective zoom right
+   *  away — discrete zoom steps don't need the fit debounce, and a
+   *  pending fit relayout is superseded so it can't double-send. */
+  setUiZoom(z: number): void {
+    const c = this.clampUiZoom(z);
+    if (c === this.userZoom) return;
+    this.userZoom = c;
+    this.panels.forEach((p) => {
+      if (p.fitTimer) { clearTimeout(p.fitTimer); p.fitTimer = null; }
+      this.sendPanelResize(p);
+    });
+  }
+
   /** Doc `resize` + GPU-direct rebind for the panel's current rect/zoom. */
   private sendPanelResize(p: Panel): void {
-    this.send({ type: "resize", id: p.id, cssW: p.rect.w / p.zoom, cssH: p.docH ?? p.rect.h / p.zoom, scale: p.scale * p.zoom });
+    const z = this.effZoom(p);
+    this.send({ type: "resize", id: p.id, cssW: p.rect.w / z, cssH: p.docH ?? p.rect.h / z, scale: p.scale * z });
     this.bindPanelTex(p); // rebind the worker to the resized texture
   }
 
@@ -647,8 +712,25 @@ export class HtmlUiHost {
     };
     const input = (id: string, msg: DocInputMsg) => this.input(id, msg);
     const local = (p: Panel, e: { clientX: number; clientY: number }) => ({
-      x: (e.clientX - p.rect.x) / p.zoom, y: (e.clientY - p.rect.y) / p.zoom,
+      x: (e.clientX - p.rect.x) / this.effZoom(p), y: (e.clientY - p.rect.y) / this.effZoom(p),
     });
+
+    // App zoom keys (opt-in via ctor `zoomKeys`) — browser convention:
+    // Ctrl+= / Ctrl+- step the UI zoom, Ctrl+0 resets. Priority -30 puts
+    // the gesture ahead of nav (-20) and panel key routing (-10): zooming
+    // is an app-level command, so it wins over in-doc handlers and focused
+    // inputs (a browser also zooms while a text field has focus).
+    if (this.zoomKeysEnabled) {
+      this.unsubInput.push(bus.onKeyDown((e: KeyboardEvent, ctrl: InputEventControl) => {
+        if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+        const k = e.key, c = e.code;
+        if (k === "=" || k === "+" || c === "Equal" || c === "NumpadAdd") this.setUiZoom(this.userZoom * this.zoomCfg.step);
+        else if (k === "-" || k === "_" || c === "Minus" || c === "NumpadSubtract") this.setUiZoom(this.userZoom / this.zoomCfg.step);
+        else if (k === "0" || c === "Digit0" || c === "Numpad0") this.setUiZoom(this.zoomCfg.reset);
+        else return;
+        ctrl.stopPropagation();
+      }, -30));
+    }
 
     this.unsubInput.push(
       bus.onPointerMove((e: PointerEvent, _ctrl: InputEventControl) => {
@@ -691,7 +773,7 @@ export class HtmlUiHost {
         const p = this.panelAt(e.clientX, e.clientY);
         if (!p) return;
         ctrl.stopPropagation();
-        input(p.id, { kind: "wheel", ...local(p, e), deltaX: e.deltaX / p.zoom, deltaY: e.deltaY / p.zoom, mods: modsOf(e) });
+        input(p.id, { kind: "wheel", ...local(p, e), deltaX: e.deltaX / this.effZoom(p), deltaY: e.deltaY / this.effZoom(p), mods: modsOf(e) });
       }, -10),
       bus.onKeyDown((e: KeyboardEvent, ctrl: InputEventControl) => {
         const p = this.focusedPanel ? this.panels.get(this.focusedPanel) : null;
@@ -971,7 +1053,7 @@ export class HtmlUiHost {
     if (!this.gpuReady || this.backend.kind !== "worker") return;
     const pw = Math.max(1, Math.round(p.rect.w * p.scale));
     // docH is a layout-px override: it scales by zoom like the doc does.
-    const ph = Math.max(1, Math.round((p.docH !== null ? p.docH * p.zoom : p.rect.h) * p.scale));
+    const ph = Math.max(1, Math.round((p.docH !== null ? p.docH * this.effZoom(p) : p.rect.h) * p.scale));
     this.ensureTexture(p, pw, ph);
     if (!p.texture) return;
     const ptr = BigInt((p.texture as unknown as { ptr: number | bigint }).ptr);

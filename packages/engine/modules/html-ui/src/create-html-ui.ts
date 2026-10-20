@@ -15,7 +15,7 @@ import { GamepadSourceTok } from "@downdraft/engine/libraries/gamepad/library";
 import { UiNavRouter, type UiNavRouterOptions } from "@downdraft/engine/libraries/html-ui-kit/nav/router";
 import type { RendererModule, RendererModuleContext } from "@downdraft/engine/module/renderer-module";
 import { createLogger } from "@downdraft/engine/util/logger";
-import { HtmlUiHost, type PanelSpec, type UiPanelHandle } from "./host";
+import { HtmlUiHost, type PanelSpec, type UiPanelHandle, type UiZoomKeysOptions } from "./host";
 import { renderHtml, type Child } from "./jsx-runtime";
 
 const log = createLogger("info");
@@ -49,6 +49,12 @@ export interface HtmlUiContext {
   onUpdate(fn: (dt: number, elapsed: number) => void): void;
   onResize(fn: (w: number, h: number, dpr: number) => void): void;
   onDispose(fn: () => void): void;
+  /** The shared UI-zoom multiplier — `1` unless `zoomKeys` or `setUiZoom`
+   *  changed it (multiplies every panel's own `zoom`). */
+  readonly uiZoom: number;
+  /** Programmatic app zoom — same clamp as `zoomKeys`; relayouts every
+   *  doc immediately. */
+  setUiZoom(z: number): void;
   /**
    * Controller/keyboard navigation router — every mounted panel is
    * auto-attached, the topmost panel captures input, and confirming an
@@ -75,6 +81,16 @@ export interface HtmlUiOptions {
    * forces the SAB path; `DOWNDRAFT_NO_UI_GPU=1` forces it globally.
    */
   gpuUpload?: boolean;
+  /**
+   * Browser-style app-zoom keys: Ctrl+= / Ctrl+- step a shared UI-zoom
+   * multiplier over every panel's `zoom`, Ctrl+0 resets. `fit` panels get
+   * real "zoom the app" behavior — the doc re-lays out at the new
+   * effective scale inside the surface-covering rect. The keys are
+   * consumed before panel/doc input handlers (zooming works even while a
+   * text field holds focus). Off by default; `true` takes the defaults
+   * (1.25× steps clamped to 0.25–4), an object tunes them.
+   */
+  zoomKeys?: boolean | UiZoomKeysOptions;
   build(ui: HtmlUiContext): void;
 }
 
@@ -103,7 +119,7 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
     version: "1.0.0",
     provides: [HtmlUiTok],
     register(ctx: RendererModuleContext) {
-      const host = new HtmlUiHost(ctx.getDevice(), ctx.getFormat(), undefined, { profilingTag: `ui:${moduleName}`, gpuUpload: options.gpuUpload });
+      const host = new HtmlUiHost(ctx.getDevice(), ctx.getFormat(), undefined, { profilingTag: `ui:${moduleName}`, gpuUpload: options.gpuUpload, zoomKeys: options.zoomKeys });
       host.bindInput(ctx.getInputBus());
       ctx.onDispose(() => host.dispose());
       const unregCompositor = ctx.registerUiCompositor?.(host.compositor);
@@ -192,6 +208,8 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
         fontFaceCss: (family, uiUrl) =>
           `@font-face { font-family: '${family}'; src: url('${uiUrl}'); }`,
         isPointerOverUI: (x, y) => host.isPointerOverUI(x, y),
+        get uiZoom() { return host.uiZoom; },
+        setUiZoom: (z) => host.setUiZoom(z),
         onUpdate(fn) { updateSubs.push(fn); },
         onResize(fn) { ctx.onResize(fn); },
         onDispose(fn) { disposeFns.push(fn); },
