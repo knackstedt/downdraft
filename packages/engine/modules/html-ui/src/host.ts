@@ -41,6 +41,18 @@ export interface PanelSpec {
    *  getRect, navSnapshot) stay in layout CSS px — multiply by `zoom` for
    *  display px. Pointer input is converted automatically. Default 1. */
   zoom?: number;
+  /** Surface-fit: the rect always covers the whole surface and zoom tracks
+   *  the live display scale factor — the fullscreen-panel case that
+   *  otherwise needs every game to re-derive buffer-px rects + zoom on each
+   *  resize. Getting that math wrong across monitors with different scale
+   *  factors leaves the quad covering only part of the surface — a black
+   *  border on the bottom/right edges. The compositor quad follows every
+   *  surface resize immediately (the current texture stretches for the
+   *  in-between frames); the doc re-layout + texture realloc — the
+   *  expensive half — is trailing-edge debounced by `debounceMs` (default
+   *  0). Manual setRect calls on a fit panel are overwritten by the next
+   *  surface resize. */
+  fit?: boolean | { debounceMs?: number };
   /** Raster-rate cap for animating docs (0 = uncapped). Static docs repaint on demand regardless. */
   maxFps?: number;
   /** Ease wheel deltas out at frame cadence instead of applying each detent
@@ -100,6 +112,11 @@ interface Panel {
   /** The texPtr of the last texBind posted — suppresses duplicate posts
    *  and keeps the target alive while the bind may still be in flight. */
   postedBindPtr: bigint | null;
+  /** Surface-fit tracking (PanelSpec.fit) + the trailing-edge relayout
+   *  timer — fit panels follow surface resizes via setSurfaceSize. */
+  fit: boolean;
+  fitDebounceMs: number;
+  fitTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const UI_TRACE = typeof process !== "undefined" && !!process.env?.DD_UI_TRACE;
@@ -313,6 +330,9 @@ export class HtmlUiHost {
       handlers: new Set(spec.onEvent ? [spec.onEvent] : []),
       editing: false, sab: null, sabI32: null, lastSeq: 0, lastRect: null,
       gpuBound: false, boundPtr: null, postedBindPtr: null,
+      fit: !!spec.fit,
+      fitDebounceMs: typeof spec.fit === "object" ? Math.max(0, spec.fit.debounceMs ?? 0) : 0,
+      fitTimer: null,
     };
     this.panels.set(id, panel);
     this.order.push(id);
@@ -385,14 +405,12 @@ export class HtmlUiHost {
         if (r.x === rect.x && r.y === rect.y && r.w === rect.w && r.h === rect.h && z === p.zoom) return;
         p.rect = { ...rect };
         p.zoom = z;
-        this.send({ type: "resize", id: p.id, cssW: rect.w / p.zoom, cssH: p.docH ?? rect.h / p.zoom, scale: p.scale * p.zoom });
-        this.bindPanelTex(p); // rebind the worker to the resized texture
+        this.sendPanelResize(p);
       },
       setDocHeight: (h) => {
         if (p.docH === h) return;
         p.docH = h;
-        this.send({ type: "resize", id: p.id, cssW: p.rect.w / p.zoom, cssH: h, scale: p.scale * p.zoom });
-        this.bindPanelTex(p);
+        this.sendPanelResize(p);
       },
       setSrcRect: (src) => { p.src = src ? { ...src } : null; },
       setZ: (z) => { p.z = z; },
@@ -445,10 +463,48 @@ export class HtmlUiHost {
     };
   }
 
+  /**
+   * Surface extent changed — converge every `fit` panel. The quad rect and
+   * input zoom update immediately so the panel keeps covering the surface
+   * (the previous texture stretches across the gap); the doc re-layout and
+   * texture realloc — the expensive half — runs on a per-panel trailing
+   * edge (`fitDebounceMs`, 0 = this call). winit emits a resize per pixel
+   * during drags plus a ScaleFactorChanged on monitor crossings, so
+   * coalescing here keeps retexturing out of the resize storm.
+   *
+   * `bufW`/`bufH` are backing-buffer px (RenderSurface.width/height);
+   * `zoom` is buffer px per CSS px (RenderSurface.width/clientWidth).
+   */
+  setSurfaceSize(bufW: number, bufH: number, zoom: number): void {
+    const w = Math.max(1, Math.round(bufW));
+    const h = Math.max(1, Math.round(bufH));
+    const z = zoom > 0 ? zoom : 1;
+    this.panels.forEach((p) => {
+      if (!p.fit) return;
+      const r = p.rect;
+      if (r.x === 0 && r.y === 0 && r.w === w && r.h === h && p.zoom === z) return;
+      p.rect = { x: 0, y: 0, w, h };
+      p.zoom = z;
+      if (p.fitDebounceMs <= 0) { this.sendPanelResize(p); return; }
+      if (p.fitTimer) clearTimeout(p.fitTimer);
+      p.fitTimer = setTimeout(() => {
+        p.fitTimer = null;
+        this.sendPanelResize(p);
+      }, p.fitDebounceMs);
+    });
+  }
+
+  /** Doc `resize` + GPU-direct rebind for the panel's current rect/zoom. */
+  private sendPanelResize(p: Panel): void {
+    this.send({ type: "resize", id: p.id, cssW: p.rect.w / p.zoom, cssH: p.docH ?? p.rect.h / p.zoom, scale: p.scale * p.zoom });
+    this.bindPanelTex(p); // rebind the worker to the resized texture
+  }
+
   unmount(id: string): void {
     const p = this.panels.get(id);
     if (!p) return;
     this.panels.delete(id);
+    if (p.fitTimer) { clearTimeout(p.fitTimer); p.fitTimer = null; }
     this.order = this.order.filter((x) => x !== id);
     this.retireTexture(p);
     p.ubo?.destroy();
@@ -523,7 +579,7 @@ export class HtmlUiHost {
     this.unsubInput.forEach((u) => u());
     this.unsubInput = [];
     if (this.moveTimer) { clearTimeout(this.moveTimer); this.moveTimer = null; }
-    for (const p of this.panels.values()) { this.retireTexture(p); p.ubo?.destroy(); p.sab = null; p.sabI32 = null; }
+    for (const p of this.panels.values()) { if (p.fitTimer) clearTimeout(p.fitTimer); this.retireTexture(p); p.ubo?.destroy(); p.sab = null; p.sabI32 = null; }
     this.panels.clear();
     this.order = [];
     if (this.gpuAttachSent && this.backend.kind === "worker" && !this.gpuDetachAcked) {

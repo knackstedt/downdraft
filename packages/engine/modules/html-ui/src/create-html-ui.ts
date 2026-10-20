@@ -112,6 +112,18 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
       const updateSubs: Array<(dt: number, e: number) => void> = [];
       const disposeFns: Array<() => void> = [];
 
+      // Surface-fit panels (PanelSpec.fit) — the host keeps their rect on
+      // the surface and zoom on the live display scale: buffer px from the
+      // surface itself, buffer-per-CSS px as the zoom. Runs once after
+      // build() too, so panels mounted before the first resize event
+      // converge on the real scale factor instead of the mount-time guess.
+      const fitSurface = () => {
+        const s = ctx.getSurface();
+        const z = s.clientWidth > 0 ? s.width / s.clientWidth : 1;
+        host.setSurfaceSize(s.width, s.height, z);
+      };
+      ctx.onResize(fitSurface);
+
       // Controller/keyboard navigation — batteries-included when enabled:
       // every mounted panel gets a NavController, any connected pad or the
       // keyboard drives the topmost panel, OSK auto-opens on editable focus.
@@ -199,6 +211,7 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
       } catch (err) {
         log.error("html-ui", `${moduleName} build failed: ${err}`);
       }
+      fitSurface();
     },
   };
 }

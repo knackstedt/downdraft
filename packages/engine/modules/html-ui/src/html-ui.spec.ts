@@ -9,7 +9,8 @@
 
 import { loadOsrLib } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
 import { describe, expect, test } from "bun:test";
-import { createDocCore, createLocalBackend, type DocGpuView } from "./doc-backend";
+import { createDocCore, createLocalBackend, type DocBackend, type DocGpuView } from "./doc-backend";
+import { HtmlUiHost } from "./host";
 import { Fragment, jsx, jsxs, renderHtml } from "./jsx-runtime";
 import type { UiToWorker, WorkerToUi } from "./protocol";
 
@@ -449,6 +450,95 @@ describe.skipIf(!hasLib)("html-ui gpu-direct", () => {
     expect(msgs.some((m) => m.type === "gpuDetached")).toBe(true);
     expect(alive.v).toBe(false);
     core.dispose();
+  });
+});
+
+describe("html-ui host surface-fit", () => {
+  function fakeHost(): { host: HtmlUiHost; msgs: UiToWorker[] } {
+    const msgs: UiToWorker[] = [];
+    (globalThis as { GPUShaderStage?: unknown }).GPUShaderStage ??=
+      { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 };
+    const device = {
+      createShaderModule: () => ({}),
+      createBindGroupLayout: () => ({}),
+      createSampler: () => ({}),
+      createPipelineLayout: () => ({}),
+      createRenderPipeline: () => ({}),
+      createBuffer: () => ({}),
+      createBindGroup: () => ({}),
+      createTexture: () => ({ createView: () => ({}), destroy: () => {} }),
+      queue: { writeTexture() {}, writeBuffer() {}, copyExternalImageToTexture() {} },
+    } as unknown as GPUDevice;
+    const backend: DocBackend = {
+      kind: "local",
+      post: (m) => { msgs.push(m); },
+      onMessage: () => {},
+      dispose: () => {},
+    };
+    return { host: new HtmlUiHost(device, "rgba8unorm", backend), msgs };
+  }
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  test("fit panel: rect tracks immediately, doc relayout is deferred", async () => {
+    const { host, msgs } = fakeHost();
+    const panel = host.mount({ id: "p", rect: { x: 0, y: 0, w: 100, h: 50 }, scale: 1, html: "<div/>", fit: { debounceMs: 30 } });
+    msgs.length = 0;
+    host.setSurfaceSize(200, 100, 2);
+    // The quad follows right away — the surface never shows uncovered area.
+    expect(panel.rect).toEqual({ x: 0, y: 0, w: 200, h: 100 });
+    expect(msgs.some((m) => m.type === "resize")).toBe(false);
+    await sleep(60);
+    const rs = msgs.find((m) => m.type === "resize") as Extract<UiToWorker, { type: "resize" }> | undefined;
+    expect(rs).toBeTruthy();
+    // Doc layout stays in CSS px (buffer/zoom); raster scale = scale×zoom.
+    expect(rs!.cssW).toBe(100);
+    expect(rs!.cssH).toBe(50);
+    expect(rs!.scale).toBe(2);
+    host.dispose();
+  });
+
+  test("debounce coalesces a resize storm into one relayout", async () => {
+    const { host, msgs } = fakeHost();
+    host.mount({ id: "p", rect: { x: 0, y: 0, w: 100, h: 50 }, scale: 1, html: "<div/>", fit: { debounceMs: 30 } });
+    msgs.length = 0;
+    host.setSurfaceSize(200, 100, 2);
+    host.setSurfaceSize(220, 110, 2);
+    host.setSurfaceSize(240, 120, 2);
+    await sleep(60);
+    const resizes = msgs.filter((m) => m.type === "resize") as Extract<UiToWorker, { type: "resize" }>[];
+    expect(resizes.length).toBe(1);
+    expect(resizes[0]!.cssW).toBe(120);
+    host.dispose();
+  });
+
+  test("fit:true relayouts immediately (debounceMs 0)", () => {
+    const { host, msgs } = fakeHost();
+    host.mount({ id: "p", rect: { x: 0, y: 0, w: 100, h: 50 }, scale: 1, html: "<div/>", fit: true });
+    msgs.length = 0;
+    host.setSurfaceSize(200, 100, 2);
+    const rs = msgs.find((m) => m.type === "resize") as Extract<UiToWorker, { type: "resize" }> | undefined;
+    expect(rs).toBeTruthy();
+    expect(rs!.cssW).toBe(100);
+    host.dispose();
+  });
+
+  test("non-fit panels ignore setSurfaceSize", () => {
+    const { host, msgs } = fakeHost();
+    const panel = host.mount({ id: "p", rect: { x: 10, y: 10, w: 100, h: 50 }, scale: 1, html: "<div/>" });
+    msgs.length = 0;
+    host.setSurfaceSize(200, 100, 2);
+    expect(panel.rect).toEqual({ x: 10, y: 10, w: 100, h: 50 });
+    expect(msgs.some((m) => m.type === "resize")).toBe(false);
+    host.dispose();
+  });
+
+  test("same dims + same zoom is a no-op (no doc resize)", () => {
+    const { host, msgs } = fakeHost();
+    host.mount({ id: "p", rect: { x: 0, y: 0, w: 200, h: 100 }, scale: 1, html: "<div/>", fit: true });
+    msgs.length = 0;
+    host.setSurfaceSize(200, 100, 1); // same rect + same zoom → skip
+    expect(msgs.some((m) => m.type === "resize")).toBe(false);
+    host.dispose();
   });
 });
 
