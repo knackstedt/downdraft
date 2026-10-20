@@ -33,6 +33,7 @@ const MAP_READ = 0x0001, COPY_DST = 0x0008;
 function makeDevice() {
   const instance = wgpu.wgpu_shim_create_instance() as unknown as number;
   const adapter = wgpu.wgpu_shim_request_adapter(instance, 0) as unknown as number;
+  if (!adapter) throw new Error("no adapter");
   const devicePtr = wgpu.wgpu_shim_request_device(adapter, 0, 0, 0, 0) as unknown as number;
   if (!devicePtr) throw new Error("device creation failed");
   return { instance, device: new WgpuDevice(devicePtr, instance) };
