@@ -1,4 +1,5 @@
 import { mat4 } from "wgpu-matrix";
+import { pipelinePool } from "./pipeline-pool";
 import { createValidatedShaderModule } from "./shader-validator";
 
 const SKYBOX_SHADER = /* wgsl */ `

@@ -1,3 +1,4 @@
+import type { WgpuAdapter } from "@downdraft/platform-native/gpu/wgpu-device";
 import { describe, expect, it } from "bun:test";
 import { AsyncPipelinePool, pipelinePool } from "./pipeline-pool";
 
@@ -12,6 +13,7 @@ import { AsyncPipelinePool, pipelinePool } from "./pipeline-pool";
 function makeDesc(label = "test"): GPURenderPipelineDescriptor {
   return {
     label,
+    layout: "auto",
     vertex: { module: {} as GPUShaderModule, entryPoint: "vs_main" },
     fragment: { module: {} as GPUShaderModule, entryPoint: "fs_main", targets: [{ format: "rgba8unorm" }] },
     primitive: { topology: "triangle-list" },
@@ -21,6 +23,7 @@ function makeDesc(label = "test"): GPURenderPipelineDescriptor {
 function makeComputeDesc(label = "test"): GPUComputePipelineDescriptor {
   return {
     label,
+    layout: "auto",
     compute: { module: {} as GPUShaderModule, entryPoint: "main" },
   } as GPUComputePipelineDescriptor;
 }
@@ -178,7 +181,7 @@ async function tryCreateDevice() {
   if (!adapterPtr) return null;
   const features = queryNativeFeatures(adapterPtr, false);
   const has = (f: string) => (features as unknown as { has(f: string): boolean }).has(f);
-  const desc = computeDeviceDescriptor({ features: { has }, limits: {} } as GPUAdapter);
+  const desc = computeDeviceDescriptor({ features: { has }, limits: {} } as unknown as WgpuAdapter);
   const wireFeatures = serializeRequiredFeatures(desc.requiredFeatures as unknown as string[]);
   const wireLimits = serializeRequiredLimits(desc.requiredLimits as Record<string, number>);
   const devicePtr = wgpu.wgpu_shim_request_device(

@@ -95,6 +95,8 @@ function createSelfHostedUi(ctx: RendererModuleContext): HtmlUiContext {
     fontFaceCss: (family, uiUrl) =>
       `@font-face { font-family: '${family}'; src: url('${uiUrl}'); }`,
     isPointerOverUI: () => host.isPointerOverUI(),
+    get uiZoom() { return host.uiZoom; },
+    setUiZoom: (z: number) => host.setUiZoom(z),
     onUpdate: (fn) => { updateSubs.push(fn); },
     onResize: (fn) => { ctx.onResize(fn); },
     onDispose: (fn) => { disposeFns.push(fn); },

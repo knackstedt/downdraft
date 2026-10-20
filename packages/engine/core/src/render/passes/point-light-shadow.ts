@@ -99,7 +99,7 @@ export class PointLightShadowPass extends RenderPass {
   }
 
   private getPipeline(stride: number): GPURenderPipeline | null {
-    let pipeline = this.pipelines.get(stride);
+    let pipeline: GPURenderPipeline | null = this.pipelines.get(stride) ?? null;
     if (!pipeline) {
       pipeline = pipelinePool(this.device).acquireRender(`point-light-shadow:${stride}`, () => ({
         layout: "auto",

@@ -41,6 +41,13 @@ ignore = [
   # to. Tracked as upstream migrations (harfrust/skrifa alternatives).
   "RUSTSEC-2024-0436", # paste
   "RUSTSEC-2026-0192", # ttf-parser
+  # zbus_names/zvariant/zvariant_derive were folded into zbus 6 — the
+  # keyring → zbus-secret-service-keyring-store → secret-service chain is
+  # still on zbus 5 and no zbus-6 release exists yet. Unmaintained
+  # advisories, not vulnerabilities; drop these once the chain migrates.
+  "RUSTSEC-2026-0370", # zvariant
+  "RUSTSEC-2026-0371", # zbus_names
+  "RUSTSEC-2026-0372", # zvariant_derive
 ]
 
 [bans]

@@ -44,8 +44,11 @@ pub extern "C" fn dd_audio_destroy() -> c_int {
     })
 }
 
+/// # Safety
+/// `data_ptr` must point to `data_len` readable bytes (or be null, which
+/// returns -1).
 #[no_mangle]
-pub extern "C" fn dd_audio_load_buffer(
+pub unsafe extern "C" fn dd_audio_load_buffer(
     data_ptr: *const u8,
     data_len: usize,
     format: c_int,

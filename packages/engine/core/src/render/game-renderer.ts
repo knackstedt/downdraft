@@ -20,6 +20,7 @@ import { GPUDeviceManager } from "./device";
 import type { RenderContext } from "./frame-graph";
 import { FrameGraph, SlotRegistry, type TextureHandle } from "./frame-graph";
 import { InputManager } from "./input-manager";
+import { ResolutionScaleOffscreen } from "./offscreen-scale";
 import { RendererModuleHost } from "./renderer-module-host";
 import { installShaderValidationGuard } from "./shader-validator";
 
@@ -512,11 +513,11 @@ export class GameRenderer implements CanvasResizeHandler {
     }
     // Texture compression lets the asset pipeline upload BC7/ASTC/ETC2
     // directly instead of transcoding basisu KTX2 to RGBA32.
-    for (const f of ["texture-compression-bc", "texture-compression-astc", "texture-compression-etc2"] as const) {
+    (["texture-compression-bc", "texture-compression-astc", "texture-compression-etc2"] as const).forEach((f) => {
       if (adapter.features.has(f as GPUFeatureName)) {
         requiredFeatures.push(f as GPUFeatureName);
       }
-    }
+    });
     return adapter.requestDevice({
       requiredFeatures,
       requiredLimits: this.buildRequiredLimits(adapter),

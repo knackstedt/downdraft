@@ -1,3 +1,4 @@
+import { pipelinePool } from "../pipeline-pool";
 import { createValidatedShaderModule } from "../shader-validator";
 import {
     CLUSTER_GRID_ENTRY_SIZE,

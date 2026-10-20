@@ -170,9 +170,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Same pkg-config dep set as native.yml (cpal/alsa, gilrs/udev,
-      # winit/wayland-xkb, keyring/dbus; python3 for stylo mako codegen).
+      # winit/wayland-xkb, keyring/dbus, fontique/fontconfig; python3 for
+      # stylo mako codegen).
       - name: Install Linux system dependencies
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3 libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3 libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev libdbus-1-dev libfontconfig-dev
       - name: Install Rust toolchain (pinned by rust-toolchain.toml)
         run: |
           rustup toolchain install --profile minimal
@@ -236,7 +237,7 @@ jobs:
             bun --conditions=downdraft-source "$f" | tee -a bench-results/output.txt
           done
       - name: Upload benchmark results
-        uses: actions/upload-artifact@bbbca2ddaa9d1aa8f1865c352f0a8119bd6a06e9 # v5.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bench-results
           path: bench-results/output.txt

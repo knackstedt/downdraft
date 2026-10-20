@@ -55,8 +55,11 @@ fn map_err(e: keyring::Error) -> i32 {
     }
 }
 
+/// # Safety
+/// `service`, `account`, and `secret` must be valid NUL-terminated UTF-8
+/// strings (or null, which returns ERR_ARGS).
 #[no_mangle]
-pub extern "C" fn dd_sec_set(
+pub unsafe extern "C" fn dd_sec_set(
     service: *const c_char,
     account: *const c_char,
     secret: *const c_char,
@@ -74,8 +77,12 @@ pub extern "C" fn dd_sec_set(
     }
 }
 
+/// # Safety
+/// `service` and `account` must be valid NUL-terminated UTF-8 strings (or
+/// null, which returns ERR_ARGS). `out` must point to a writable buffer of
+/// at least `out_cap` bytes (or be null, in which case nothing is written).
 #[no_mangle]
-pub extern "C" fn dd_sec_get(
+pub unsafe extern "C" fn dd_sec_get(
     service: *const c_char,
     account: *const c_char,
     out: *mut c_char,
@@ -105,8 +112,11 @@ pub extern "C" fn dd_sec_get(
     }
 }
 
+/// # Safety
+/// `service` and `account` must be valid NUL-terminated UTF-8 strings (or
+/// null, which returns ERR_ARGS).
 #[no_mangle]
-pub extern "C" fn dd_sec_del(service: *const c_char, account: *const c_char) -> i32 {
+pub unsafe extern "C" fn dd_sec_del(service: *const c_char, account: *const c_char) -> i32 {
     unsafe {
         let (Some(s), Some(a)) = (read_str(service), read_str(account)) else {
             return ERR_ARGS;
