@@ -5,13 +5,13 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "test": "bun test --isolate --conditions=downdraft-source --path-ignore-patterns \"**/node-mobile/build/**\" packages/ examples/plugin-tester/src/*.spec.ts",
+    "test": "bun test --isolate --conditions=downdraft-source --path-ignore-patterns \"**/node-mobile/build/**\" packages/ examples/plugin-tester/src/*.spec.ts apps/devtools/tests/",
     "draft:test": "draft test --game=packaging-smoke",
     "draft:test-cpu": "draft test --game=packaging-smoke",
     "test:e2e": "bun test tests/e2e/packaging-smoke-smoke.spec.ts",
     "test:e2e:headless": "DOWNDRAFT_GPU=swiftshader bun test tests/e2e/packaging-smoke-smoke.spec.ts",
     "test:e2e:local": "bun test tests/e2e/packaging-smoke-smoke.spec.ts",
-    "tsc": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "tsc": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p apps/devtools/tsconfig.json --noEmit",
     "tsc:e2e": "tsc -p tsconfig.e2e.json --noEmit",
     "build:native": "node scripts/build-native.mjs",
     "bump:version": "node scripts/bump-version.mjs",
@@ -26,7 +26,8 @@
     "packages/cli",
     "packages/platform-native",
     "examples/plugin-tester",
-    "examples/packaging-smoke"
+    "examples/packaging-smoke",
+    "apps/devtools"
   ],
   "devDependencies": {
     "@downdraft/cli": "workspace:*",

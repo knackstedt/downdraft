@@ -15,6 +15,21 @@ Games don't construct hosts by hand — `bootstrapGame`/`startGame` handle it. S
 - **`"web"`**: `WebDevtoolsHost` serves the `devtools-web` SPA over loopback HTTP+WS (Bun-only transport, `Bun.serve`) and opens it in a system browser.
 - **`"none"`**: data bridge only (`initDevTools` still exposes `window.__downdraftDevtools`).
 
+## Standalone viewer (`apps/devtools` — platinum-devtools)
+
+A separate native app (private workspace member, not published) that attaches to **multiple** running targets from outside the game window — the third devtools frontend alongside the in-game Blitz dock and the `devtools-web` SPA. Each target gets a `TargetSession` (`apps/devtools/src/targets/session.ts`) that multiplexes channels discovered via `~/.downdraft/platinum-agent/<pid>.json` + procfs scan:
+
+- **Mirror WS** — a game's `WebDevtoolsMirror` (the `"web"` transport) is consumed headlessly: full provider/command surface, no browser needed.
+- **CDP** — `node:inspector` WebSocket for eval/console/CPU profiles on any runtime that exposes it.
+- **MCP HTTP** — the game's automation server (screenshots, input, inspectables).
+- **Feed** — loopback HTTP ingest (`/feed`, bearer-token'd); the target-side agent posts console/network/metric/heap events keyed by `feedKey`.
+
+### Agent injection
+
+The target-side instrumentation lives in **`packages/platform-native/src/dev/devtools-agent.mjs`** — a plain `.mjs` asset (loadable untransformed by bun/node/deno) that opens the inspector, wraps `fetch`/`WebSocket`/`console`, samples heap stats, and serves jsc commands (`/snapshot`, `/profile/*`, `/gc`) on a loopback port. `draft dev --devtools-agent` sets `DD_DEVTOOLS_AGENT=1`; `dev-shell.mjs` imports it before the runner evaluates game code (the ModuleRunner shares the shell's `globalThis`, so wraps cover game modules). `DD_DEVTOOLS_AGENT=<path>` injects a custom module instead; `--no-hmr` falls back to `bun --preload`. Opt-in only — never injected into `draft release` output. Targets launched outside `draft` can `import "@downdraft/platform-native/dev/devtools-agent.mjs"` directly.
+
+Key paths: `apps/devtools/src/targets/` (registry/discovery, session channels, feed-server, procfs, artifacts), `apps/devtools/src/mcp/tools.ts` (viewer-side MCP: `target_*`, `console_eval`, `profile_*`, `heap_*`, `network_events`, `feed_info`), `test-beds/dd-target` (fixture game).
+
 ### Architecture
 
 - **`DevtoolsBackend`** (`libraries/devtools/src/backend.ts`): transport-neutral core — provider registry (`registerProvider(panel, collect)`), command dispatch, collectors, eval routing (`registerThreadEval`), event pushes. `WebDevtoolsMirror` (`web/mirror.ts`) is the JSON-RPC transport subclass; the Blitz host embeds a `DevtoolsBackend` directly and routes events to DOM updates.

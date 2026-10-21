@@ -1,0 +1,32 @@
+{
+  "name": "platinum-devtools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "draft dev",
+    "build": "draft release --stage=build",
+    "release": "draft release",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint",
+    "test": "bun test tests/ src/ --conditions=downdraft-source 2>/dev/null || bun test tests/"
+  },
+  "dependencies": {
+    "@downdraft/engine": "^0.6.1",
+    "@downdraft/platform-native": "^0.6.1",
+    "harfbuzzjs": "^1.6.3",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@downdraft/cli": "^0.6.1",
+    "@types/node": "^22.10.0",
+    "@webgpu/types": "^0.1.71",
+    "oxlint": "^1.4.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0"
+  },
+  "trustedDependencies": [
+    "@downdraft/platform-native",
+    "koffi"
+  ]
+}

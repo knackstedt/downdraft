@@ -104,6 +104,27 @@ const RUNTIME_MODULE = join(devDir, "native-dev-runtime.ts");
 // before the entry graph finishes.
 const EARLY_HOST_MODULE = join(devDir, "early-host.ts");
 
+// ── Devtools agent (opt-in: draft dev --devtools-agent / DD_DEVTOOLS_AGENT) ──
+// Imported before the runner evaluates any game code — the ModuleRunner
+// shares this globalThis, so the agent's fetch/WebSocket/console wraps and
+// CDP inspector cover the whole session. Ordered AFTER installConsoleBridge()
+// so the bridge stays the innermost console sink: the agent posts to the
+// feed, then forwards to the bridged writer. "1"/"true" loads the bundled
+// devtools-agent.mjs; any other non-empty value is an explicit module path
+// (resolved against the game dir) for out-of-tree agents.
+const agentSpec = process.env.DD_DEVTOOLS_AGENT;
+if (agentSpec) {
+  const agentPath = agentSpec === "1" || agentSpec === "true"
+    ? join(devDir, "devtools-agent.mjs")
+    : resolve(gameDir, agentSpec);
+  try {
+    await import(pathToFileURL(agentPath).href);
+    log("agent", `devtools agent injected — ${agentPath}`);
+  } catch (e) {
+    logErr(`devtools agent failed to load (${agentPath}): ${e}`);
+  }
+}
+
 // ── Resolve vite from the game's dependency tree ───────────────────────────
 
 let vite;

@@ -20,6 +20,24 @@
         "xxhash-wasm": "^0.4.2",
       },
     },
+    "apps/devtools": {
+      "name": "platinum-devtools",
+      "version": "0.1.0",
+      "dependencies": {
+        "@downdraft/engine": "^0.6.1",
+        "@downdraft/platform-native": "^0.6.1",
+        "harfbuzzjs": "^1.6.3",
+        "zustand": "^5.0.15",
+      },
+      "devDependencies": {
+        "@downdraft/cli": "^0.6.1",
+        "@types/node": "^22.10.0",
+        "@webgpu/types": "^0.1.71",
+        "oxlint": "^1.4.0",
+        "typescript": "^5.9.3",
+        "vite": "^6.0.0",
+      },
+    },
     "examples/packaging-smoke": {
       "name": "packaging-smoke",
       "version": "0.1.0",
@@ -43,7 +61,7 @@
       },
       "dependencies": {
         "@aws-sdk/client-s3": "^3.700.0",
-        "@downdraft/engine": "^0.6.0",
+        "@downdraft/engine": "^0.6.1",
         "eta": "^3.5.0",
         "jimp": "^1.6.1",
         "resedit": "3.1.0",
@@ -102,6 +120,10 @@
       },
     },
   },
+  "trustedDependencies": [
+    "@downdraft/platform-native",
+    "koffi",
+  ],
   "packages": {
     "@aws-sdk/checksums": ["@aws-sdk/checksums@3.1001.1", "", { "dependencies": { "@aws-sdk/core": "^3.978.1", "@aws-sdk/types": "^3.974.6", "@smithy/core": "^3.35.0", "@smithy/types": "^4.19.0", "tslib": "^2.6.2" } }, "sha512-x12Q17KYlJAd3nKf8LV5LV0vt8sh8/6YfQLGPtrGnQf/tW4jqxPGq5GPpuVitpQYM3eUR4XB7CbxZf751NMbLw=="],
 
@@ -555,6 +577,8 @@
 
     "gifwrap": ["gifwrap@0.10.1", "", { "dependencies": { "image-q": "^4.0.0", "omggif": "^1.0.10" } }, "sha512-2760b1vpJHNmLzZ/ubTtNnEx5WApN/PYWJvXvgS+tL1egTTthayFYIQQNi136FLEDcN/IyEY2EcGpIITD6eYUw=="],
 
+    "harfbuzzjs": ["harfbuzzjs@1.6.3", "", {}, "sha512-R5Mfo1UUvQmZJmtScP7fBLKYKnYu82ZdtFT7WbQYeGb3Ut5PR3xfFCJ5/FjbcW5SAfb9cqCSny/KNjp+NJBx0w=="],
+
     "ieee754": ["ieee754@1.2.1", "", {}, "sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA=="],
 
     "image-q": ["image-q@4.0.0", "", { "dependencies": { "@types/node": "16.9.1" } }, "sha512-PfJGVgIfKQJuq3s0tTDOKtztksibuUEbJQIYT3by6wctQo+Rdlh7ef4evJ5NCdxY4CfMbvFkocEwbl4BF8RlJw=="],
@@ -610,6 +634,8 @@
     "picomatch": ["picomatch@4.0.7", "", {}, "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA=="],
 
     "pixelmatch": ["pixelmatch@5.3.0", "", { "dependencies": { "pngjs": "^6.0.0" }, "bin": { "pixelmatch": "bin/pixelmatch" } }, "sha512-o8mkY4E/+LNUf6LzX96ht6k6CEDi65k9G2rjMtBe9Oo+VPKSvl+0GKHuH/AlG+GA5LPG/i5hrekkxUc3s2HU+Q=="],
+
+    "platinum-devtools": ["platinum-devtools@workspace:apps/devtools"],
 
     "plugin-tester-example": ["plugin-tester-example@workspace:examples/plugin-tester"],
 
