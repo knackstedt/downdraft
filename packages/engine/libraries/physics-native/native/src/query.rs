@@ -41,8 +41,9 @@ pub unsafe fn raycast(
     exclude_body: i32,
     out: *mut f32,
 ) -> i32 {
-    // Queries work without a preceding step — the broad-phase BVH is kept
-    // current on collider insertion/removal.
+    // Queries see the broad-phase as of the last `step()` — colliders
+    // inserted since then are not yet in the BVH (rapier 0.30+ defers
+    // broad-phase integration to the pipeline step).
     let ray = Ray::new(
         Vector::new(origin[0], origin[1], origin[2]),
         Vector::new(direction[0], direction[1], direction[2]),

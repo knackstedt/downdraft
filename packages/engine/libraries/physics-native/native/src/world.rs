@@ -94,8 +94,9 @@ impl PhysicsWorld {
 
     /// Fresh scene-query view over the broad-phase — the rapier 0.30+
     /// replacement for the persistent `QueryPipeline` + `update()` pattern.
-    /// Queries work without a preceding step because the BVH is kept current
-    /// on collider insertion/removal.
+    /// The BVH only reflects colliders integrated by the last `step()` —
+    /// colliders inserted since then are invisible to queries until the
+    /// next step (matching the WASM backend's update-in-step semantics).
     pub fn queries<'a>(&'a self, filter: QueryFilter<'a>) -> QueryPipeline<'a> {
         self.broadphase.as_query_pipeline(
             self.narrowphase.query_dispatcher(),

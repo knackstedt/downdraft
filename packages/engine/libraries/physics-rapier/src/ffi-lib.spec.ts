@@ -72,7 +72,10 @@ describe.skipIf(!LIB_OK)("RapierFfiBackend (native cdylib)", () => {
       b2.createRealm(realmConfig());
       const floor = b2.createBody(0, { type: "static", position: [0, 0, 0], rotation: [0, 0, 0, 1] }, entity(0));
       b2.addCollider(floor, { shape: { type: "box", halfExtents: [10, 0.5, 10] } });
-      const box = b2.createBody(0, { type: "dynamic", position: [0, 3, 0], rotation: [0, 0, 0, 1], mass: 1 }, entity(1));
+      // canSleep: false — getContacts iterates the island manager's ACTIVE set
+      // (WASM parity), and under rapier 0.36 the box sleeps well before step
+      // 120, which would leave zero active bodies to report contacts for.
+      const box = b2.createBody(0, { type: "dynamic", position: [0, 3, 0], rotation: [0, 0, 0, 1], mass: 1, canSleep: false }, entity(1));
       b2.addCollider(box, { shape: { type: "box", halfExtents: [0.5, 0.5, 0.5] }, density: 1 });
 
       b2.setIntegrationDt(0, 1 / 60);
@@ -101,6 +104,12 @@ describe.skipIf(!LIB_OK)("RapierFfiBackend (native cdylib)", () => {
       b3.createRealm(realmConfig());
       const floor = b3.createBody(0, { type: "static", position: [0, 0, 0], rotation: [0, 0, 0, 1] }, entity(5));
       b3.addCollider(floor, { shape: { type: "box", halfExtents: [10, 0.5, 10] } });
+
+      // Queries read the broad-phase as of the last step — colliders inserted
+      // since then are not visible until a step integrates them (matches the
+      // WASM backend, where the query pipeline only updates inside step()).
+      b3.setIntegrationDt(0, 1 / 60);
+      b3.step(0, 1 / 60);
 
       const hit = b3.raycast(0, [0, 5, 0], [0, -1, 0], 20);
       expect(hit).not.toBeNull();
