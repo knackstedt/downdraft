@@ -386,8 +386,11 @@ unsafe fn read_str<'a>(ptr: *const u8, len: usize) -> Option<&'a str> {
 /// Create a document from an HTML string. `html` may be a full document or
 /// a fragment — html5ever normalizes either into <html>/<body>.
 /// Returns an opaque handle, or NULL on bad input / panic.
+///
+/// # Safety
+/// `html_ptr` must point to `html_len` readable bytes (UTF-8).
 #[no_mangle]
-pub extern "C" fn dd_osr_init(
+pub unsafe extern "C" fn dd_osr_init(
     width: f64,
     height: f64,
     scale: f64,
@@ -448,8 +451,12 @@ pub extern "C" fn dd_osr_init(
 /// Replace the document's HTML content. The viewport, scale and renderer are
 /// preserved; the DOM is rebuilt from scratch (Blitz has no in-place HTML
 /// reparse). Marks the document dirty. Returns 0 on success.
+///
+/// # Safety
+/// `handle` must be a live OsrDoc from dd_osr_init; `html_ptr` must point to
+/// `html_len` readable bytes (UTF-8).
 #[no_mangle]
-pub extern "C" fn dd_osr_set_html(
+pub unsafe extern "C" fn dd_osr_set_html(
     handle: *mut OsrDoc,
     html_ptr: *const u8,
     html_len: usize,
@@ -1168,8 +1175,12 @@ pub extern "C" fn dd_osr_wheel(
 /// Keyboard event. `kind`: 0=down, 1=up. `key`/`code` are W3C UI-Events
 /// strings ("Enter", "a", "KeyF", "Escape") parsed via keyboard-types'
 /// FromStr; `text` is the text to insert (usually the key when printable).
+///
+/// # Safety
+/// `handle` must be a live OsrDoc; the `key`/`code`/`text` pointer+len pairs
+/// must point to readable UTF-8 bytes.
 #[no_mangle]
-pub extern "C" fn dd_osr_key(
+pub unsafe extern "C" fn dd_osr_key(
     handle: *mut OsrDoc,
     kind: c_int,
     key_ptr: *const u8,
@@ -1320,8 +1331,11 @@ pub extern "C" fn dd_osr_events_len(handle: *mut OsrDoc) -> usize {
 /// Register a process-wide `ui://` resource (fonts, images, stylesheets)
 /// served to every document's NetProvider. Copy semantics — safe to reuse
 /// the caller's buffer after return.
+///
+/// # Safety
+/// `url_ptr`/`bytes_ptr` must point to `url_len`/`bytes_len` readable bytes.
 #[no_mangle]
-pub extern "C" fn dd_osr_register_resource(
+pub unsafe extern "C" fn dd_osr_register_resource(
     url_ptr: *const u8,
     url_len: usize,
     bytes_ptr: *const u8,
@@ -1340,8 +1354,11 @@ pub extern "C" fn dd_osr_register_resource(
     })
 }
 
+/// # Safety
+/// `handle` must be a live OsrDoc from dd_osr_init, and must not be used
+/// after this call.
 #[no_mangle]
-pub extern "C" fn dd_osr_destroy(handle: *mut OsrDoc) -> c_int {
+pub unsafe extern "C" fn dd_osr_destroy(handle: *mut OsrDoc) -> c_int {
     ffi(-1, || {
         if handle.is_null() {
             return -1;

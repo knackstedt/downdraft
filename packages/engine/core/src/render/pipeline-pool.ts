@@ -27,10 +27,10 @@ type PoolEntry =
   | { state: "ready"; pipeline: GPURenderPipeline | GPUComputePipeline }
   | { state: "error" };
 
-interface AsyncDevice extends GPUDevice {
+type AsyncDevice = Omit<GPUDevice, "createRenderPipelineAsync" | "createComputePipelineAsync"> & {
   createRenderPipelineAsync?: (d: GPURenderPipelineDescriptor) => Promise<GPURenderPipeline>;
   createComputePipelineAsync?: (d: GPUComputePipelineDescriptor) => Promise<GPUComputePipeline>;
-}
+};
 
 const SYNC_PIPELINES = ((): boolean => {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;

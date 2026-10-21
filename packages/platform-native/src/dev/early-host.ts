@@ -24,6 +24,7 @@ import { SplashScreen } from "../window/splash-screen";
 // wgpu-device + adapter-boot stay DYNAMIC — they're the heavy end of the
 // shim graph, and the whole point of this module is that the window maps
 // before that graph finishes transforming. See bootEarlyHost below.
+import type { GpuBootPlan } from "../gpu/adapter-policy";
 import type { WgpuAdapter, WgpuDevice, WgpuGPU } from "../gpu/wgpu-device";
 
 export interface EarlyHostWindowConfig {

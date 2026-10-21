@@ -9,6 +9,7 @@ import type { BindlessMaterialManager, BindlessTextureRegistry, MaterialParams }
 import { BindlessMaterialStruct } from "../bindless";
 import type { FrameGraphBuilder, GraphRenderContext, TextureHandle } from "../frame-graph";
 import { createUniformBuffer } from "../gpu-utils";
+import { pipelinePool } from "../pipeline-pool";
 import { RenderPass } from "../render-pass";
 import { destroyMapValues } from "../resource-tracker";
 import { createValidatedShaderModule } from "../shader-validator";
@@ -736,10 +737,10 @@ export class OpaquePass extends RenderPass {
       this.pbrCameraBindGroup = this.device.createBindGroup({
         layout: this.pbrPipeline.getBindGroupLayout(0),
         entries: [
-          { binding: 0, resource: { buffer: this.pbrCameraBuffer } },
-          { binding: 1, resource: { buffer: this.pbrModelBuffer } },
-          { binding: 2, resource: { buffer: this.pbrPrevModelBuffer } },
-          { binding: 3, resource: { buffer: this.pbrMaterialIndexBuffer } },
+          { binding: 0, resource: { buffer: this.pbrCameraBuffer! } },
+          { binding: 1, resource: { buffer: this.pbrModelBuffer! } },
+          { binding: 2, resource: { buffer: this.pbrPrevModelBuffer! } },
+          { binding: 3, resource: { buffer: this.pbrMaterialIndexBuffer! } },
         ],
       });
     }

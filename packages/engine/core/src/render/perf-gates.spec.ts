@@ -88,6 +88,7 @@ function install(renderer: GameRenderer, cd: CountingDevice): void {
 
 class NoopPass extends RenderPass {
   override passType = PassType.Custom;
+  name: string;
   constructor(name: string, viewDependent = true) {
     super();
     this.name = name;
