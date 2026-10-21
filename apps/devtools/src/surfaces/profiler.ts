@@ -5,17 +5,16 @@
 // ============================================================================
 
 import type { RendererModuleContext } from "@downdraft/engine/module/renderer-module";
+import { chroma, hex, tokens } from "../app/theme";
+import type { CpuProfile } from "../targets/model";
+import type { TargetSession } from "../targets/session";
 import type { GpuTextPass, Rgba } from "../text/gpu-text";
 import type { RunCache } from "../text/run-cache";
-import { MONO } from "./text-surface";
-import { SnapSurface, type SectionHit } from "./snapshot-view";
-import { hex, tokens, chroma } from "../app/theme";
-import type { CpuProfile } from "../targets/model";
-import type { PanelCtx } from "../ui/panels";
-import type { TargetSession } from "../targets/session";
-import { drawSeries, fmtValue, laneColor } from "./charts";
-import { store } from "../app/store";
 import { revealSource } from "../ui/drawer";
+import type { PanelCtx } from "../ui/panels";
+import { drawSeries, fmtValue, laneColor } from "./charts";
+import { SnapSurface, type SectionHit } from "./snapshot-view";
+import { MONO } from "./text-surface";
 
 const TAB_H = 26;
 const LINE_H = 16;

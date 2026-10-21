@@ -1,11 +1,11 @@
-import { describe, test, expect, afterAll } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { SessionManager } from "../src/targets/registry";
 import { FeedServer } from "../src/targets/feed-server";
+import { SessionManager } from "../src/targets/registry";
 import { TargetSession } from "../src/targets/session";
 import { waitFor } from "./helpers";
 
@@ -77,7 +77,7 @@ describe("agent → feed → session e2e", () => {
       return typeof disc.cmdPort === "number" && disc.cmdPort > 0;
     }, 10_000)).toBe(true);
 
-    expect(disc.pid).toBe(child.pid);
+    expect(disc.pid).toBe(child.pid!);
     expect(disc.feedKey).toBeTruthy();
     expect(disc.caps).toContain("console");
     expect(disc.caps).toContain("network");

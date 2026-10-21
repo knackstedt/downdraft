@@ -5,13 +5,12 @@
 // ============================================================================
 
 import type { RendererModuleContext } from "@downdraft/engine/module/renderer-module";
+import { chroma, hex, tokens } from "../app/theme";
 import type { GpuTextPass } from "../text/gpu-text";
 import type { RunCache } from "../text/run-cache";
-import { TextSurface, MONO } from "./text-surface";
-import { hex, tokens, chroma } from "../app/theme";
-import type { PanelCtx } from "../ui/panels";
-import { store } from "../app/store";
 import { revealSource } from "../ui/drawer";
+import type { PanelCtx } from "../ui/panels";
+import { MONO, TextSurface } from "./text-surface";
 
 const LINE_H = 18;
 const BAR_H = 30;
