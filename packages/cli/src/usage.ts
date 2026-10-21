@@ -98,6 +98,7 @@ export const COMMANDS: CommandEntry[] = [
         { name: "native", type: "boolean", description: "Back-compat alias — native is the default runtime" },
         { name: "native-debug", type: "boolean", description: "Load debug native libraries (built via build-native.mjs --debug) — sets DD_NATIVE_PROFILE=debug for the spawned runtime" },
         { name: "webui", type: "string", enum: ["cef", "wpe", "none", "auto"], description: "Heavyweight web UI backend: cef (Chromium — desktop default), wpe (embedded WebKit — linux dev/android), none, or auto (default: DD_WEBUI_BACKEND, webui.backend in downdraft.config.json, else auto)" },
+        { name: "devtools-agent", type: "boolean", description: "Inject the devtools agent into the dev shell — CDP inspector + network/console/heap feed for a platinum-devtools viewer (DD_DEVTOOLS_AGENT=<path> overrides the bundled agent)" },
         { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
       ],
     },

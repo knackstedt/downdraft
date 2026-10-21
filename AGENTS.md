@@ -6,6 +6,8 @@ Games are **not part of this repository** — each game is a standalone repo tha
 
 References to `games/<name>/...` throughout this document refer to those local clones; nothing under `games/` is tracked here.
 
+`apps/` holds in-repo applications that are not games — currently `apps/devtools` (platinum-devtools, the standalone multi-target devtools viewer; private, unpublished). `packages/platform-native/src/dev/devtools-agent.mjs` is the devtools agent asset injected by `draft dev --devtools-agent`; see `docs/site/src/content/docs/architecture/devtools.md`.
+
 `@downdraft/*` packages are published to npm (`node scripts/publish-packages.mjs` / the `publish.yml` workflow). First-time setup (clone → `bun install` → prebuilt native fetch → `link:games`) is documented for humans in `development.md`.
 
 ## Releasing: root package.json is the version source of truth

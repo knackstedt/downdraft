@@ -1,0 +1,18 @@
+{
+  "name": "dd-target",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "draft dev",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@downdraft/cli": "^0.6.1",
+    "@downdraft/engine": "^0.6.1",
+    "@downdraft/platform-native": "^0.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

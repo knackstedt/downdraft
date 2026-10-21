@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node", "@webgpu/types"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "@downdraft/engine/modules/html-ui"
+  },
+  "include": ["src"]
+}

@@ -135,6 +135,21 @@ async function devNative(parsed: any): Promise<void> {
     || ((readGameConfig(gameDir).webui as { backend?: string } | undefined)?.backend);
   if (webuiBackend) env.DD_WEBUI_BACKEND = webuiBackend;
 
+  // --devtools-agent → the dev shell imports the bundled devtools-agent.mjs
+  // before evaluating game code (CDP inspector + network/console/heap feed
+  // for a platinum-devtools viewer). DD_DEVTOOLS_AGENT=<path> injects a
+  // custom agent module instead.
+  if (parsed.flags["devtools-agent"]) env.DD_DEVTOOLS_AGENT = env.DD_DEVTOOLS_AGENT || "1";
+
+  // Resolve the bundled agent module (or an explicit DD_DEVTOOLS_AGENT path)
+  // for launch styles that have no dev shell to import it (i.e. --no-hmr).
+  const resolveAgentPath = (): string | null => {
+    const spec = env.DD_DEVTOOLS_AGENT;
+    if (!spec) return null;
+    if (spec === "1" || spec === "true") return join(resolveDevShellDir(), "devtools-agent.mjs");
+    return resolve(gameDir, spec);
+  };
+
   // ── WPE dev runtime namespace ──
 // The vendored Debian WPE build spawns WPEWebProcess/WPENetworkProcess
 // from hardcoded /usr/lib/… paths — scripts/run-wpe.sh presents the
@@ -191,9 +206,13 @@ function wpeNamespaceWrap(cmd: string, args: string[], gameDir: string, env: Nod
 // ── Legacy path: --no-hmr spawns the entry directly under Bun (no watcher,
   //    no ModuleRunner — the pre-HMR behavior, kept as an escape hatch). ──
   if (noHmr) {
-    log.info("draft", `dev ${game} — ${nativeEntry} (bun, no hmr)`);
-    const w = wpeNamespaceWrap("bun", ["run", nativeEntry], gameDir, env)
-      ?? { cmd: "bun", args: ["run", nativeEntry] };
+    const agentPath = resolveAgentPath();
+    // `bun --preload <mod> <entry>` — `run` omitted so the flag binds to the
+    // entry script regardless of subcommand arg parsing.
+    const bunArgs = agentPath ? ["--preload", agentPath, nativeEntry] : ["run", nativeEntry];
+    log.info("draft", `dev ${game} — ${nativeEntry} (bun, no hmr${agentPath ? ", devtools-agent" : ""})`);
+    const w = wpeNamespaceWrap("bun", bunArgs, gameDir, env)
+      ?? { cmd: "bun", args: bunArgs };
     const code = await spawnAndForward(w.cmd, w.args, buildCwd(gameDir), env, {
       onChild: (c) => { currentChild = c; },
     });
@@ -270,7 +289,7 @@ function wpeNamespaceWrap(cmd: string, args: string[], gameDir: string, env: Nod
     conditions: engineSource ? ["downdraft-source"] : [],
   });
 
-  log.info("draft", `dev ${game} — ${nativeEntry} (runtime=${runtime}, hmr, engine=${engineSource ? "source" : "dist"})`);
+  log.info("draft", `dev ${game} — ${nativeEntry} (runtime=${runtime}, hmr, engine=${engineSource ? "source" : "dist"}${env.DD_DEVTOOLS_AGENT ? ", devtools-agent" : ""})`);
   if (verbose) log.info("draft", `dev shell: ${cmd} ${args.join(" ")}`);
 
   // WPE namespace wrap — applies to every respawn (run-wpe.sh execs the
