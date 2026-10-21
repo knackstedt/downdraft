@@ -288,6 +288,7 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
     resolve: (v: unknown) => void;
     reject: (e: Error) => void;
     timer?: ReturnType<typeof setTimeout>;
+    promise: Promise<unknown>;
   }>();
   const eventListeners: Set<(kind: string, data: any) => void> = new Set();
 
@@ -323,17 +324,30 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
   // kills the raw Worker handle) must still settle in-flight calls — a
   // stranded {resolve,reject} keeps its awaiting frame alive forever.
   let terminated = false;
+  // Session teardown marks the raw worker __ddExpectTerminate before
+  // dispatching its synthetic terminal events (session-tracker). Rejections
+  // from an expected teardown are not faults: a fire-and-forget call whose
+  // rejection nobody awaits must not trip the host's unhandledRejection
+  // fatal. Awaiting callers still observe the rejection — the extra catch
+  // only marks the promise as handled.
+  let expectedTeardown = false;
+  const isExpectedTeardown = () => (worker as any).__ddExpectTerminate === true;
   const failAll = (why: string) => {
     if (terminated) return;
     terminated = true;
+    expectedTeardown = expectedTeardown || isExpectedTeardown();
     for (const p of pending.values()) {
       if (p.timer) clearTimeout(p.timer);
+      if (expectedTeardown) p.promise.catch(() => {});
       p.reject(new Error(why));
     }
     pending.clear();
   };
-  const onDead = () => failAll("Worker exited");
-  const onErr = (e: any) => failAll(`Worker error: ${e?.message ?? e}`);
+  const onDead = () => failAll(
+    isExpectedTeardown() ? "Worker terminated by session teardown" : "Worker exited");
+  const onErr = (e: any) => failAll(isExpectedTeardown()
+    ? "Worker terminated by session teardown"
+    : `Worker error: ${e?.message ?? e}`);
   if (worker.addEventListener) {
     worker.addEventListener("message", onMsg);
     worker.addEventListener("error", onErr);
@@ -356,11 +370,16 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
         // (the dead session's timeouts are swept, the worker's error/exit
         // already fired), so it would strand its awaiting frame forever.
         if (terminated) {
-          return Promise.reject(new Error(`RPC '${method}' on terminated worker`));
+          const rej = Promise.reject(new Error(`RPC '${method}' on terminated worker`));
+          if (expectedTeardown) rej.catch(() => {});
+          return rej;
         }
-        return new Promise((resolve, reject) => {
-          const id = ++reqId;
-          const entry: { resolve: (v: unknown) => void; reject: (e: Error) => void; timer?: ReturnType<typeof setTimeout> } = { resolve, reject };
+        const id = ++reqId;
+        const entry: { resolve: (v: unknown) => void; reject: (e: Error) => void; timer?: ReturnType<typeof setTimeout>; promise: Promise<unknown> } =
+          { resolve: () => {}, reject: () => {}, promise: null as unknown as Promise<unknown> };
+        const pr = new Promise<unknown>((resolve, reject) => {
+          entry.resolve = resolve;
+          entry.reject = reject;
           if (timeoutMs > 0) {
             entry.timer = untrackedTimeout(() => {
               if (pending.delete(id)) {
@@ -380,6 +399,8 @@ export function wrap<T extends WorkerApi>(worker: AnyWorker, options?: WrapOptio
             reject(err instanceof Error ? err : new Error(String(err)));
           }
         });
+        entry.promise = pr;
+        return pr;
       };
     },
   });
