@@ -86,7 +86,14 @@ export function ftMeasureText(text: string, fontSize: number): number {
 // overlays) would otherwise re-shape + re-rasterize the same strings each
 // call. Rustybuzz shaping is the expensive part; the bitmap is immutable.
 const RENDER_CACHE_LIMIT = 128;
-interface RenderedRun { data: Uint8Array; width: number; height: number; padX: number }
+interface RenderedRun {
+  data: Uint8Array;
+  width: number;
+  height: number;
+  /** Leading-space advance added to the raster so overhanging ink survives.
+   *  The bitmap's left edge is at `penX - padX` — blit there, NOT at penX. */
+  padX: number;
+}
 const renderCache = new Map<string, RenderedRun>();
 const spaceAdvanceBySize = new Map<number, number>();
 
@@ -96,6 +103,33 @@ function spaceAdvance(fontSize: number): number {
   const adv = Math.max(0, ftMeasureText(" ", fontSize));
   spaceAdvanceBySize.set(fontSize, adv);
   return adv;
+}
+
+// Baseline row within a rendered bitmap, per size — calibrated by scanning
+// the bottom ink row of an "H" probe (the shim doesn't expose line metrics).
+// Callers place the bitmap top at `penY - ftBaseline(size)` so glyph
+// baselines land on the requested baseline. Measured ~0.83-0.91x size —
+// assuming size*1.0 floats text visibly high.
+const baselineBySize = new Map<number, number>();
+
+export function ftBaseline(fontSize: number): number {
+  const hit = baselineBySize.get(fontSize);
+  if (hit !== undefined) return hit;
+  let baseline = Math.round(fontSize * 0.8);
+  const bmp = ftRenderText("H", fontSize);
+  if (bmp) {
+    outer:
+    for (let y = bmp.height - 1; y >= 0; y--) {
+      for (let x = 0; x < bmp.width; x++) {
+        if (bmp.data[(y * bmp.width + x) * 4 + 3]! > 0) {
+          baseline = y + 1;
+          break outer;
+        }
+      }
+    }
+  }
+  baselineBySize.set(fontSize, baseline);
+  return baseline;
 }
 
 export function ftRenderText(text: string, fontSize: number): RenderedRun | null {

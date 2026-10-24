@@ -6,7 +6,7 @@
 // text into GPU textures.
 // ============================================================================
 
-import { ftIsAvailable, ftMeasureText, ftRenderText } from "./native-freetype";
+import { ftBaseline, ftIsAvailable, ftMeasureText, ftRenderText } from "./native-freetype";
 
 const GLYPH_W = 8;
 const GLYPH_H = 12;
@@ -440,9 +440,19 @@ export class NativeCanvas2D {
     const fontSize = Math.max(1, Math.round(baseFontSize * scaleFactor));
     const [cr, cg, cb, ca] = parseColor(styleColor);
 
-    // Adjust y based on textBaseline (in pre-transform units)
+    // Adjust y based on textBaseline (in pre-transform units). The shim's
+    // bitmap top is `ftBaseline` rows above the glyph baseline — measured
+    // ~0.87x size, not 1.0x — so a calibrated baseline keeps alphabetic
+    // text from floating high. The 8x12 fallback keeps its old constants.
+    const blDevice = ftIsAvailable() ? ftBaseline(fontSize) : -1;
     let logicalY = y;
     if (this._textBaseline === "top") logicalY = y;
+    else if (blDevice > 0) {
+      const bl = blDevice / scaleFactor;
+      if (this._textBaseline === "middle") logicalY = y - (bl - baseFontSize * 0.35);
+      else if (this._textBaseline === "bottom") logicalY = y - (bl + baseFontSize * 0.25);
+      else logicalY = y - bl; // alphabetic (default) + unhandled baselines
+    }
     else if (this._textBaseline === "middle") logicalY = y - baseFontSize * 0.5;
     else if (this._textBaseline === "alphabetic") logicalY = y - baseFontSize * 1.0;
 

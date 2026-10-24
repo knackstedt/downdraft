@@ -46,7 +46,12 @@ export interface RunShape {
 export interface ChunkBitmap {
   /** Atlas region (null for blank text — advance only). */
   region: AtlasRegion | null;
-  /** Left ink edge in pen space — draw at penX + inkX (overhangs go <0). */
+  /** Leading-space advance — the bitmap's left edge is at `penX - padX`
+   *  (the rasterized string is " text ", so bitmap x=0 is the leading
+   *  space's pen origin, not the run's). */
+  padX: number;
+  /** Left ink edge in run pen space (inkMinX minus the pad margin).
+   *  Informational — negative means overhang left of the pen origin. */
   inkX: number;
   /** Bitmap dims in px. */
   w: number;
@@ -60,6 +65,7 @@ export class RunCache {
   private faces = new Map<string, FaceDef>();
   private handles = new Map<string, bigint>();
   private baselines = new Map<string, number>();
+  private spaceAdvances = new Map<string, number>();
   private runs = new Map<string, RunShape>();
   private chunks = new Map<string, ChunkBitmap>();
   private lru = new Map<string, number>();
@@ -119,6 +125,18 @@ export class RunCache {
     return baseline;
   }
 
+  /** Advance of a single space — the margin the padded raster adds on the
+   *  left. Shaped space advance is context-free (it's the first glyph), so
+   *  ft_shim_measure(" ") is exact. */
+  private spaceAdvance(face: string, handle: bigint, size: number): number {
+    const ck = `${face}@${size}`;
+    const hit = this.spaceAdvances.get(ck);
+    if (hit !== undefined) return hit;
+    const adv = Math.max(0, this.ft.measure(handle, " ", size));
+    this.spaceAdvances.set(ck, adv);
+    return adv;
+  }
+
   /** Shape metrics for a full run. */
   getRun(face: string, sizePx: number, text: string): RunShape | null {
     if (!text) return null;
@@ -174,9 +192,10 @@ export class RunCache {
     // which inkMinX on the padded string accounts for), a trailing space
     // does the same on the right. Costs a few px of bitmap width per chunk.
     const raster = ` ${text} `;
-    const bmp = this.ft.render(this.ftHandle(face), raster, size);
+    const handle = this.ftHandle(face);
+    const bmp = this.ft.render(handle, raster, size);
     if (!bmp || bmp.width === 0 || bmp.height === 0) {
-      const empty: ChunkBitmap = { region: null, inkX: 0, w: 0, h: 0, baselineInBitmap: baseline };
+      const empty: ChunkBitmap = { region: null, padX: 0, inkX: 0, w: 0, h: 0, baselineInBitmap: baseline };
       this.chunks.set(ck, empty);
       this.touch(ck);
       return empty;
@@ -191,9 +210,11 @@ export class RunCache {
       }
     }
     this.atlas.upload(region, bmp.data);
+    const padX = this.spaceAdvance(face, handle, size);
     const chunk: ChunkBitmap = {
       region,
-      inkX: inkMinX(this.shaper, face, size, raster),
+      padX,
+      inkX: inkMinX(this.shaper, face, size, raster) - padX,
       w: bmp.width,
       h: bmp.height,
       baselineInBitmap: baseline,
@@ -226,6 +247,7 @@ export class RunCache {
     this.runs.clear();
     this.chunks.clear();
     this.baselines.clear();
+    this.spaceAdvances.clear();
     this.lru.clear();
     this.ft.dispose();
     this.shaper.dispose();

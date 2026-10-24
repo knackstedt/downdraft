@@ -133,12 +133,16 @@ export abstract class TextSurface implements ScreenUiCompositor {
     const max = (maxW ?? Infinity) * this.zoom;
     // Chunk the run into atlas bitmaps — whole run when it fits.
     const chunk = this.cache.getChunk(face, sz, text);
-    if (chunk?.region && chunk.w <= max) {
+    // Fit check on the run advance, not the bitmap — chunk.w includes the
+    // padX margins, so comparing against it would needlessly drop to the
+    // per-char path ~2 space widths early.
+    if (chunk?.region && run.advance <= max) {
       // Snap the blit origin to whole pixels — the shim's glyphs are already
       // integer-placed inside the bitmap, so a fractional quad origin
       // resamples it and smears every glyph. Pen advances stay fractional;
-      // only the bitmap blit snaps.
-      const bx = Math.round(px + chunk.inkX);
+      // only the bitmap blit snaps. The bitmap spans the padded raster
+      // (" text "), so its left edge sits padX before the pen origin.
+      const bx = Math.round(px - chunk.padX);
       const by = by0 - chunk.baselineInBitmap;
       pass.text(bx, by, chunk.w, chunk.h, { region: chunk.region, atlasSize: this.cache.atlas.size }, color);
       return run.advance;
@@ -150,7 +154,7 @@ export abstract class TextSurface implements ScreenUiCompositor {
       const c = this.cache.getChunk(face, sz, ch);
       const w = this.cache.getRun(face, sz, ch)?.advance ?? sz * 0.6;
       if (c?.region) {
-        const bx = Math.round(pen + c.inkX);
+        const bx = Math.round(pen - c.padX);
         const by = by0 - c.baselineInBitmap;
         pass.text(bx, by, c.w, c.h, { region: c.region, atlasSize: this.cache.atlas.size }, color);
       }

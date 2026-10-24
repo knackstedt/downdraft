@@ -9,11 +9,11 @@
 // the same rendering path read-only.
 // ============================================================================
 
+import { chroma, hex, tokens } from "../app/theme";
+import { freshLexState, lineTokens, type LexState, type TokKind } from "../syntax/js";
 import type { GpuTextPass, Rgba } from "../text/gpu-text";
 import type { RunCache } from "../text/run-cache";
 import { MONO } from "./text-surface";
-import { hex, tokens, chroma } from "../app/theme";
-import { lineTokens, freshLexState, type LexState, type TokKind } from "../syntax/js";
 
 export interface Pos { row: number; col: number; }
 
@@ -406,7 +406,9 @@ export class EditorView {
         const ln = String(row + 1);
         const chunk = this.cache.getChunk(MONO(), size - 2, ln);
         if (chunk?.region) {
-          pass.text(x + gutterW - 6 - chunk.w + chunk.inkX, baselineY - chunk.baselineInBitmap - 1,
+          // Right-align the run's advance edge: the bitmap spans " ln ", so
+          // its right edge sits padX past the advance — subtract it back.
+          pass.text(Math.round(x + gutterW - 6 - (chunk.w - chunk.padX)), baselineY - chunk.baselineInBitmap - 1,
             chunk.w, chunk.h, { region: chunk.region, atlasSize: this.cache.atlas.size }, gutterClr);
         }
       }
@@ -426,7 +428,9 @@ export class EditorView {
         if (!str) return;
         const chunk = this.cache.getChunk(font, size, str);
         if (chunk?.region) {
-          pass.text(sx + chunk.inkX, baselineY - chunk.baselineInBitmap, chunk.w, chunk.h,
+          // Bitmap origin is padX before the pen (padded raster); snap to
+          // whole pixels so the integer-placed glyphs aren't resampled.
+          pass.text(Math.round(sx - chunk.padX), baselineY - chunk.baselineInBitmap, chunk.w, chunk.h,
             { region: chunk.region, atlasSize: this.cache.atlas.size }, rgba);
         }
       };
