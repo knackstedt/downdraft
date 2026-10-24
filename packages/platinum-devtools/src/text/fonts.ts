@@ -3,15 +3,15 @@
 //
 // Each face is identified by a canonical key "family:weight:style" and has a
 // file path (for the cosmic-text rasterizer) plus raw bytes (for harfbuzz
-// shaping). Bundled fonts live in assets/fonts/.
+// shaping). Bundled fonts live in src/assets/fonts/ (mirrored into dist/).
 // ============================================================================
 
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { FaceDef } from "./run-cache";
 
-const FONTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../assets/fonts");
+const FONTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "../assets/fonts");
 
 export type FontStyle = "normal" | "italic";
 export type FontFamily = "inter" | "jetbrains";

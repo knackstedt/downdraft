@@ -128,7 +128,15 @@ export function mountPlatinumDevtools(ctx: GameContext, opts: PlatinumMountOptio
   };
   const setVisible = (on: boolean) => {
     store.setState({ overlayVisible: on });
-    if (on) showShell(); else hideShell();
+    if (on) {
+      // Games that hold pointer lock (FPS look) must release it for the
+      // overlay's panels to be clickable — same contract the game's own
+      // overlays use. No-op when the surface isn't locked.
+      (ctx.surface as { exitPointerLock?: () => void }).exitPointerLock?.();
+      showShell();
+    } else {
+      hideShell();
+    }
   };
 
   // ── html-ui: prefer the host game's context (one worker + unified input

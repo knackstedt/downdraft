@@ -23,7 +23,6 @@
   "files": [
     "src",
     "dist",
-    "assets",
     "downdraft.config.json",
     "README.md",
     "!**/*.spec.ts",
