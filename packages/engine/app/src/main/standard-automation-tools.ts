@@ -530,7 +530,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
             try {
               // eslint-disable-next-line no-new-func
               const fn = new Function(...names, `"use strict"; return (${condition});`);
-              if (fn(player, world, tick, ...extraValues)) {
+              if (await fn(player, world, tick, ...extraValues)) {
                 resolve(jsonResult({ satisfied: true, elapsedMs: performance.now() - start, player, world }));
                 return;
               }

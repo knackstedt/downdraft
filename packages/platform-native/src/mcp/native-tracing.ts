@@ -482,7 +482,7 @@ export function createNativeTracingTools(opts: NativeTracingOptions): ToolRegist
       handler: async (params) => {
         try {
           const fn = new Function("g", `return (${params.expr});`);
-          const out = fn(globalThis);
+          const out = await fn(globalThis);
           return jsonResult({ value: out === undefined ? null : out });
         } catch (e) {
           return errorResult((e as Error).message);

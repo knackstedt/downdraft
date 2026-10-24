@@ -43,7 +43,7 @@ export function exposeDevToolsApi<T extends WorkerApi>(api: T): T & {
         // Use indirect eval so it runs in the global scope (not closure).
         // eslint-disable-next-line no-new-func
         const fn = new Function("return (" + expr + ")");
-        const result = fn();
+        const result = await fn();
         return { result };
       } catch (err) {
         return { error: String(err) };
