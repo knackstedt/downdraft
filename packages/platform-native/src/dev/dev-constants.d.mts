@@ -13,6 +13,7 @@ export const EV: {
   sessionRestart: string;
   rendererHotReload: string;
   hostRestart: string;
+  outdated: string;
 };
 export const DEFAULT_PROCESS_RESTART_PATTERNS: string[];
 export const DEFAULT_HOST_RESTART_PATTERNS: string[];

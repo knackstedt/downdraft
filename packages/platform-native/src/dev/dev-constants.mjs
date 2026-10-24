@@ -59,6 +59,10 @@ export const EV = {
   rendererHotReload: "renderer:hot-reload",
   /** server → runner: destroy host + globals, re-import (Tier 4). */
   hostRestart: "dd:host-restart",
+  /** server → runner: a watched file changed but no tier accepted it (not in
+   *  the module graph, no classification) — the window now runs stale code;
+   *  dev-mode UI may mark itself outdated. data: { file } */
+  outdated: "dd:outdated",
 };
 
 /** Files/dirs whose change forces a full process restart (Tier 5). */

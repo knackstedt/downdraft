@@ -320,6 +320,12 @@ if (hot && !g[LISTENERS_FLAG]) {
   hot.on("vite:afterUpdate", () => {
     logInfo("module update applied");
   });
+
+  // A watched file changed but no tier + no module accepted it — the window
+  // is running stale code. Log it; dev-mode UI may also mark itself outdated.
+  hot.on(EV.outdated, (data: any) => {
+    logInfo(`outdated (stale window): ${data?.file ?? "?"}`);
+  });
 }
 
 export { session };

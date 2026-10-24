@@ -595,6 +595,16 @@ function onClassifierEvent(type, data) {
       }
       break;
     }
+    case "outdated":
+      // No tier claimed the change and it isn't in the module graph — the
+      // window keeps running stale code. Notify the runtime; dev-mode UI
+      // surfaces a marker so the staleness is visible, not silent.
+      log(`outdated (no module handler): ${data.file}`);
+      sendWhenReady(
+        { type: "custom", event: EV.outdated, data: { file: data.file } },
+        () => true,
+      );
+      break;
   }
 }
 

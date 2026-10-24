@@ -192,6 +192,9 @@ if (import.meta.hot) {
  *   host-restart patterns    → "host-restart" event, swallow.
  *   sim patterns             → "sim-update" event; graph members still
  *                              propagate (shared/ code feeds both threads).
+ *   script file not in the   → "outdated" event; nothing reloads it (worker
+ *     module graph              sources, codegen outputs) — the runtime marks
+ *                              the window stale instead of silently ignoring.
  *   everything else          → vite propagates normally: accept boundaries
  *                              (wgsl ?raw, hmr-swap-registry, game code with
  *                              import.meta.hot.accept) apply in place;
@@ -243,6 +246,17 @@ export function nativeHmrPlugin(options) {
           // In-graph modules still propagate (shared code feeds renderer too);
           // non-graph worker files get swallowed (vite would no-op anyway).
           return opts.modules.length ? undefined : [];
+        }
+        // Script file change with NO module-graph nodes and no tier claim —
+        // vite will no-op (nothing to update), leaving the running session on
+        // stale code with zero indication. Worker sources hit this when the
+        // game forgot an hmr.simPaths entry. Mark it instead of ignoring.
+        const clean = file.split("?")[0];
+        const dot = clean.lastIndexOf(".");
+        const ext = dot >= 0 ? clean.slice(dot) : "";
+        if (!opts.modules.length && SIM_UPDATE_EXTS.has(ext)) {
+          onEvent("outdated", { file });
+          return [];
         }
         return undefined;
       },
