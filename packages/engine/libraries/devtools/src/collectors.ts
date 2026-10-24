@@ -343,9 +343,17 @@ export function collectGpuInfo(ctx: CollectorContext): GpuInfoJson {
   return { entries, frameTimes, memHistory };
 }
 
-/** Per-thread metrics snapshot (main via performance.memory, workers via SAB). */
+/**
+ * Per-thread metrics snapshot (main via performance.memory, workers via SAB).
+ *
+ * The ProfilingBridge claims an in-process SAB slot named "renderer" on the
+ * main thread and fills it from the same performance.memory source — so a
+ * raw merge reports the same isolate heap twice under two names. Fold the
+ * renderer slot's richer fields (cpu%, task latency from the event-loop
+ * monitor) into the "main" entry and drop the duplicate.
+ */
 export async function collectMetrics(ctx: CollectorContext): Promise<MetricsSlot[]> {
-  const slots: MetricsSlot[] = [{
+  const main: MetricsSlot = {
     slotIndex: 0,
     name: "main",
     runtime: 0,
@@ -356,7 +364,8 @@ export async function collectMetrics(ctx: CollectorContext): Promise<MetricsSlot
       gcPauseMaxUs: 0,
       taskLatencyP95Us: 0,
     }],
-  }];
+  };
+  const slots: MetricsSlot[] = [main];
 
   if (ctx.profilingSAB) {
     try {
@@ -364,7 +373,7 @@ export async function collectMetrics(ctx: CollectorContext): Promise<MetricsSlot
       if (reader) {
         const snapshot = reader.readSnapshot();
         snapshot.slots.forEach((slot: any) => {
-          slots.push({
+          const entry: MetricsSlot = {
             slotIndex: slot.slotIndex,
             name: slot.name || `worker-${slot.slotIndex}`,
             runtime: slot.runtime ?? 0,
@@ -375,7 +384,21 @@ export async function collectMetrics(ctx: CollectorContext): Promise<MetricsSlot
               gcPauseMaxUs: slot.metrics?.gcPauseMaxUs ?? 0,
               taskLatencyP95Us: slot.metrics?.taskLatencyP95Us ?? 0,
             }],
-          });
+          };
+          // In-process renderer slot == the main thread — merge into "main"
+          // rather than emit a second identical heap lane. JS workers could
+          // theoretically tag themselves "renderer", but the bridge always
+          // claims this name in-process before workers attach.
+          if (entry.name === "renderer" && entry.runtime === 0) {
+            main.slotIndex = entry.slotIndex;
+            const m = main.history[0], r = entry.history[0];
+            m.cpuPercent = r.cpuPercent;
+            m.gcPauseMaxUs = r.gcPauseMaxUs;
+            m.taskLatencyP95Us = r.taskLatencyP95Us;
+            if (r.heapUsed > 0) { m.heapUsed = r.heapUsed; m.heapTotal = r.heapTotal; }
+            return;
+          }
+          slots.push(entry);
         });
       }
     } catch { /* profiling unavailable */ }

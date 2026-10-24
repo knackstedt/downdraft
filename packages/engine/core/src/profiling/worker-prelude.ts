@@ -208,7 +208,17 @@ export function attachProfilingSAB(
           rss: perfMem.jsHeapSizeLimit ?? 0,
         };
       }
-      // Worker fallback: estimate from SAB + baseline runtime overhead
+      // Per-isolate stats: under Node worker_threads / Bun workers,
+      // process.memoryUsage() reports this worker's own heap (rss is
+      // process-wide). GCTracker.getCurrentMemory() also covers
+      // performance.memory on browser-style hosts.
+      const mem = GCTracker.getCurrentMemory();
+      if (mem.heapUsed > 0) {
+        return { heapUsed: mem.heapUsed, heapTotal: Math.max(mem.heapTotal, mem.heapUsed), rss: mem.rss };
+      }
+      // Last resort (hosts with no memory API): report the SAB footprint +
+      // baseline runtime overhead as a rough estimate — a static value is
+      // more honest than reporting zero.
       const baseline = 2 * 1024 * 1024; // 2MB for worker runtime + code
       return { heapUsed: sabByteLen + baseline, heapTotal: sabByteLen + baseline, rss: sabByteLen + baseline };
     },
