@@ -12,9 +12,9 @@ import { faceKey, resolveWeight } from "../text/fonts";
 import { GpuTextPass, type Rgba } from "../text/gpu-text";
 import { RunCache } from "../text/run-cache";
 
-export const MONO = (w = 400) => faceKey("jetbrains", resolveWeight("jetbrains", w), "normal");
-export const MONO_I = (w = 400) => faceKey("jetbrains", resolveWeight("jetbrains", w), "italic");
-export const UI = (w = 400) => faceKey("inter", resolveWeight("inter", w), "normal");
+export const MONO = (w = 400) => faceKey("jetbrains", resolveWeight("jetbrains", w, "normal"), "normal");
+export const MONO_I = (w = 400) => faceKey("jetbrains", resolveWeight("jetbrains", w, "italic"), "italic");
+export const UI = (w = 400) => faceKey("inter", resolveWeight("inter", w, "normal"), "normal");
 
 export abstract class TextSurface implements ScreenUiCompositor {
   order = 0;
@@ -134,7 +134,11 @@ export abstract class TextSurface implements ScreenUiCompositor {
     // Chunk the run into atlas bitmaps — whole run when it fits.
     const chunk = this.cache.getChunk(face, sz, text);
     if (chunk?.region && chunk.w <= max) {
-      const bx = px + chunk.inkX;
+      // Snap the blit origin to whole pixels — the shim's glyphs are already
+      // integer-placed inside the bitmap, so a fractional quad origin
+      // resamples it and smears every glyph. Pen advances stay fractional;
+      // only the bitmap blit snaps.
+      const bx = Math.round(px + chunk.inkX);
       const by = by0 - chunk.baselineInBitmap;
       pass.text(bx, by, chunk.w, chunk.h, { region: chunk.region, atlasSize: this.cache.atlas.size }, color);
       return run.advance;
@@ -146,7 +150,7 @@ export abstract class TextSurface implements ScreenUiCompositor {
       const c = this.cache.getChunk(face, sz, ch);
       const w = this.cache.getRun(face, sz, ch)?.advance ?? sz * 0.6;
       if (c?.region) {
-        const bx = pen + c.inkX;
+        const bx = Math.round(pen + c.inkX);
         const by = by0 - c.baselineInBitmap;
         pass.text(bx, by, c.w, c.h, { region: c.region, atlasSize: this.cache.atlas.size }, color);
       }

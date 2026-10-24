@@ -15,10 +15,10 @@
 // trusting cosmic's internal line metrics.
 // ============================================================================
 
+import { createLogger } from "@downdraft/engine/util/logger";
+import { TextAtlas, type AtlasRegion } from "./atlas";
 import { FtRasterizer } from "./ft";
 import { TextShaper } from "./shaper";
-import { TextAtlas, type AtlasRegion } from "./atlas";
-import { createLogger } from "@downdraft/engine/util/logger";
 
 const log = createLogger();
 
@@ -99,7 +99,10 @@ export class RunCache {
     const cached = this.baselines.get(ck);
     if (cached !== undefined) return cached;
     let baseline = Math.round(sizePx * 0.8);
-    const probe = this.ft.render(this.ftHandle(face), "H", sizePx);
+    // Cold FontSystem handles can return an empty first render — retry once
+    // before falling back to the metric estimate.
+    let probe = this.ft.render(this.ftHandle(face), "H", sizePx);
+    if (!probe) probe = this.ft.render(this.ftHandle(face), "H", sizePx);
     if (probe) {
       // Bottom-most ink row = baseline (glyphs sit on it).
       outer:
@@ -164,7 +167,14 @@ export class RunCache {
     if (!this.ready) return null;
 
     const baseline = this.calibrate(face, size);
-    const bmp = this.ft.render(this.ftHandle(face), text, size);
+    // Rasterize with one space of margin each side. The shim's bitmap starts
+    // at pen 0 and ends at ceil(advance) — italic/quote ink that overhangs
+    // the advance is silently clipped; a leading space gives the left
+    // overhang somewhere to land (shaped penX shifts by the space advance,
+    // which inkMinX on the padded string accounts for), a trailing space
+    // does the same on the right. Costs a few px of bitmap width per chunk.
+    const raster = ` ${text} `;
+    const bmp = this.ft.render(this.ftHandle(face), raster, size);
     if (!bmp || bmp.width === 0 || bmp.height === 0) {
       const empty: ChunkBitmap = { region: null, inkX: 0, w: 0, h: 0, baselineInBitmap: baseline };
       this.chunks.set(ck, empty);
@@ -183,7 +193,7 @@ export class RunCache {
     this.atlas.upload(region, bmp.data);
     const chunk: ChunkBitmap = {
       region,
-      inkX: inkMinX(this.shaper, face, size, text),
+      inkX: inkMinX(this.shaper, face, size, raster),
       w: bmp.width,
       h: bmp.height,
       baselineInBitmap: baseline,

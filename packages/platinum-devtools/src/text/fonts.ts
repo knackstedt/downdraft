@@ -34,11 +34,16 @@ export function faceKey(family: FontFamily, weight: number, style: FontStyle = "
   return `${family}:${weight}:${style}`;
 }
 
-/** Nearest available weight for a family. */
-export function resolveWeight(family: FontFamily, weight: number): number {
-  const weights = Object.keys(FACE_FILES[family]).map(Number).sort((a, b) => a - b);
-  let best = weights[0]!;
-  weights.forEach((w) => { if (Math.abs(w - weight) < Math.abs(best - weight)) best = w; });
+/** Nearest available weight for a family — constrained to weights that
+ *  offer `style` when any do (a `jetbrains:700:italic` key would resolve
+ *  to nothing: only 400 ships italic). */
+export function resolveWeight(family: FontFamily, weight: number, style: FontStyle = "normal"): number {
+  const table = FACE_FILES[family];
+  const weights = Object.keys(table).map(Number).sort((a, b) => a - b);
+  const styled = weights.filter((w) => table[w]?.[style]);
+  const pool = styled.length ? styled : weights;
+  let best = pool[0]!;
+  pool.forEach((w) => { if (Math.abs(w - weight) < Math.abs(best - weight)) best = w; });
   return best;
 }
 

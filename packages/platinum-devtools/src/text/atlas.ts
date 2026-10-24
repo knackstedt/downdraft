@@ -13,6 +13,11 @@ interface Shelf {
   x: number;
 }
 
+/** Transparent gutter around every region — linear sampling at a quad edge
+ *  pulls half a pad texel instead of the neighboring run's ink. Without it
+ *  tightly-packed shelves bleed foreign coverage into text edges. */
+const PAD = 1;
+
 export interface AtlasRegion {
   u: number;
   v: number;
@@ -47,54 +52,57 @@ export class TextAtlas {
     );
   }
 
-  /** Allocate a texel rectangle, or null if the atlas is full. */
+  /** Allocate a texel rectangle, or null if the atlas is full. The returned
+   *  region already excludes the padding gutter — upload/write into it as
+   *  if it were exact-size. */
   alloc(w: number, h: number): AtlasRegion | null {
     if (w <= 0 || h <= 0) return null;
+    const pw = w + PAD * 2;
+    const ph = h + PAD * 2;
     // Best-fit shelf: shortest shelf that still fits the height.
     let bestIdx = -1;
     this.shelves.forEach((s, i) => {
-      if (s.h >= h && s.x + w <= this.size) {
+      if (s.h >= ph && s.x + pw <= this.size) {
         if (bestIdx < 0 || s.h < this.shelves[bestIdx]!.h) bestIdx = i;
       }
     });
     const best = bestIdx >= 0 ? this.shelves[bestIdx]! : null;
     if (best) {
-      const r: AtlasRegion = { u: best.x, v: best.y, w, h, generation: this.generation };
-      best.x += w;
+      const r: AtlasRegion = { u: best.x + PAD, v: best.y + PAD, w, h, generation: this.generation };
+      best.x += pw;
       return r;
     }
-    if (this.nextY + h > this.size) return null;
-    const shelf: Shelf = { y: this.nextY, h, x: w };
+    if (this.nextY + ph > this.size) return null;
+    const shelf: Shelf = { y: this.nextY, h: ph, x: pw };
     this.shelves.push(shelf);
-    this.nextY += h;
-    return { u: 0, v: shelf.y, w, h, generation: this.generation };
+    this.nextY += ph;
+    return { u: PAD, v: shelf.y + PAD, w, h, generation: this.generation };
   }
 
-  /** Upload premultiplied RGBA coverage into an allocated region. */
+  /** Upload premultiplied RGBA coverage into an allocated region. Writes the
+   *  gutter too — zeroed, so a generation-reset atlas can't leak stale ink
+   *  through the pad texels. */
   upload(region: AtlasRegion, data: Uint8Array): void {
     const w = region.w;
     const h = region.h;
-    const bpr = Math.ceil((w * 4) / 256) * 256;
-    if (bpr === w * 4) {
-      this.device.queue.writeTexture(
-        { texture: this.texture, origin: { x: region.u, y: region.v } },
-        data as Uint8Array<ArrayBuffer>,
-        { bytesPerRow: w * 4 },
-        { width: w, height: h },
-      );
-      return;
-    }
-    const need = bpr * h;
+    const sw = w + PAD * 2;
+    const sh = h + PAD * 2;
+    const slotBpr = sw * 4;
+    const bpr = Math.ceil(slotBpr / 256) * 256;
+    const need = bpr * sh;
     if (this.padded.length < need) this.padded = new Uint8Array(need);
     this.padded.fill(0, 0, need);
     for (let row = 0; row < h; row++) {
-      this.padded.set(data.subarray(row * w * 4, (row + 1) * w * 4), row * bpr);
+      this.padded.set(
+        data.subarray(row * w * 4, (row + 1) * w * 4),
+        (row + PAD) * bpr + PAD * 4,
+      );
     }
     this.device.queue.writeTexture(
-      { texture: this.texture, origin: { x: region.u, y: region.v } },
-      this.padded.subarray(0, need),
+      { texture: this.texture, origin: { x: region.u - PAD, y: region.v - PAD } },
+      this.padded.subarray(0, need) as Uint8Array<ArrayBuffer>,
       { bytesPerRow: bpr },
-      { width: w, height: h },
+      { width: sw, height: sh },
     );
   }
 

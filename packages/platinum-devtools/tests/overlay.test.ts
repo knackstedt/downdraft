@@ -18,7 +18,7 @@ afterAll(() => { process.env.HOME = realHome; rmSync(fakeHome, { recursive: true
 function reset(): void {
   store.setState({
     overlayVisible: true,
-    windowW: 1600, windowH: 1000, sidebarWidth: 230, topbarHeight: 30,
+    windowW: 1600, windowH: 1000, sidebarWidth: 230, sidebarVisible: true, topbarHeight: 30,
     mainTab: "console",
     docks: {
       bottom: { tabs: ["perfmon", "events", "network"], active: "perfmon", size: 250, collapsed: false },

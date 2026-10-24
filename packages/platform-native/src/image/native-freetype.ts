@@ -82,14 +82,42 @@ export function ftMeasureText(text: string, fontSize: number): number {
   return ftSymbols.ft_shim_measure(ftFace, text, fontSize) as unknown as number;
 }
 
-export function ftRenderText(text: string, fontSize: number): { data: Uint8Array; width: number; height: number } | null {
+// Small LRU for rendered bitmaps — text drawn every frame (HUDs, debug
+// overlays) would otherwise re-shape + re-rasterize the same strings each
+// call. Rustybuzz shaping is the expensive part; the bitmap is immutable.
+const RENDER_CACHE_LIMIT = 128;
+interface RenderedRun { data: Uint8Array; width: number; height: number; padX: number }
+const renderCache = new Map<string, RenderedRun>();
+const spaceAdvanceBySize = new Map<number, number>();
+
+function spaceAdvance(fontSize: number): number {
+  const hit = spaceAdvanceBySize.get(fontSize);
+  if (hit !== undefined) return hit;
+  const adv = Math.max(0, ftMeasureText(" ", fontSize));
+  spaceAdvanceBySize.set(fontSize, adv);
+  return adv;
+}
+
+export function ftRenderText(text: string, fontSize: number): RenderedRun | null {
   ensureFreeTypeInit();
   if (ftFace === 0n || !ftSymbols) return null;
+  const key = `${fontSize}\x00${text}`;
+  const hit = renderCache.get(key);
+  if (hit) {
+    renderCache.delete(key);
+    renderCache.set(key, hit);
+    return hit;
+  }
+  // Pad with a space each side — the shim's bitmap spans [0, ceil(advance)],
+  // so ink overhanging the advance (italic f, quotes) is clipped. The margin
+  // gives overhang somewhere to land; callers subtract padX to restore the
+  // pen origin.
+  const raster = ` ${text} `;
   const dataPtr = ptr(FT_RENDER_BUF);
   const widthPtr = ptr(FT_WIDTH_OUT);
   const heightPtr = ptr(FT_HEIGHT_OUT);
   const result = ftSymbols.ft_shim_render_text(
-    ftFace, text, fontSize,
+    ftFace, raster, fontSize,
     dataPtr, FT_RENDER_BUF.length,
     2048, 128,
     widthPtr, heightPtr,
@@ -101,7 +129,13 @@ export function ftRenderText(text: string, fontSize: number): { data: Uint8Array
   const size = w * h * 4;
   const copy = new Uint8Array(size);
   copy.set(FT_RENDER_BUF.subarray(0, size));
-  return { data: copy, width: w, height: h };
+  const out: RenderedRun = { data: copy, width: w, height: h, padX: spaceAdvance(fontSize) };
+  renderCache.set(key, out);
+  if (renderCache.size > RENDER_CACHE_LIMIT) {
+    const oldest = renderCache.keys().next().value;
+    if (oldest !== undefined) renderCache.delete(oldest);
+  }
+  return out;
 }
 
 /**
@@ -109,7 +143,7 @@ export function ftRenderText(text: string, fontSize: number): { data: Uint8Array
  * This can be plugged into TextAtlasCache.setDirectRenderer() to bypass
  * Canvas2D and render text directly via FreeType.
  */
-export function getFreeTypeTextRenderer(): ((text: string, fontSize: number) => { data: Uint8Array; width: number; height: number } | null) | null {
+export function getFreeTypeTextRenderer(): ((text: string, fontSize: number) => RenderedRun | null) | null {
   ensureFreeTypeInit();
   if (ftFace === 0n) return null;
   return ftRenderText;

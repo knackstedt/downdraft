@@ -463,13 +463,16 @@ export class NativeCanvas2D {
     if (ftIsAvailable()) {
       const result = ftRenderText(text, fontSize);
       if (result) {
-        const { data, width: tw, height: th } = result;
+        const { data, width: tw, height: th, padX } = result;
+        // The bitmap carries a space-advance left margin (overhang room) —
+        // shift the blit back so the visible text starts at the pen origin.
+        const inkX = dstStartX - padX;
         for (let py = 0; py < th; py++) {
           for (let px = 0; px < tw; px++) {
             const srcIdx = (py * tw + px) * 4;
             const alpha = data[srcIdx + 3];
             if (alpha === 0) continue;
-            const dstX = dstStartX + px;
+            const dstX = inkX + px;
             const dstY = dstStartY + py;
             if (dstX < 0 || dstX >= this.width || dstY < 0 || dstY >= this.height) continue;
             let srcA = (alpha / 255) * (ca / 255) * this.globalAlpha;
