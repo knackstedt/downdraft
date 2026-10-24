@@ -140,7 +140,7 @@ export async function devNative(parsed: any, overrideDir?: string): Promise<void
 
   // --devtools-agent → the dev shell imports the bundled devtools-agent.mjs
   // before evaluating game code (CDP inspector + network/console/heap feed
-  // for a platinum-devtools viewer). DD_DEVTOOLS_AGENT=<path> injects a
+  // for a devtools viewer). DD_DEVTOOLS_AGENT=<path> injects a
   // custom agent module instead.
   if (parsed.flags["devtools-agent"]) env.DD_DEVTOOLS_AGENT = env.DD_DEVTOOLS_AGENT || "1";
 

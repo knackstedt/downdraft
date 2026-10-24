@@ -667,22 +667,22 @@
       "downdraft-source": "./modules/controller-ui/src/*.ts",
       "default": "./dist/modules/controller-ui/src/*.js"
     },
-    "./modules/devtools": {
-      "types": "./modules/devtools/src/index.ts",
-      "downdraft-source": "./modules/devtools/src/index.ts",
-      "default": "./dist/modules/devtools/src/index.js"
+    "./modules/debug": {
+      "types": "./modules/debug/src/index.ts",
+      "downdraft-source": "./modules/debug/src/index.ts",
+      "default": "./dist/modules/debug/src/index.js"
     },
-    "./modules/devtools/*": {
-      "types": "./modules/devtools/src/*.ts",
-      "downdraft-source": "./modules/devtools/src/*.ts",
-      "default": "./dist/modules/devtools/src/*.js"
+    "./modules/debug/*": {
+      "types": "./modules/debug/src/*.ts",
+      "downdraft-source": "./modules/debug/src/*.ts",
+      "default": "./dist/modules/debug/src/*.js"
     },
-    "./modules/devtools/*.ts": {
-      "types": "./modules/devtools/src/*.ts",
-      "downdraft-source": "./modules/devtools/src/*.ts",
-      "default": "./dist/modules/devtools/src/*.js"
+    "./modules/debug/*.ts": {
+      "types": "./modules/debug/src/*.ts",
+      "downdraft-source": "./modules/debug/src/*.ts",
+      "default": "./dist/modules/debug/src/*.js"
     },
-    "./modules/devtools/*.wgsl": "./modules/devtools/src/*.wgsl",
+    "./modules/debug/*.wgsl": "./modules/debug/src/*.wgsl",
     "./modules/editor": {
       "types": "./modules/editor/src/index.ts",
       "downdraft-source": "./modules/editor/src/index.ts",
@@ -889,9 +889,13 @@
     "zustand": "^5.0.2"
   },
   "peerDependencies": {
+    "@downdraft/devtools": "^0.6.2",
     "@downdraft/platform-native": "^0.6.2"
   },
   "peerDependenciesMeta": {
+    "@downdraft/devtools": {
+      "optional": true
+    },
     "@downdraft/platform-native": {
       "optional": true
     }

@@ -102,7 +102,7 @@ world.registerModule(myModule);
 - `@downdraft/engine/libraries/stickman` — Stickman skeleton rendering
 
 ### Engine Modules (`@downdraft/engine/modules/*`)
-- `@downdraft/engine/modules/devtools` — DevTools panel, scene inspector, GPU debugging
+- `@downdraft/engine/modules/debug` — DevTools panel, scene inspector, GPU debugging
 - `@downdraft/engine/modules/camera-controls` — Camera input handling
 - `@downdraft/engine/modules/terrain` — Terrain composition (marching-cubes + LOD)
 - `@downdraft/engine/modules/movement-3d` — 3D player movement

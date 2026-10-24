@@ -1,17 +1,17 @@
 // ============================================================================
-// @downdraft/engine/libraries/devtools — engine devtools bridge
+// @downdraft/engine/libraries/devtools — engine devtools backend
 //
-// Two frontends consume the same provider/command data model
-// (DevtoolsProviderTarget — registerEngineProviders works on both):
+// The provider/command data model (DevtoolsProviderTarget —
+// registerEngineProviders works on any backend) is consumed by the
+// @downdraft/devtools frontend — mounted in-window as an overlay (F12) or
+// attached remotely over a DevToolsServer mirror.
 //
-//   Blitz devtools (in-engine): an html-ui/Blitz document docked in the game
-//     window — Chrome-DevTools-style tabs driven by the collectors and
-//     provider snapshots below. Lives in @downdraft/engine/modules/devtools
-//     (blitz/). Toggled with F12.
+//   EmbeddedDevtoolsHost: the headless in-process backend host bootstrap
+//     wires per game (CdpBridge + DevtoolsBackend, no UI of its own).
 //
-//   WebDevtoolsHost (web/): development-only loopback server (Bun.serve HTTP
-//     + WebSocket JSON-RPC) serving the browser frontend in
-//     packages/devtools-web. Opens in a desktop browser window.
+//   DevToolsServer (web/): loopback WS/JSON-RPC server that fronts a
+//     DevtoolsBackend for remote viewers; WebDevtoolsMirror is the
+//     WS-attached backend subclass it drives.
 //
 // Panels: Console (CDP Runtime.consoleAPICalled + exceptionThrown + logger
 // sink), Scene/DOM trees, GPU info, CDP profiler, per-thread ProfilingSAB
@@ -49,10 +49,10 @@ export type {
 } from "./snapshot";
 export { checkpoint, notify, verifyPixel } from "./verify";
 
-// ── Web devtools (browser UI over WS + JSON-RPC) ──
-export { openDevToolsUrl } from "./web/browser";
-export { WebDebuggerSceneShim, WebDevtoolsHost } from "./web/host";
-export type { WebDevtoolsOptions } from "./web/host";
+export { EmbeddedDevtoolsHost } from "./embedded-host";
+export type { EmbeddedDevtoolsHostOptions } from "./embedded-host";
+
+// ── Remote devtools transport (WS + JSON-RPC) ──
 export { WebDevtoolsMirror } from "./web/mirror";
 export { DevToolsServer } from "./web/server";
 

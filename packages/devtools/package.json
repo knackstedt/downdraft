@@ -1,0 +1,43 @@
+{
+  "name": "@downdraft/devtools",
+  "version": "0.6.2",
+  "description": "Downdraft DevTools — GPU-rendered devtools surface for Downdraft targets: standalone viewer (draft devtools) or embedded in-game overlay (mountDevtools)",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "downdraft-source": "./src/index.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./package.json": "./package.json",
+    "./*": {
+      "types": "./src/*.ts",
+      "downdraft-source": "./src/*.ts",
+      "default": "./dist/src/*.js"
+    },
+    "./*.mjs": "./src/*.mjs",
+    "./*.ts": "./src/*.ts"
+  },
+  "files": [
+    "src",
+    "dist",
+    "downdraft.config.json",
+    "README.md",
+    "!**/*.spec.ts",
+    "!**/*.test.ts"
+  ],
+  "scripts": {
+    "test": "bun test tests/"
+  },
+  "dependencies": {
+    "@downdraft/engine": "^0.6.2",
+    "@downdraft/platform-native": "^0.6.2",
+    "harfbuzzjs": "^1.6.3",
+    "zustand": "^5.0.15"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

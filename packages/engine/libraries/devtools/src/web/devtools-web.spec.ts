@@ -12,7 +12,7 @@ import { WebDevtoolsMirror } from "./mirror";
 import { DevToolsServer } from "./server";
 
 const _dirname = dirname(fileURLToPath(import.meta.url));
-const WEB_ROOT = join(_dirname, "../../../../../devtools-web");
+const WEB_ROOT = join(_dirname, "./fixtures/webroot");
 
 let server: DevToolsServer;
 let mirror: WebDevtoolsMirror;

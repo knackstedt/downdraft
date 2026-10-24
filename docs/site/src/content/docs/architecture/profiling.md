@@ -3,7 +3,7 @@ title: Profiling
 description: In-process profiling instrumentation — worker prelude, views, timestamps, task latency
 ---
 
-## Profiling system (`@downdraft/engine/profiling` + `@downdraft/engine/modules/devtools`)
+## Profiling system (`@downdraft/engine/profiling` + `@downdraft/engine/modules/debug`)
 
 A comprehensive cross-thread profiling + tracing system (Puffin-style flame graph, memory/CPU/IOPS/event-loop/GC views, warning toasts, trace recording + export). The pixi-based in-game overlay (`libraries/profiler`) has been deleted — profiling surfaces now live in the devtools host.
 
@@ -21,7 +21,7 @@ A comprehensive cross-thread profiling + tracing system (Puffin-style flame grap
   - `worker-prelude.ts` — imported at the top of every instrumented worker. On load, detects worker realm, and if a ProfilingSAB is attached, claims a slot + initializes all writers + the warning engine + event-loop monitor + patches prototypes.
 - **`@downdraft/engine/worker/instrumented-worker-host`** — `InstrumentedWorkerHost` (extends `BaseWorkerHost`) auto-attaches the ProfilingSAB before `onInit()`. `exposeProfilingApi()` merges `__profilingAttach` / `__profilingAddRule` / `__profilingOnWarning` RPC methods into a worker's `expose()` API.
 - **Worker prelude wiring** — there is no Vite injection plugin; engine worker entries import `worker-prelude` directly (`sim-worker-base.ts`, `task-worker.ts`, `quickjs-bridge.ts`, `wasm-worker.ts`), so instrumentation is unconditional for engine-owned workers. Game-authored workers that want instrumentation should import `@downdraft/engine/profiling`'s `worker-prelude` at the top of the worker entry.
-- **`@downdraft/engine/modules/devtools`** — extended with:
+- **`@downdraft/engine/modules/debug`** — extended with:
   - `DebugViewDescriptor` + `registerView()` — declarative registration of profiler overlay views.
   - `attachProfilingSAB()` / `getProfilingSAB()` — SAB management on the devtools API.
   - `ProfilingBridge` — renderer-side bridge that creates the ProfilingSAB, runs the WarningEngine + EventLoopMonitor + TraceEventWriter, drains the warning ring each frame, fires auto-trace, and registers the 10 built-in view descriptors.
@@ -68,5 +68,5 @@ The following execution paths are instrumented with `recordTaskLatency()` + `che
 
 (The old `profilingPreludePlugin` Vite option and the `enableProfilingOverlay` in-game overlay are gone — profiling surfaces live in the devtools host.)
 
-Code lives under `packages/engine/core/src/profiling/` (one file per primitive above, plus `iops/` patches), `core/src/worker/instrumented-worker-host.ts`, `modules/devtools/src/profiling-bridge.ts` + `debug-view-descriptors.ts`, and `core/src/telemetry/gpu-{timer-pool,profiler}.ts`.
+Code lives under `packages/engine/core/src/profiling/` (one file per primitive above, plus `iops/` patches), `core/src/worker/instrumented-worker-host.ts`, `modules/debug/src/profiling-bridge.ts` + `debug-view-descriptors.ts`, and `core/src/telemetry/gpu-{timer-pool,profiler}.ts`.
 

@@ -138,7 +138,7 @@ Feature modules are opt-in game features with the `Module` interface:
 | movement-3d | `@downdraft/engine/modules/movement-3d` | 3D first/third-person movement (walk, run, swim, fly) |
 | movement-2d | `@downdraft/engine/modules/movement-2d` | 2D top-down/side-scroll movement |
 | sailing | `@downdraft/engine/modules/sailing` | Sailing mechanics (wind, buoyancy, rudder, hull drag) |
-| devtools | `@downdraft/engine/modules/devtools` | Debug overlays, scene inspector, gizmos |
+| devtools | `@downdraft/engine/modules/debug` | Debug overlays, scene inspector, gizmos |
 | camera-controls | `@downdraft/engine/modules/camera-controls` | Camera modes (free, follow, orbit) |
 | native-osr | `@downdraft/engine/modules/native-osr` | Offscreen rendering for in-game UI surfaces |
 | mcp | `@downdraft/engine/modules/mcp` | MCP automation harness for testing |
@@ -191,7 +191,7 @@ The `downdraft doctor` devtools panel displays module graph diagnostics:
 Register it via:
 
 ```typescript
-import { createDoctorPanelExtension } from "@downdraft/engine/modules/devtools";
+import { createDoctorPanelExtension } from "@downdraft/engine/modules/debug";
 
 devtools.registerPanel(createDoctorPanelExtension({
   getSimModules: () => simModuleHost.snapshot(),

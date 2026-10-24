@@ -222,7 +222,7 @@ async function collectMemory(ctx: EngineProviderContext): Promise<PanelSnapshot>
 
 /** Adapter/device info + frame telemetry + VRAM + pass timings, reusing the
  *  collector behind the inspector's getGPUInfo RPC. Registered as the "gpu"
- *  provider so provider-fed frontends (platinum GPU surface, snapshot pulls)
+ *  provider so provider-fed frontends (devtools GPU surface, snapshot pulls)
  *  get the same data the docked gpu panel fetches via inspector.call. */
 function collectGpu(ctx: EngineProviderContext): PanelSnapshot {
     if (!ctx.renderer) {

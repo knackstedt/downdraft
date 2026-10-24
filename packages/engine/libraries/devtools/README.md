@@ -1,26 +1,36 @@
 # `@downdraft/engine/libraries/devtools`
 
-DevTools bridge — mirrors profiling and inspection data to a developer UI.
+DevTools data/transport layer — the transport-neutral backend (providers,
+collectors, eval routing, CDP) plus the loopback WS server that remote
+viewers attach to. Renders nothing itself.
 
-## Frontends
+## Frontend
 
-**Blitz devtools (docked, in-window)** — an html-ui/Blitz document rendered
-inside the game window with Chrome-DevTools-style tabs. Lives in
-`@downdraft/engine/modules/devtools` (`blitz/`). Toggled with **F12**.
+**`@downdraft/devtools`** — the devtools surface. Embedded as an in-window
+overlay (F12; auto-mounted by `bootstrapGame` when the package is installed)
+or launched standalone via `draft devtools` to attach to running targets.
+The removed Blitz dock and `devtools-web` browser SPA are gone.
 
-**Web DevTools (separate browser window)** — `WebDevtoolsHost` runs a
-development-only loopback server (`DevToolsServer`, `Bun.serve`: HTTP static
-+ WebSocket JSON-RPC) and serves the browser frontend in
-`packages/devtools-web`. Pressing **F12** opens the devtools in a desktop
-browser (`--app` window on Chromium-family browsers, falling back through
-brave → vivaldi → firefox → chrome → edge → `xdg-open`). Discovery files are
-written to `~/.downdraft/devtools/<pid>.json` (port + token), mirroring the
-MCP `~/.downdraft/port` convention.
+## Backend host
 
-Both frontends consume the same provider/command model:
-`registerEngineProviders(target, ctx)` works on either
-(`DevtoolsProviderTarget`), and `PanelSnapshot` sections (`kv`, `table`,
-`series`, `lines`, `controls`) render in both.
+`EmbeddedDevtoolsHost` owns `DevtoolsBackend` + `CdpBridge` for a game —
+created per game by `bootstrapGame` (`devtools.ui:"devtools"`, the default)
+and landed on `renderer.nativeDebugger`. Pumped per frame; providers and
+thread evals exist regardless of which frontend is attached.
+
+## Frontends & transports
+
+- **`EmbeddedDevtoolsHost`** — in-process backend owner (`embedded-host.ts`).
+- **`WebDevtoolsMirror` + `DevToolsServer`** (`web/`) — JSON-RPC transport
+  over loopback WS (`Bun.serve`): the overlay's `attachSelfMirror` and any
+  external viewer consume a target's backend through it. Discovery files are
+  written to `~/.downdraft/devtools/<pid>.json` (port + token), mirroring
+  the MCP `~/.downdraft/port` convention.
+
+All frontends consume the same provider/command model:
+`registerEngineProviders(target, ctx)` works on any
+`DevtoolsProviderTarget`, and `PanelSnapshot` sections (`kv`, `table`,
+`series`, `lines`, `controls`) render everywhere.
 
 ## Wire protocol (WS)
 
@@ -36,8 +46,9 @@ Both frontends consume the same provider/command model:
 
 ## Key exports
 
-- `WebDevtoolsHost`, `WebDevtoolsMirror`, `DevToolsServer`, `openDevToolsUrl`
-- `CdpBridge`, `registerEngineProviders`, `PANEL`, `SNAP_FLAG`, `SNAP_STATUS`,
+- `EmbeddedDevtoolsHost`, `DevtoolsBackend`, `CdpBridge`
+- `WebDevtoolsMirror`, `DevToolsServer`
+- `registerEngineProviders`, `PANEL`, `SNAP_FLAG`, `SNAP_STATUS`,
   `checkpoint`, `notify`, `verifyPixel`
 
 ## Test
@@ -46,4 +57,5 @@ Both frontends consume the same provider/command model:
 bun test packages/engine/libraries/devtools/src/web/devtools-web.spec.ts
 ```
 
-Runs fully headless (Bun.serve + in-process WebSocket client).
+Runs fully headless (Bun.serve + in-process WebSocket client) against a
+tiny fixture webroot under `web/fixtures/`.

@@ -13,7 +13,7 @@
 // ============================================================================
 
 import { createLogger, type RendererModuleContext } from "@downdraft/engine";
-import { TransformGizmo } from "@downdraft/engine/modules/devtools";
+import { TransformGizmo } from "@downdraft/engine/modules/debug";
 
 import type { EditorContext } from "./editor-context";
 import type { EditorShell, GizmoModeName } from "./shell";

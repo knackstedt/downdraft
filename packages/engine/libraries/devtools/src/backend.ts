@@ -36,9 +36,9 @@ const log = createLogger("info");
 // forcing a re-render that makes the next update slower — a self-feeding
 // lag spiral. These still write to stdout; only the devtools console view
 // skips them.
-const SELF_LOG_MODULES = new Set(["devtools-backend", "blitz-devtools-host"]);
+const SELF_LOG_MODULES = new Set(["devtools-backend", "devtools-host"]);
 
-type EvalFn = (expr: string) => Promise<{ result?: unknown; error?: string }>;
+export type EvalFn = (expr: string) => Promise<{ result?: unknown; error?: string }>;
 
 export function panelSlot(panel: PanelName | number): number {
   return typeof panel === "number" ? panel : (PANEL[panel] ?? 0);
@@ -71,7 +71,7 @@ export class DevtoolsBackend {
   private hasClientFn: () => boolean;
   /** Additional consumers of the event stream + extra "someone is listening"
    *  checks — e.g. a DevToolsServer exposing the docked host's backend to
-   *  remote viewers (embedded/standalone platinum devtools). */
+   *  remote viewers (embedded overlay, standalone viewer). */
   private emitSinks: ((event: string, data: unknown) => void)[] = [];
   private hasClientExtras: (() => boolean)[] = [];
   private cdp: CdpBridge;

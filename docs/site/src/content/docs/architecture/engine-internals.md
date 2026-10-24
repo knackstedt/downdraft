@@ -60,20 +60,20 @@ await runNativeGameModule(gameModule, {
 
 ## Unified DevTools API
 
-The DevTools system has a single registration surface (`devtools` singleton from `@downdraft/engine/modules/devtools`) that auto-detects whether it's running in the main realm or a worker realm and chooses the appropriate transport:
+The DevTools system has a single registration surface (`devtools` singleton from `@downdraft/engine/modules/debug`) that auto-detects whether it's running in the main realm or a worker realm and chooses the appropriate transport:
 
 - **Main realm**: feeds/commands registered directly on `window.__downdraftDevtools` via `DevToolsDataBridge`.
 - **Worker realm**: data feeds written to a devtools SharedArrayBuffer (zero-copy, synchronous reads); commands forwarded via IPC RPC.
 
 ### Architecture
 
-- **`devtools` singleton** (`packages/engine/modules/devtools/src/api.ts`) — the unified API. Auto-detects realm. Modules import `devtools` and call `registerDataFeed()`, `registerCommand()`, `registerSABStat()`. Same code works in both realms.
+- **`devtools` singleton** (`packages/engine/modules/debug/src/api.ts`) — the unified API. Auto-detects realm. Modules import `devtools` and call `registerDataFeed()`, `registerCommand()`, `registerSABStat()`. Same code works in both realms.
 - **`DevToolsSABLayout`** — dedicated SAB region for JSON-serialized data feed results + direct numeric stats. Worker writes via `flushDataFeeds()` (called from sim loop); renderer reads synchronously. No IPC polling.
-- **`exposeDevToolsApi()`** (`packages/engine/modules/devtools/src/worker-expose.ts`) — wraps a worker's `expose()` API with `__devtoolsGetManifest`, `__devtoolsCallCommand`, `__devtoolsGetSAB` RPC methods.
-- **`syncWorkerManifests()`** (`packages/engine/modules/devtools/src/worker-sync.ts`) — renderer-side: fetches manifest from workers, wires SAB data feed readers, wires command forwarders.
-- **`createDevToolsRendererAdapter()`** (`packages/engine/modules/devtools/src/renderer-adapter.ts`) — feature-detects renderer capabilities (gpuProfiler, telemetryCollector, gpuResourceTracker, gcController) and builds an `IDevToolsDataRenderer`.
-- **`createSimStatsProvider()`** (`packages/engine/modules/devtools/src/sim-stats-provider.ts`) — reusable `ISimStatsProvider` factory with 10Hz polling + pause/resume/step/speed/clear delegation. Eliminates duplicated boilerplate across sim games.
-- **`initDevTools()`** (`packages/engine/modules/devtools/src/init.ts`) — one-line wiring per game. Creates bridge, wires providers, merges global feed/command registrations, syncs worker manifests, exposes on `window.__downdraftDevtools`.
+- **`exposeDevToolsApi()`** (`packages/engine/modules/debug/src/worker-expose.ts`) — wraps a worker's `expose()` API with `__devtoolsGetManifest`, `__devtoolsCallCommand`, `__devtoolsGetSAB` RPC methods.
+- **`syncWorkerManifests()`** (`packages/engine/modules/debug/src/worker-sync.ts`) — renderer-side: fetches manifest from workers, wires SAB data feed readers, wires command forwarders.
+- **`createDevToolsRendererAdapter()`** (`packages/engine/modules/debug/src/renderer-adapter.ts`) — feature-detects renderer capabilities (gpuProfiler, telemetryCollector, gpuResourceTracker, gcController) and builds an `IDevToolsDataRenderer`.
+- **`createSimStatsProvider()`** (`packages/engine/modules/debug/src/sim-stats-provider.ts`) — reusable `ISimStatsProvider` factory with 10Hz polling + pause/resume/step/speed/clear delegation. Eliminates duplicated boilerplate across sim games.
+- **`initDevTools()`** (`packages/engine/modules/debug/src/init.ts`) — one-line wiring per game. Creates bridge, wires providers, merges global feed/command registrations, syncs worker manifests, exposes on `window.__downdraftDevtools`.
 
 ### Module integration
 
@@ -166,7 +166,7 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
 
 ### Devtools material editor
 
-`BaseSceneInspector` (`packages/engine/modules/devtools/src/scene-inspector.ts`) exposes a functional material editor API: `compileMaterialGraph`, `createMaterialFromGraph`, `saveMaterialToLibrary`, `listMaterials`, `exportMaterialAsJSON`, `importMaterialFromJSON`, `previewMaterialGraph` (live preview via `setPreviewMeshRenderer`).
+`BaseSceneInspector` (`packages/engine/modules/debug/src/scene-inspector.ts`) exposes a functional material editor API: `compileMaterialGraph`, `createMaterialFromGraph`, `saveMaterialToLibrary`, `listMaterials`, `exportMaterialAsJSON`, `importMaterialFromJSON`, `previewMaterialGraph` (live preview via `setPreviewMeshRenderer`).
 
 ### Hot reload
 

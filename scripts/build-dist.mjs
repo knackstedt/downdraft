@@ -85,8 +85,8 @@ const PACKAGES = [
     globRoots: [],
   },
   {
-    name: "@downdraft/platinum-devtools",
-    dir: "packages/platinum-devtools",
+    name: "@downdraft/devtools",
+    dir: "packages/devtools",
     roots: ["src"],
     globRoots: [],
   },

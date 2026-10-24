@@ -1,11 +1,11 @@
 // ============================================================================
-// devtools.ts — `draft devtools`: launch the standalone platinum-devtools
+// devtools.ts — `draft devtools`: launch the standalone devtools
 // viewer from any directory.
 //
-// The viewer is the @downdraft/platinum-devtools package — it ships its own
+// The viewer is the @downdraft/devtools package — it ships its own
 // src/native-entry.ts + downdraft.config.json, so the standard dev-shell path
 // can run its directory as a "game". The viewer discovers targets over the
-// ~/.downdraft/platinum-agent/ + feed contract and attaches to running or
+// ~/.downdraft/devtools-agent/ + feed contract and attaches to running or
 // flaky games (launch them with `draft dev --devtools-agent`, or
 // DD_DEVTOOLS_AGENT=1, or an explicit devtools-agent.mjs import).
 // ============================================================================
@@ -19,13 +19,13 @@ import { getCommand } from "./usage";
 
 const log = createLogger();
 
-/** Resolve the installed @downdraft/platinum-devtools package dir — it is a
+/** Resolve the installed @downdraft/devtools package dir — it is a
  *  dependency of this CLI, so `draft devtools` works anywhere the CLI is
  *  installed (monorepo workspace link or published node_modules). */
 function resolveViewerDir(): string | null {
   try {
     const req = createRequire(import.meta.url);
-    return dirname(req.resolve("@downdraft/platinum-devtools/package.json"));
+    return dirname(req.resolve("@downdraft/devtools/package.json"));
   } catch {
     return null;
   }
@@ -41,8 +41,8 @@ export async function devtools(args: string[]): Promise<void> {
 
   const dir = resolveViewerDir();
   if (!dir) {
-    log.error("draft", "Could not resolve @downdraft/platinum-devtools — reinstall the draft CLI.");
-    throw new ArgError("@downdraft/platinum-devtools not found in the CLI's dependency tree");
+    log.error("draft", "Could not resolve @downdraft/devtools — reinstall the draft CLI.");
+    throw new ArgError("@downdraft/devtools not found in the CLI's dependency tree");
   }
   await devNative(parsed, dir);
 }

@@ -28,10 +28,11 @@
     "examples/plugin-tester",
     "examples/packaging-smoke",
     "apps/devtools",
-    "packages/platinum-devtools"
+    "packages/devtools"
   ],
   "devDependencies": {
     "@downdraft/cli": "workspace:*",
+    "@downdraft/devtools": "workspace:*",
     "@downdraft/engine": "workspace:*",
     "@downdraft/platform-native": "workspace:*",
     "@types/node": "^22.10.0",

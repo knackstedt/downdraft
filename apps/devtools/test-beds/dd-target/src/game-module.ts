@@ -3,20 +3,19 @@ import type { GameModule } from "@downdraft/engine/app/main";
 import { createGameMcp } from "@downdraft/engine/app/main";
 import { createHtmlUi } from "@downdraft/engine/modules/html-ui";
 import { createLogger } from "@downdraft/engine/util/logger";
-import { mountPlatinumDevtools } from "@downdraft/platinum-devtools";
 import { TargetSimHost } from "./sim-host";
 
 const log = createLogger();
 
 // ============================================================================
-// dd-target — platinum-devtools acceptance fixture.
+// dd-target — devtools acceptance fixture.
 //
 // A synthetic "game" that exercises every channel the viewer consumes:
 //   - devtools mirror (ui:"web" — the mirror host; the in-window UI is the
-//     platinum overlay below)   → console, threads, metrics, providers
+//     devtools overlay below)   → console, threads, metrics, providers
 //   - profiling SAB                 → per-thread CPU metrics
 //   - sim worker + io worker        → thread list + per-thread eval
-//   - platinum-agent (native-entry) → CDP inspector, network capture, jsc heap
+//   - devtools-agent (native-entry) → CDP inspector, network capture, jsc heap
 //   - fetch loop to a local echo    → network waterfall data
 //   - heap churn + console noise    → live console + memory panels
 //   - "target-state" provider       → custom panel + interactive controls
@@ -36,11 +35,8 @@ const state = {
 
 export const gameModule: GameModule = {
   devtools: {
-    // The devtools mirror + providers live inside the "web" frontend host
-    // (ui:"none" creates no mirror at all). Nothing binds F12 to the web
-    // host — its browser UI is only opened via the printed URL — so the
-    // embedded platinum overlay below owns the in-window toggle cleanly.
-    ui: "web",
+    // Default "devtools" frontend: bootstrap wires the headless backend host
+    // and auto-mounts the @downdraft/devtools overlay on F12.
     profiling: true,
     workerHosts: () => {
       const proxy = simHost?.getProxy()?.proxy;
@@ -64,17 +60,14 @@ export const gameModule: GameModule = {
       build(ui) {
         ui.mount(
           `<div style="position:absolute;left:12px;top:10px;color:#9fb;font:14px monospace">
-             dd-target — platinum-devtools fixture
+             dd-target — devtools fixture
            </div>`,
           { id: "hud", rect: { x: 0, y: 0, w: 900, h: 640 } },
         );
       },
     });
     (ctx.renderer as GameRenderer).useRendererModule(mod);
-    // Embedded platinum-devtools overlay — F12 toggles. Under `draft dev`
-    // (DOWNDRAFT_DEV=1) it also self-injects the devtools agent, so the game
-    // appears in its own target list alongside every other discovered target.
-    mountPlatinumDevtools(ctx, { overlay: true });
+    // The devtools overlay + self-mirror are auto-mounted by bootstrap (F12).
     return { start() {}, dispose() {} };
   },
 

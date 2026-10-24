@@ -12,43 +12,49 @@
 //   - wraps console.* → console events → feed (for non-mirror targets)
 //   - exposes bun:jsc extras (heap snapshot, sampling profile, GC) via a
 //     loopback command server (cmdPort in the discovery file)
-//   - writes ~/.downdraft/platinum-agent/<pid>.json
-//   - reads ~/.downdraft/platinum-feed.json for the ingest endpoint
+//   - writes ~/.downdraft/devtools-agent/<pid>.json (+ legacy platinum-agent/)
+//   - reads ~/.downdraft/devtools-feed.json (or legacy platinum-feed.json) for
+//     the ingest endpoint
 //
-// The platinum-* discovery/feed filenames are the wire contract with the
-// platinum devtools viewer — keep in sync with apps/devtools.
+// The devtools-* discovery/feed filenames are the wire contract with the
+// devtools viewer — keep in sync with apps/devtools. The platinum-* names are
+// the pre-rename contract; we dual-write/dual-read so mixed-version
+// agent/viewer pairs keep working.
 //
 // No-op outside supported runtimes; safe to ship in dev-only paths.
 // ============================================================================
 
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
 
 const DD = join(homedir(), ".downdraft");
-const AGENT_DIR = join(DD, "platinum-agent");
-const FEED_FILE = join(DD, "platinum-feed.json");
+const AGENT_DIRS = [join(DD, "devtools-agent"), join(DD, "platinum-agent")];
+const FEED_FILES = [join(DD, "devtools-feed.json"), join(DD, "platinum-feed.json")];
 
 /** @typedef {{ pid: number, port: number, token: string }} FeedEp */
 
 const g = /** @type {Record<string, unknown>} */ (globalThis);
-if (g.__platinumAgent) {
+if (g.__devtoolsAgent) {
   // already installed
 } else {
-  g.__platinumAgent = true;
+  g.__devtoolsAgent = true;
   void boot();
 }
 
 /** @returns {FeedEp | null} */
 function readFeed() {
-  try {
-    if (!existsSync(FEED_FILE)) return null;
-    const j = JSON.parse(readFileSync(FEED_FILE, "utf8"));
-    if (!j.port || !j.token) return null;
-    return j;
-  } catch { return null; }
+  for (const f of FEED_FILES.values()) {
+    try {
+      if (!existsSync(f)) continue;
+      const j = JSON.parse(readFileSync(f, "utf8"));
+      if (!j.port || !j.token) continue;
+      return j;
+    } catch { /* try next */ }
+  }
+  return null;
 }
 
 const feedKey = randomBytes(8).toString("hex");
@@ -77,7 +83,7 @@ function post(msg) {
     // Report the drop count once per cap-hits instead of recursive posting.
     if (++dropped % 500 === 0) {
       queue.splice(0, QUEUE_CAP - 64);
-      queue.push({ type: "event", label: `platinum-agent dropped ${dropped} msgs (queue full)` });
+      queue.push({ type: "event", label: `devtools-agent dropped ${dropped} msgs (queue full)` });
     }
     return;
   }
@@ -115,7 +121,7 @@ async function flush() {
 }
 
 async function boot() {
-  mkdirSync(AGENT_DIR, { recursive: true });
+  AGENT_DIRS.forEach((d) => mkdirSync(d, { recursive: true }));
 
   // ── Inspector (CDP) ──
   try {
@@ -140,17 +146,20 @@ async function boot() {
 
   // Re-announce on a slow cadence (the viewer may boot after us).
   const ann = setInterval(() => {
-    if (existsSync(FEED_FILE)) { clearInterval(ann); writeDiscovery(); }
+    if (FEED_FILES.some((f) => existsSync(f))) { clearInterval(ann); writeDiscovery(); }
   }, 2000);
   setTimeout(() => clearInterval(ann), 60_000);
 }
 
 function writeDiscovery() {
-  try {
-    writeFileSync(join(AGENT_DIR, `${process.pid}.json`), JSON.stringify({
-      pid: process.pid, cdpUrl, feedKey, cmdPort, caps, startedAt: Date.now(),
-    }), { mode: 0o600 });
-  } catch { /* ignore */ }
+  const body = JSON.stringify({
+    pid: process.pid, cdpUrl, feedKey, cmdPort, caps, startedAt: Date.now(),
+  });
+  for (const dir of AGENT_DIRS.values()) {
+    try {
+      writeFileSync(join(dir, `${process.pid}.json`), body, { mode: 0o600 });
+    } catch { /* ignore */ }
+  }
 }
 
 // ── fetch + WebSocket capture ──
@@ -160,7 +169,7 @@ let netSeq = 0;
 function wrapNetwork() {
   const origFetch = /** @type {typeof fetch | undefined} */ (g.fetch);
   if (origFetch) sendFetch = origFetch;
-  if (origFetch && !("__platinumWrapped" in origFetch)) {
+  if (origFetch && !("__devtoolsWrapped" in origFetch)) {
     const wrapped = async (...args) => {
       const id = `agent-${process.pid}-${++netSeq}`;
       const url = typeof args[0] === "string" ? args[0] : args[0]?.url ?? "";
@@ -187,12 +196,12 @@ function wrapNetwork() {
         throw e;
       }
     };
-    wrapped.__platinumWrapped = true;
+    wrapped.__devtoolsWrapped = true;
     g.fetch = wrapped;
   }
 
   const WsG = /** @type {(new (url, protocols) => WebSocket) | undefined} */ (g.WebSocket);
-  if (WsG && !("__platinumWrapped" in WsG)) {
+  if (WsG && !("__devtoolsWrapped" in WsG)) {
     const WrappedWs = class extends WsG {
       constructor(url, protocols) {
         const u = String(url);
@@ -200,7 +209,7 @@ function wrapNetwork() {
         post({ type: "network", event: { id: `agent-${process.pid}-ws-${++netSeq}`, ts: Date.now() / 1000, method: "WS", url: u, protocol: "ws" } });
       }
     };
-    WrappedWs.__platinumWrapped = true;
+    WrappedWs.__devtoolsWrapped = true;
     g.WebSocket = WrappedWs;
   }
 }
@@ -213,7 +222,7 @@ function wrapConsole() {
   const levels = [["log", 0], ["info", 1], ["warn", 2], ["error", 3], ["debug", 4], ["trace", 5]];
   levels.forEach(([k, sev]) => {
     const orig = console[k];
-    if (!orig || "__platinum" in orig) return;
+    if (!orig || "__devtools" in orig) return;
     const wrapped = (...a) => {
       try {
         const text = a.map((x) => {
@@ -224,7 +233,7 @@ function wrapConsole() {
       } catch { /* never break console */ }
       return orig.apply(console, a);
     };
-    wrapped.__platinum = true;
+    wrapped.__devtools = true;
     console[k] = wrapped;
   });
 }

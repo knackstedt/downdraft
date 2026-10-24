@@ -2,10 +2,10 @@ import { describe, test, expect } from "bun:test";
 import { registerEngineProviders } from "./native-providers";
 import type { PanelSnapshot } from "./snapshot";
 
-// The "gpu" provider feeds provider-driven frontends (platinum GPU surface,
+// The "gpu" provider feeds provider-driven frontends (devtools GPU surface,
 // external viewers pulling snapshot("gpu") over the mirror) with the same
 // data the docked gpu panel gets via the inspector's getGPUInfo RPC. It was
-// missing from the registry — platinum's GPU tab rendered empty against
+// missing from the registry — the devtools GPU tab rendered empty against
 // targets whose mirror hello advertised sim/memory/render-graph only.
 
 function stubTarget() {

@@ -1,5 +1,5 @@
 import { createSimWorker } from "@downdraft/engine";
-import { exposeDevToolsApi } from "@downdraft/engine/modules/devtools";
+import { exposeDevToolsApi } from "@downdraft/engine/modules/debug";
 import { exposeProfilingApi } from "@downdraft/engine";
 
 // ============================================================================

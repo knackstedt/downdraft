@@ -75,6 +75,6 @@ In dev mode, the docked Blitz devtools UI (toggled with F12) is available with:
 - **GPU** — Adapter info, buffer sizes, per-pass draw calls and timings
 - **Perf Metrics / Perf Recorder** — GC/memory/CPU per thread, frame-time graphs, p50/p95/p99 statistics
 - **Provider panels** — Materials, Assets, RenderGraph, Workers, Memory, PostFx, Input, and the `downdraft doctor` module-graph panel
-- **Debug draw** — Wireframe, AABBs, gizmos, and scene overlays via `modules/devtools`
+- **Debug draw** — Wireframe, AABBs, gizmos, and scene overlays via `modules/debug`
 
 Devtools render as a Blitz/html-ui document docked in the game window — the same HTML/CSS rasterization path as game UIs, no webviews. An alternative `WebDevtoolsHost` backend can instead serve `packages/devtools-web` over loopback HTTP+WS and open it in a desktop browser.

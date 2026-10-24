@@ -5,8 +5,8 @@ import { gameModule } from "./game-module";
 // Node, or Deno). MCP, saves, display info, screenshots via the in-process
 // HostAPI bridge.
 await runNativeGameModule(gameModule, {
-  title: "platinum-devtools",
-  appId: "downdraft-platinum-devtools",
+  title: "devtools",
+  appId: "downdraft-devtools",
   width: 1600,
   height: 1000,
   focused: true,

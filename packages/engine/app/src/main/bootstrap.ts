@@ -34,8 +34,8 @@ const log = createLogger("info");
 // pending fetch can be dropped unresolved, leaving the async frame suspended
 // forever and pinning the dead generation's renderer/devtools graph. Firing
 // the import at module eval collapses the awaits to a settled-cache lookup.
-const devtoolsModuleP = isDevMode
-  ? import("@downdraft/engine/modules/devtools")
+const debugModuleP = isDevMode
+  ? import("@downdraft/engine/modules/debug")
   : null;
 const devtoolsLibP = isDevMode
   ? import("@downdraft/engine/libraries/devtools")
@@ -45,7 +45,7 @@ const devtoolsLibP = isDevMode
 const hooksP = import("./hooks");
 // Attach benign handlers so a rejection before the first await isn't flagged
 // as unhandled — awaiting the original promise still propagates the error.
-devtoolsModuleP?.catch(() => {});
+debugModuleP?.catch(() => {});
 devtoolsLibP?.catch(() => {});
 hooksP.catch(() => {});
 
@@ -130,15 +130,16 @@ export interface BootstrapDevToolsOptions {
    */
   profiling?: boolean | { sharedSAB?: { sab: SharedArrayBuffer; layout: unknown } };
   /**
-   * Devtools UI frontend. "blitz" (default) mounts the docked in-window UI
-   * (F12 toggles); "web" starts the loopback browser frontend
-   * (WebDevtoolsHost, requires Bun); "none" wires data only.
-   * Object form: `{ kind: "blitz", dockFraction?, autoShow?, toggleKey? }`.
-   * `DOWNDRAFT_DISABLE_DEVTOOLS=1` forces "none".
+   * Devtools frontend. "devtools" (default) creates the headless backend
+   * host (CdpBridge + DevtoolsBackend + providers) and, when the optional
+   * `@downdraft/devtools` peer is installed, mounts the in-window overlay
+   * (F12 toggles). "none" wires nothing — no backend, no mirror.
+   * Object form: `{ kind: "devtools", autoShow?, toggleKey? }`.
+   * The removed "blitz"/"web" frontends fall back to "devtools" with a
+   * warning. `DOWNDRAFT_DISABLE_DEVTOOLS=1` forces "none".
    */
-  ui?: "blitz" | "web" | "none" | {
-    kind?: "blitz" | "web";
-    dockFraction?: number;
+  ui?: "devtools" | "blitz" | "web" | "none" | {
+    kind?: "devtools" | "blitz" | "web" | "none";
     autoShow?: boolean;
     toggleKey?: string | null;
   };
@@ -230,7 +231,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
   // 4. Wire DevTools (if provided) — runs BEFORE onRendererInit so that
   //    games can access the ProfilingBridge + __downdraftDevtools API in onReady.
   if (opts.devtools) {
-    const devtoolsMod = await importOrDead(devtoolsModuleP ?? import("@downdraft/engine/modules/devtools"), bootSession);
+    const devtoolsMod = await importOrDead(debugModuleP ?? import("@downdraft/engine/modules/debug"), bootSession);
     if (!devtoolsMod) return;
     const { initDevTools } = devtoolsMod;
     const simStatsProvider = opts.devtools.createSimStatsProvider?.(renderer);
@@ -264,7 +265,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     //     manually; worker-side attach is idempotent.
     if (opts.devtools.profiling) {
       try {
-        const mod = await importOrDead(devtoolsModuleP ?? import("@downdraft/engine/modules/devtools"), bootSession);
+        const mod = await importOrDead(debugModuleP ?? import("@downdraft/engine/modules/debug"), bootSession);
         if (!mod) return;
         const { wireProfilingBridge } = mod;
         const bridge =
@@ -315,57 +316,59 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
       }
     }
 
-    // 4b. Devtools UI frontend — the Blitz dock is the default surface.
+    // 4b. Devtools backend host + in-window overlay. The headless
+    //     EmbeddedDevtoolsHost (CdpBridge + DevtoolsBackend + providers) is
+    //     always created when devtools are enabled — the @downdraft/devtools
+    //     overlay (F12) and remote viewers via DevToolsServer both consume
+    //     it. ui:"none" wires nothing (no backend, no mirror).
     const disabled = typeof process !== "undefined" && !!process.env?.DOWNDRAFT_DISABLE_DEVTOOLS;
-    const uiOpt = opts.devtools.ui ?? "blitz";
-    const uiKind = disabled ? "none" : (typeof uiOpt === "string" ? uiOpt : uiOpt.kind ?? "blitz");
+    const uiOpt = opts.devtools.ui ?? "devtools";
+    const uiKind = disabled ? "none" : (typeof uiOpt === "string" ? uiOpt : uiOpt.kind ?? "devtools");
     if (uiKind !== "none" && typeof renderer.useRendererModule === "function") {
       try {
         const uiCfg = typeof uiOpt === "object" ? uiOpt : {};
+        if (uiKind === "blitz" || uiKind === "web") {
+          log.warn("bootstrap-game", `devtools.ui:"${uiKind}" was removed — the @downdraft/devtools overlay (F12) is the in-window frontend; treating as "devtools"`);
+        }
         const profilingSAB =
           (globalThis as Record<string, any>).window?.__downdraftDevtools?.__getProfilingBridge?.()?.getProfilingSAB?.()
           ?? (globalThis as Record<string, any>).__downdraftDevtools?.__getProfilingBridge?.()?.getProfilingSAB?.()
           ?? null;
-        if (uiKind === "blitz") {
-          const mod = await importOrDead(devtoolsModuleP ?? import("@downdraft/engine/modules/devtools"), bootSession);
-          if (!mod) return;
-          const { createDevtoolsUiModule } = mod;
-          renderer.useRendererModule(createDevtoolsUiModule({
-            renderer,
-            profilingSAB,
-            dockFraction: uiCfg.dockFraction,
-            autoShow: uiCfg.autoShow,
+        const libMod = await importOrDead(devtoolsLibP ?? import("@downdraft/engine/libraries/devtools"), bootSession);
+        if (!libMod) return;
+        const { EmbeddedDevtoolsHost } = libMod;
+        const host = new EmbeddedDevtoolsHost({ renderer, profilingSAB });
+        host.start();
+        renderer.nativeDebugger = host;
+        wireDevtoolsFrontend(host.devtoolsMirror, host, renderer, workerHosts, profilingSAB, opts.devtools?.inputInfo, bootSession);
+        hooksMod.dispose(() => { try { host.dispose(); } catch { /* ignore */ } });
+        // Backend pump — providers/collectors refresh on the frame hook.
+        renderer.setCallbacks?.({
+          ...renderer.getCallbacks?.(),
+          beforeFrame: ((prev: any) => (dt: number, t: number) => {
+            try { host.update(); } catch { /* ignore */ }
+            prev?.(dt, t);
+          })(renderer.getCallbacks?.().beforeFrame),
+        });
+
+        // In-window overlay — @downdraft/devtools is an optional peer (engine
+        // can't depend on it: it depends on engine). The specifier lives in a
+        // variable so Vite doesn't try to resolve it at transform time for
+        // games that don't have it installed.
+        const dtSpecifier = "@downdraft/devtools";
+        const overlayMod: any = await importOrDead(
+          import(/* @vite-ignore */ dtSpecifier).catch(() => null),
+          bootSession,
+        );
+        if (overlayMod?.mountDevtools) {
+          const mount = overlayMod.mountDevtools({ renderer, surface } as any, {
+            overlay: true,
             toggleKey: uiCfg.toggleKey,
-            onHost: (host) => {
-              renderer.nativeDebugger = host;
-              wireDevtoolsFrontend(host.devtoolsMirror, host, renderer, workerHosts, profilingSAB, opts.devtools?.inputInfo, bootSession);
-            },
-          }));
+            initiallyVisible: uiCfg.autoShow,
+          });
+          hooksMod.dispose(() => { try { mount.dispose(); } catch { /* ignore */ } });
         } else {
-          // "web" — loopback browser frontend (Bun-only transport).
-          const libMod = await importOrDead(devtoolsLibP ?? import("@downdraft/engine/libraries/devtools"), bootSession);
-          if (!libMod) return;
-          const { WebDevtoolsHost } = libMod;
-          const webHost = new WebDevtoolsHost({
-            device: renderer.getDevice?.() as GPUDevice,
-            adapter: null as any,
-            targetFormat: renderer.getFormat?.() ?? "bgra8unorm",
-            width: 0, height: 0,
-            renderer,
-            profilingSAB,
-          });
-          await webHost.start();
-          renderer.nativeDebugger = webHost;
-          wireDevtoolsFrontend(webHost.devtoolsMirror, webHost, renderer, workerHosts, profilingSAB, opts.devtools?.inputInfo, bootSession);
-          // Per-frame pump + F12 through the renderer's input bus, same as
-          // the Blitz module's wiring.
-          renderer.setCallbacks?.({
-            ...renderer.getCallbacks?.(),
-            beforeFrame: ((prev: any) => (dt: number, t: number) => {
-              try { webHost.update(); } catch { /* ignore */ }
-              prev?.(dt, t);
-            })(renderer.getCallbacks?.().beforeFrame),
-          });
+          log.warn("bootstrap-game", "@downdraft/devtools not installed — F12 overlay unavailable (backend still serves remote viewers)");
         }
       } catch (err) {
         log.error("bootstrap-game", `Devtools UI init failed: ${err}`);

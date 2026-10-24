@@ -1,5 +1,5 @@
 {
-  "name": "platinum-devtools",
+  "name": "devtools",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,12 +9,12 @@
     "release": "draft release",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
-    "test": "bun test ../../packages/platinum-devtools/tests/"
+    "test": "bun test ../../packages/devtools/tests/"
   },
   "dependencies": {
     "@downdraft/engine": "^0.6.1",
     "@downdraft/platform-native": "^0.6.1",
-    "@downdraft/platinum-devtools": "^0.6.1"
+    "@downdraft/devtools": "^0.6.1"
   },
   "devDependencies": {
     "@downdraft/cli": "^0.6.1",

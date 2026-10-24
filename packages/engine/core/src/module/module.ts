@@ -12,7 +12,7 @@ export interface SABChannel {
  * Plugins call `ctx.devtools.registerDataFeed(...)` etc. to self-register
  * debug data. The same interface works in both main and worker realms.
  *
- * The actual implementation is provided by @downdraft/engine/modules/devtools via
+ * The actual implementation is provided by @downdraft/engine/modules/debug via
  * the `devtools` singleton. Core defines the interface; the host injects
  * the concrete object at construction time (see ModuleHost.setDevToolsAPI).
  */

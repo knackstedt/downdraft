@@ -6,7 +6,7 @@ Games are **not part of this repository** — each game is a standalone repo tha
 
 References to `games/<name>/...` throughout this document refer to those local clones; nothing under `games/` is tracked here.
 
-`apps/` holds in-repo applications that are not games — currently `apps/devtools` (a private shim launching `@downdraft/platinum-devtools`; the publishable surface package lives at `packages/platinum-devtools` — `draft devtools` launches the standalone multi-target viewer, `mountPlatinumDevtools(ctx, { overlay: true })` embeds it as an F12-toggled in-game overlay). `packages/platform-native/src/dev/devtools-agent.mjs` is the devtools agent asset injected by `draft dev --devtools-agent`; see `docs/site/src/content/docs/architecture/devtools.md`.
+`apps/` holds in-repo applications that are not games — currently `apps/devtools` (a private shim launching `@downdraft/devtools`; the publishable surface package lives at `packages/devtools` — `draft devtools` launches the standalone multi-target viewer, `mountDevtools(ctx, { overlay: true })` embeds it as an F12-toggled in-game overlay — bootstrap auto-mounts it when the package is installed). `packages/platform-native/src/dev/devtools-agent.mjs` is the devtools agent asset injected by `draft dev --devtools-agent`; see `docs/site/src/content/docs/architecture/devtools.md`.
 
 `@downdraft/*` packages are published to npm (`node scripts/publish-packages.mjs` / the `publish.yml` workflow). First-time setup (clone → `bun install` → prebuilt native fetch → `link:games`) is documented for humans in `development.md`.
 
@@ -60,7 +60,7 @@ Before writing per-game infrastructure, check whether the engine already provide
 | Save system | `createGameSaveSystem` / `createGridSaveSystem` + `createDefaultSaveStore` | `@downdraft/engine`, `@downdraft/engine/app/main` |
 | Autosave interval | `AutosaveManager({ save, shouldSave, intervalMs, deterministic })` | `@downdraft/engine/libraries/persistence` |
 | MCP automation tools | `createStandardAutomationTools(ctx)` + `createMcpHarness` — the standard tool set (see `docs/site/src/content/docs/reference/testing.md`); game tools via `extraTools`; semantic state read/write via `inspectables: InspectableRegistry` (enables `inspectable_list/get/set` — nodes' `set()` must route through the game's apply pipeline, never raw field writes). `characterCustomizationNodes()` emits `player.customization.*` nodes | `@downdraft/engine/app/main`, `@downdraft/engine/libraries/inspectable` |
-| DevTools | `initDevTools(renderer, {...})` + `createSimStatsProvider`/`createSimStatsPanelExtension` | `@downdraft/engine/modules/devtools` |
+| DevTools | `initDevTools(renderer, {...})` + `createSimStatsProvider`/`createSimStatsPanelExtension` | `@downdraft/engine/modules/debug` |
 | Sand simulation | `SandWorld`, `SandStepPool`, `SandLib`, palette/materials | `@downdraft/engine/libraries/sand` |
 | Game UI | `createHtmlUi({ build })` renderer module over `modules/html-ui` (Blitz HTML/CSS docs rasterized in a UI worker, composited as panel quads) — **canonical game-UI system**. On native the ui worker uploads frames GPU-direct through the shared device (SAB path is the automatic fallback); `gpuUpload: false`/`DOWNDRAFT_NO_UI_GPU=1` forces SAB | `@downdraft/engine/modules/html-ui` |
 

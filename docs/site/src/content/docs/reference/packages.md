@@ -58,7 +58,7 @@ Feature modules use the factory pattern (`createXxxModule(config)`) and provide 
 |---|---|
 || `@downdraft/engine/modules/camera-controls` | Camera input and control modes |
 || `@downdraft/engine/modules/controller-ui` | Controller/ten-foot UI support |
-|| `@downdraft/engine/modules/devtools` | DevTools overlay panel (native OSR) |
+|| `@downdraft/engine/modules/debug` | DevTools overlay panel (native OSR) |
 || `@downdraft/engine/modules/editor` | Editor tooling |
 || `@downdraft/engine/modules/html-ui` | Blitz HTML/CSS game UI, rasterized in a worker |
 || `@downdraft/engine/modules/mcp` | In-game MCP automation harness |
