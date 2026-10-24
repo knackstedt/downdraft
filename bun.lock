@@ -25,12 +25,12 @@
       "name": "devtools",
       "version": "0.1.0",
       "dependencies": {
-        "@downdraft/devtools": "^0.6.1",
-        "@downdraft/engine": "^0.6.1",
-        "@downdraft/platform-native": "^0.6.1",
+        "@downdraft/devtools": "^0.7.0",
+        "@downdraft/engine": "^0.7.0",
+        "@downdraft/platform-native": "^0.7.0",
       },
       "devDependencies": {
-        "@downdraft/cli": "^0.6.1",
+        "@downdraft/cli": "^0.7.0",
         "@types/node": "^22.10.0",
         "@webgpu/types": "^0.1.71",
         "oxlint": "^1.4.0",
@@ -55,14 +55,14 @@
     },
     "packages/cli": {
       "name": "@downdraft/cli",
-      "version": "0.6.2",
+      "version": "0.7.0",
       "bin": {
         "draft": "src/index.ts",
       },
       "dependencies": {
         "@aws-sdk/client-s3": "^3.700.0",
-        "@downdraft/devtools": "^0.6.2",
-        "@downdraft/engine": "^0.6.2",
+        "@downdraft/devtools": "^0.7.0",
+        "@downdraft/engine": "^0.7.0",
         "eta": "^3.5.0",
         "jimp": "^1.6.1",
         "resedit": "3.1.0",
@@ -70,17 +70,17 @@
     },
     "packages/devtools": {
       "name": "@downdraft/devtools",
-      "version": "0.6.2",
+      "version": "0.7.0",
       "dependencies": {
-        "@downdraft/engine": "^0.6.2",
-        "@downdraft/platform-native": "^0.6.2",
+        "@downdraft/engine": "^0.7.0",
+        "@downdraft/platform-native": "^0.7.0",
         "harfbuzzjs": "^1.6.3",
         "zustand": "^5.0.15",
       },
     },
     "packages/engine": {
       "name": "@downdraft/engine",
-      "version": "0.6.2",
+      "version": "0.7.0",
       "dependencies": {
         "@bokuweb/zstd-wasm": "^0.0.27",
         "@dimforge/rapier3d-compat": "^0.19.3",
@@ -106,8 +106,8 @@
         "@types/dns-packet": "^5.6.5",
       },
       "peerDependencies": {
-        "@downdraft/devtools": "^0.6.2",
-        "@downdraft/platform-native": "^0.6.2",
+        "@downdraft/devtools": "^0.7.0",
+        "@downdraft/platform-native": "^0.7.0",
       },
       "optionalPeers": [
         "@downdraft/devtools",
@@ -116,20 +116,20 @@
     },
     "packages/platform-native": {
       "name": "@downdraft/platform-native",
-      "version": "0.6.2",
+      "version": "0.7.0",
       "dependencies": {
-        "@downdraft/engine": "^0.6.2",
+        "@downdraft/engine": "^0.7.0",
         "koffi": "^3.2.1",
       },
       "devDependencies": {
         "typescript": "^5",
       },
       "optionalDependencies": {
-        "@downdraft/native-darwin-arm64": "^0.6.2",
-        "@downdraft/native-darwin-x64": "^0.6.2",
-        "@downdraft/native-linux-arm64": "^0.6.2",
-        "@downdraft/native-linux-x64": "^0.6.2",
-        "@downdraft/native-win32-x64": "^0.6.2",
+        "@downdraft/native-darwin-arm64": "^0.7.0",
+        "@downdraft/native-darwin-x64": "^0.7.0",
+        "@downdraft/native-linux-arm64": "^0.7.0",
+        "@downdraft/native-linux-x64": "^0.7.0",
+        "@downdraft/native-win32-x64": "^0.7.0",
       },
     },
   },
@@ -185,16 +185,6 @@
     "@downdraft/devtools": ["@downdraft/devtools@workspace:packages/devtools"],
 
     "@downdraft/engine": ["@downdraft/engine@workspace:packages/engine"],
-
-    "@downdraft/native-darwin-arm64": ["@downdraft/native-darwin-arm64@0.6.2", "", { "os": "darwin", "cpu": "arm64" }, "sha512-CudGOOTDH/qpHQb0Id3XlK3Aoz2tZBGZpFgCnUgaO/hbjMPyLOhynRAcCg/NO9deom2Fhu0MTHtTYhAgd9fCGA=="],
-
-    "@downdraft/native-darwin-x64": ["@downdraft/native-darwin-x64@0.6.2", "", { "os": "darwin", "cpu": "x64" }, "sha512-ZCB0whUT2oNZ4TuCtETU/fHdi5yd6j4aYXLC8Z3yzyVYyUSavNFXN1Uo8ipiZo5kvuboMaMrS/fmjBn0qMEB5g=="],
-
-    "@downdraft/native-linux-arm64": ["@downdraft/native-linux-arm64@0.6.2", "", { "os": "linux", "cpu": "arm64" }, "sha512-SSpOrIXWNmZd0Hx5eSmVQsP8zjd14qApySbg9IDD+dptVjRzYsJH6yS0/BJvd+vZWRiHVZbW3H6fdqCDteEXqg=="],
-
-    "@downdraft/native-linux-x64": ["@downdraft/native-linux-x64@0.6.2", "", { "os": "linux", "cpu": "x64" }, "sha512-i9CcccMB894iL42RbL4qV43tVSFjOLWW64NENPQnzqEMr6UDT/XFkA1yWPEoc9eNxdMh6w1nK22zRU+k/hB6fQ=="],
-
-    "@downdraft/native-win32-x64": ["@downdraft/native-win32-x64@0.6.2", "", { "os": "win32", "cpu": "x64" }, "sha512-OXXNIQPT91V78pKxPeJHCNeDj3ytfNMBIl8JUicaDnAD4gfZUvliaOlVshzsdwMX3Ea0wpBRRQlG943SrR8iGA=="],
 
     "@downdraft/platform-native": ["@downdraft/platform-native@workspace:packages/platform-native"],
 

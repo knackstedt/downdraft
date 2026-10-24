@@ -1,6 +1,6 @@
 {
   "name": "@downdraft/devtools",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "Downdraft DevTools — GPU-rendered devtools surface for Downdraft targets: standalone viewer (draft devtools) or embedded in-game overlay (mountDevtools)",
   "type": "module",
   "main": "dist/src/index.js",
@@ -32,8 +32,8 @@
     "test": "bun test tests/"
   },
   "dependencies": {
-    "@downdraft/engine": "^0.6.2",
-    "@downdraft/platform-native": "^0.6.2",
+    "@downdraft/engine": "^0.7.0",
+    "@downdraft/platform-native": "^0.7.0",
     "harfbuzzjs": "^1.6.3",
     "zustand": "^5.0.15"
   },

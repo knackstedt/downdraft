@@ -7,10 +7,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@downdraft/cli": "^0.6.1",
-    "@downdraft/engine": "^0.6.1",
-    "@downdraft/platform-native": "^0.6.1",
-    "@downdraft/devtools": "^0.6.1"
+    "@downdraft/cli": "^0.7.0",
+    "@downdraft/engine": "^0.7.0",
+    "@downdraft/platform-native": "^0.7.0",
+    "@downdraft/devtools": "^0.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
