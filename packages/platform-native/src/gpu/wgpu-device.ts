@@ -96,7 +96,18 @@ async function awaitGpuOp(token: number | bigint, instancePtr: ptr): Promise<ptr
 // a renderer created itself — GameRenderer.init opens its own). Without this
 // pump, device.lost never resolves on native and the entire loss-recovery
 // path (GameRenderer.recoverDevice, game .lost handlers) is dead code.
-const liveDevices = new Set<WgpuDevice>();
+//
+// Keyed on globalThis, not module state: under the dev shell this file is
+// evaluated in TWO realms — the Vite ModuleRunner (native-dev-runtime →
+// session-tracker) and the externalized dist (the entry's createNativeHost,
+// used whenever the early-host path is skipped). A module-level Set left the
+// runner-side tracker blind to dist-created devices — step-5b's
+// __ddClearLostWatchers never reached them, so every session's .lost
+// reactions piled up on the shared host device and all fired at once when
+// host.destroy() destroyed it (the "WebGPU device lost: destroyed" flood).
+// Workers get their own globalThis, so per-thread isolation is preserved.
+const LIVE_DEVICES_KEY = "__ddLiveWgpuDevices";
+const liveDevices: Set<WgpuDevice> = ((globalThis as any)[LIVE_DEVICES_KEY] ??= new Set());
 /** Shared scratch for pollLost's native message read — the FFI call needs a
  *  buffer even when the device is live, and pollLost runs once per runLoop
  *  iteration per device; allocating per call was pure GC churn. */
