@@ -34,8 +34,19 @@ export class SessionManager {
    *  set by an embedded mount that self-injected the agent. The standalone
    *  viewer leaves it null: inspecting yourself is meaningless there. */
   private selfPid: number | null = null;
-  setSelfTarget(pid: number | null): void {
+  /** When true, self always takes the active slot on (re)discovery — the
+   *  embedded single-target mode where the host game IS the subject and
+   *  the target list is hidden. */
+  private selfPinned = false;
+  setSelfTarget(pid: number | null, opts?: { pin?: boolean }): void {
     this.selfPid = pid;
+    this.selfPinned = opts?.pin ?? false;
+    // Pin applies immediately if the self session already exists — covers
+    // setSelfTarget calls that land after discovery created it.
+    if (pid !== null && this.selfPinned) {
+      const s = this.sessions.get(pid);
+      if (s) this.setActive(s.id);
+    }
   }
 
   start(): void {
@@ -88,8 +99,10 @@ export class SessionManager {
         this.sessions.set(ep.pid, s);
         // Embedded self-target: the host game is the natural default —
         // without this the overlay arbitrarily attaches to whichever
-        // unrelated target discovery found first.
-        if (ep.pid === this.selfPid && !store.getState().activeTargetId) {
+        // unrelated target discovery found first. Pinned mode takes the
+        // slot unconditionally — including on re-discovery after another
+        // target won the initial race.
+        if (ep.pid === this.selfPid && (this.selfPinned || !store.getState().activeTargetId)) {
           this.setActive(s.id);
         }
       }

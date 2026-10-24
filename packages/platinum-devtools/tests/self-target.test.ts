@@ -71,4 +71,22 @@ describe("SessionManager self-target", () => {
     const t = store.getState().targets.find((x) => x.pid === process.pid);
     expect(t?.isSelf).toBe(true);
   });
+
+  test("pin mode takes the active slot even when another target won the race", () => {
+    const mgr = mk();
+    mgr.setSelfTarget(process.pid, { pin: true });
+    feed(mgr, [{ pid: 999_999_999 }]); // unrelated target wins the initial slot
+    expect(store.getState().activeTargetId).toBe("pid-999999999");
+    feed(mgr, [{ pid: process.pid }]); // self discovered later — still takes over
+    expect(store.getState().activeTargetId).toBe(`pid-${process.pid}`);
+  });
+
+  test("pin mode claims an already-existing self session immediately", () => {
+    const mgr = mk();
+    mgr.setSelfTarget(process.pid);
+    feed(mgr, [{ pid: 999_999_999 }, { pid: process.pid }]);
+    store.setState({ activeTargetId: "pid-999999999" });
+    mgr.setSelfTarget(process.pid, { pin: true });
+    expect(store.getState().activeTargetId).toBe(`pid-${process.pid}`);
+  });
 });

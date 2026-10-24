@@ -29,7 +29,7 @@ export function panelTitle(id: string): string {
 export function computeLayout(): void {
   const s = store.getState();
   const W = s.windowW, H = s.windowH;
-  const sw = s.sidebarWidth;
+  const sw = s.sidebarVisible ? s.sidebarWidth : 0;
   const th = s.topbarHeight;
   const contentW = W - sw;
 
@@ -101,7 +101,7 @@ export function installDockDrag(bus: InputBusLike, isVisible: () => boolean = ()
     const b = s.docks.bottom;
     if (!b.collapsed && b.active &&
         e.clientY >= s.bottomRect.y - GRAB && e.clientY <= s.bottomRect.y + 1 &&
-        e.clientX >= s.sidebarWidth) {
+        e.clientX >= (s.sidebarVisible ? s.sidebarWidth : 0)) {
       dragging = { id: "bottom", last: e.clientY };
       ctrl.stopPropagation();
       return;

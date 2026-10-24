@@ -82,9 +82,12 @@ export interface PlatinumMountOptions {
    *  render-graph…) from the game itself. No-op when the game already runs
    *  devtools.ui:"web" (mirror exists) or "none" (no backend). Default true. */
   selfMirror?: boolean;
-  /** Start target discovery + feed server + session manager. Default true —
-   *  required for the surface to see any targets at all. */
-  targets?: boolean;
+  /** Target runtime + selection mode. `false` disables discovery/feed/
+   *  sessions entirely. `"self"` pins the host process as the active target
+   *  and hides the targets sidebar — embedded default: the overlay inspects
+   *  the game it's mounted in. `"all"` shows the full target list —
+   *  standalone default, also valid embedded for multi-target inspection. */
+  targets?: boolean | "self" | "all";
   /** Persist dock/sidebar/zoom prefs to the viewer's shared layout.json.
    *  Default true standalone, false embedded. */
   persistLayout?: boolean;
@@ -149,7 +152,7 @@ export function mountPlatinumDevtools(ctx: GameContext, opts: PlatinumMountOptio
   let shellUi: HtmlUiContext | null = null;
   let shell: ShellHandles | null = null;
   const shellDocs = () => shell
-    ? [shell.sidebar, shell.tabstrip, shell.dockBottom, shell.dockRight, shell.statusbar]
+    ? [shell.sidebar, shell.tabstrip, shell.dockBottom, shell.dockRight, shell.statusbar].filter((h) => h !== null)
     : [];
   const showShell = () => {
     if (!shellUi) return;
@@ -269,14 +272,20 @@ export function mountPlatinumDevtools(ctx: GameContext, opts: PlatinumMountOptio
       .catch((e) => log.warn("app", `self mirror failed: ${e}`))
       .finally(() => { mirrorPending = false; });
   };
-  if (opts.targets !== false) {
+  const targetsMode = opts.targets === undefined || opts.targets === true
+    ? (overlay ? "self" : "all")
+    : opts.targets;
+  if (targetsMode !== false) {
     void startTargetRuntime().then(() => {
       log.info("app", "target runtime started");
     });
     if (overlay) {
       // The host game is a legitimate target here — let its own discovery
-      // records (mirror, agent, mcp) register it as a session.
-      sessions.setSelfTarget(process.pid);
+      // records (mirror, agent, mcp) register it as a session. "self" mode
+      // pins it as the active target and hides the list; "all" merely
+      // prefers it when nothing else is selected yet.
+      sessions.setSelfTarget(process.pid, { pin: targetsMode === "self" });
+      if (targetsMode === "self") store.setState({ sidebarVisible: false });
       if (opts.selfMirror !== false) {
         tryMirror();
         // nativeDebugger lands on the renderer during devtools wiring —
@@ -310,7 +319,10 @@ export function mountPlatinumDevtools(ctx: GameContext, opts: PlatinumMountOptio
       if (origRequestPointerLock) {
         try { lockable.requestPointerLock = origRequestPointerLock; } catch { /* ignore */ }
       }
-      if (overlay) sessions.setSelfTarget(null);
+      if (overlay) {
+        sessions.setSelfTarget(null);
+        if (targetsMode === "self") store.setState({ sidebarVisible: true });
+      }
       stopTargetRuntime();
     },
   };

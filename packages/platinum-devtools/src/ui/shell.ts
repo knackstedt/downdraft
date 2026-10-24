@@ -67,7 +67,9 @@ async function loadUiFonts(ui: HtmlUiContext): Promise<string> {
 export const STRIP_H = 26;
 
 export interface ShellHandles {
-  sidebar: UiPanelHandle;
+  /** Null when the store mounts with `sidebarVisible: false` (embedded
+   *  single-target mode). */
+  sidebar: UiPanelHandle | null;
   tabstrip: UiPanelHandle;
   dockBottom: UiPanelHandle;
   dockRight: UiPanelHandle;
@@ -90,11 +92,14 @@ export function mountShell(ui: HtmlUiContext, ctx: GameContext, opts: ShellMount
     return `${css()}<div class="pt-panel">${inner}</div>`;
   }
 
+  /** Effective sidebar width — 0 when the target list is hidden. */
+  const sw = (s: { sidebarVisible: boolean; sidebarWidth: number }) => s.sidebarVisible ? s.sidebarWidth : 0;
+
   function dockStripRect(which: "bottom" | "right"): { x: number; y: number; w: number; h: number } {
     const s = store.getState();
     if (which === "bottom") {
-      if (s.docks.bottom.collapsed || !s.docks.bottom.active) return { x: s.sidebarWidth, y: s.windowH, w: 0, h: 0 };
-      return { x: s.sidebarWidth, y: s.bottomRect.y, w: s.bottomRect.w, h: STRIP_H };
+      if (s.docks.bottom.collapsed || !s.docks.bottom.active) return { x: sw(s), y: s.windowH, w: 0, h: 0 };
+      return { x: sw(s), y: s.bottomRect.y, w: s.bottomRect.w, h: STRIP_H };
     }
     if (s.docks.right.collapsed || !s.docks.right.active) return { x: s.windowW, y: 0, w: 0, h: 0 };
     return { x: s.rightRect.x, y: s.rightRect.y, w: s.rightRect.w, h: STRIP_H };
@@ -114,7 +119,7 @@ export function mountShell(ui: HtmlUiContext, ctx: GameContext, opts: ShellMount
   function rerenderAll(): void {
     if (!mounted) return;
     const s = store.getState();
-    setIfChanged(sidebar, wrap(sidebarMarkup(s)));
+    if (sidebar) setIfChanged(sidebar, wrap(sidebarMarkup(s)));
     setIfChanged(tabstrip, wrap(tabstripMarkup(s)));
     setIfChanged(dockBottom, wrap(dockStripMarkup(s.docks.bottom, "bottom", s)));
     setIfChanged(dockRight, wrap(dockStripMarkup(s.docks.right, "right", s)));
@@ -125,21 +130,23 @@ export function mountShell(ui: HtmlUiContext, ctx: GameContext, opts: ShellMount
     .then((f) => { fontFaces = f; rerenderAll(); })
     .catch((e) => log.warn("ui", `font load failed: ${e}`));
 
-  const sidebar = ui.mount(wrap(sidebarMarkup(s0)), { id: "sidebar", rect: { x: 0, y: 0, w: s0.sidebarWidth, h: s0.windowH }, z, scale: 2 });
-  const tabstrip = ui.mount(wrap(tabstripMarkup(s0)), { id: "tabstrip", rect: { x: s0.sidebarWidth, y: 0, w: s0.windowW - s0.sidebarWidth, h: s0.topbarHeight }, z, scale: 2 });
+  const sidebar = s0.sidebarVisible
+    ? ui.mount(wrap(sidebarMarkup(s0)), { id: "sidebar", rect: { x: 0, y: 0, w: s0.sidebarWidth, h: s0.windowH }, z, scale: 2 })
+    : null;
+  const tabstrip = ui.mount(wrap(tabstripMarkup(s0)), { id: "tabstrip", rect: { x: sw(s0), y: 0, w: s0.windowW - sw(s0), h: s0.topbarHeight }, z, scale: 2 });
   const dockBottom = ui.mount(wrap(dockStripMarkup(s0.docks.bottom, "bottom", s0)), { id: "dock-bottom", rect: dockStripRect("bottom"), z, scale: 2 });
   const dockRight = ui.mount(wrap(dockStripMarkup(s0.docks.right, "right", s0)), { id: "dock-right", rect: dockStripRect("right"), z, scale: 2 });
-  const statusbar = ui.mount(wrap(statusbarMarkup(s0)), { id: "statusbar", rect: { x: s0.sidebarWidth, y: s0.windowH - 22, w: s0.windowW - s0.sidebarWidth, h: 22 }, z, scale: 2 });
+  const statusbar = ui.mount(wrap(statusbarMarkup(s0)), { id: "statusbar", rect: { x: sw(s0), y: s0.windowH - 22, w: s0.windowW - sw(s0), h: 22 }, z, scale: 2 });
   mounted = true;
 
   function relayout(): void {
     computeLayout();
     const s = store.getState();
-    sidebar.setRect({ x: 0, y: 0, w: s.sidebarWidth, h: s.windowH });
-    tabstrip.setRect({ x: s.sidebarWidth, y: 0, w: s.windowW - s.sidebarWidth, h: s.topbarHeight });
+    sidebar?.setRect({ x: 0, y: 0, w: sw(s), h: s.windowH });
+    tabstrip.setRect({ x: sw(s), y: 0, w: s.windowW - sw(s), h: s.topbarHeight });
     dockBottom.setRect(dockStripRect("bottom"));
     dockRight.setRect(dockStripRect("right"));
-    statusbar.setRect({ x: s.sidebarWidth, y: s.windowH - 22, w: s.windowW - s.sidebarWidth, h: 22 });
+    statusbar.setRect({ x: sw(s), y: s.windowH - 22, w: s.windowW - sw(s), h: 22 });
   }
 
   // Selective re-render on chrome-relevant state.
@@ -147,7 +154,7 @@ export function mountShell(ui: HtmlUiContext, ctx: GameContext, opts: ShellMount
   const unsub = store.subscribe((s) => {
     const key = [
       s.targetsVersion, s.activeTargetId, s.mainTab, s.theme,
-      JSON.stringify(s.docks), s.sidebarWidth, s.windowW, s.windowH, s.attachOpen,
+      JSON.stringify(s.docks), s.sidebarWidth, s.sidebarVisible, s.windowW, s.windowH, s.attachOpen,
     ].join("|");
     if (key !== lastKey) {
       lastKey = key;
@@ -174,7 +181,7 @@ export function mountShell(ui: HtmlUiContext, ctx: GameContext, opts: ShellMount
     if (Number.isFinite(pid)) sessions.attachManual({ pid });
   });
   const doAttach = () => {
-    void sidebar.getAttr("#attach-input", "value").then((raw) => {
+    void sidebar?.getAttr("#attach-input", "value").then((raw) => {
       const v = (raw ?? "").trim();
       if (v) {
         if (/^\d+$/.test(v)) sessions.attachManual({ pid: Number(v) });
@@ -187,11 +194,11 @@ export function mountShell(ui: HtmlUiContext, ctx: GameContext, opts: ShellMount
   };
   ui.onAction("attach-manual", () => {
     store.setState({ attachOpen: !store.getState().attachOpen });
-    setTimeout(() => sidebar.focus("#attach-input"), 80);
+    setTimeout(() => sidebar?.focus("#attach-input"), 80);
   });
   ui.onAction("attach-do", doAttach);
   ui.onAction("attach-cancel", () => store.setState({ attachOpen: false }));
-  sidebar.onEvent((ev) => {
+  sidebar?.onEvent((ev) => {
     if (ev.t === "keydown" && ev.k === "Enter" && ev.g === "input") doAttach();
     if (ev.t === "keydown" && ev.k === "Escape") store.setState({ attachOpen: false });
   });

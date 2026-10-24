@@ -78,6 +78,10 @@ export interface AppState {
   dpr: number;
 
   sidebarWidth: number;
+  /** Whether the targets sidebar doc is mounted/allocates width — embedded
+   *  single-target mode hides it (self is pinned active; there's nothing
+   *  to pick). */
+  sidebarVisible: boolean;
   topbarHeight: number;
   /** Rect the main content occupies (right of sidebar, below tab strip,
    *  above bottom dock, left of right dock). */
@@ -128,6 +132,7 @@ export const store = createStore<AppState>(() => ({
   dpr: 1,
 
   sidebarWidth: 230,
+  sidebarVisible: true,
   topbarHeight: 30,
   mainRect: { x: 230, y: 30, w: 1370, h: 700 },
   bottomRect: { x: 230, y: 730, w: 1370, h: 270 },
