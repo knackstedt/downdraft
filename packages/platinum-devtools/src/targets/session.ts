@@ -34,6 +34,7 @@ const log = createLogger();
 const CONSOLE_CAP = 8000;
 const METRIC_CAP = 720;        // ~6min @500ms
 const EVENT_CAP = 500;
+const PROFILE_CAP = 8;         // keep the newest N captures
 const NET_CAP = 2000;
 
 export interface SessionEvents {
@@ -88,6 +89,8 @@ export class TargetSession {
   profiles: CpuProfile[] = [];
   heapSnapshots: HeapSnapshotInfo[] = [];
   profiling = false;
+  /** Max capture duration before the profile auto-stops (buffer bound). */
+  profileMaxMs = 120000;
   /** When the in-flight profile started (ms) — for the recording indicator. */
   profilingSince = 0;
   /** Last known scripts from Debugger.scriptParsed. */
@@ -229,6 +232,28 @@ export class TargetSession {
     bumpEvents();
   }
 
+  /** Single push path for captured profiles — clears recording state,
+   *  caps retention to the newest PROFILE_CAP captures, notifies listeners. */
+  private _pushProfile(prof: CpuProfile): void {
+    this.profiles.push(prof);
+    while (this.profiles.length > PROFILE_CAP) this.profiles.shift();
+    this.profiling = false;
+    this.profilingSince = 0;
+    this.markEvent("profile", `cpu profile: ${prof.nodes.length} nodes`);
+    this.ev.onProfile(this, prof);
+  }
+
+  /** Auto-stop the capture once it exceeds the buffer bound. Called
+   *  periodically from surfaces; returns true when it stopped. */
+  checkProfileLimit(): boolean {
+    if (!this.profiling || this.profilingSince <= 0) return false;
+    if (Date.now() - this.profilingSince < this.profileMaxMs) return false;
+    const lim = this.profileMaxMs / 1000;
+    void this.profileStop().then(() =>
+        this.systemNote(`CPU profile auto-stopped — ${lim}s buffer limit`));
+    return true;
+  }
+
   // ── Mirror events ──
 
   private onMirrorHello(h: MirrorHello): void {
@@ -319,12 +344,8 @@ export class TargetSession {
           samples: p.samples ?? [], timeDeltasUs: p.timeDeltasUs ?? [],
           source: "mirror",
         };
-        this.profiles.push(prof);
-        this.profiling = false;
-        this.profilingSince = 0;
-        this.markEvent("profile", `cpu profile: ${prof.nodes.length} nodes`, undefined);
+        this._pushProfile(prof);
         this.systemNote(`CPU profile captured — ${prof.nodes.length} nodes, ${prof.samples.length} samples`);
-        this.ev.onProfile(this, prof);
         break;
       }
       case "snapshot": {
@@ -812,7 +833,10 @@ export class TargetSession {
     }
     this.profiling = started;
     this.profilingSince = started ? Date.now() : 0;
-    if (started) this.markEvent("profile", "cpu profile started");
+    if (started) {
+      this.markEvent("profile", "cpu profile started");
+      this.systemNote(`CPU profile recording — auto-stops at ${this.profileMaxMs / 1000}s buffer`);
+    }
     else this.systemNote("CPU profile failed to start — target may not expose a profiler", 2);
     return started;
   }
@@ -835,9 +859,7 @@ export class TargetSession {
             samples: res.profile.samples ?? [], timeDeltasUs: res.profile.timeDeltas ?? [],
             source: "cdp",
           };
-          this.profiles.push(prof);
-          this.markEvent("profile", `cpu profile: ${prof.nodes.length} nodes`);
-          this.ev.onProfile(this, prof);
+          this._pushProfile(prof);
           return prof;
         }
       }

@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { TargetSession } from "../src/targets/session";
 import { sleep } from "./helpers";
 
@@ -93,5 +93,27 @@ describe("TargetSession basics", () => {
     const sess = mk();
     sess.markEvent("attach", "test marker", "detail");
     expect(sess.events.some((e) => e.label === "test marker" && e.kind === "attach")).toBe(true);
+  });
+
+  test("checkProfileLimit auto-stops a capture past the buffer bound", async () => {
+    const sess = mk();
+    sess.profiling = true;
+    sess.profilingSince = Date.now() - (sess.profileMaxMs + 1000);
+    expect(sess.checkProfileLimit()).toBe(true);
+    await sleep(10); // profileStop resolves + note lands
+    expect(sess.profiling).toBe(false);
+    expect(sess.consoleEntries.some((e) => e.text.includes("auto-stopped"))).toBe(true);
+  });
+
+  test("checkProfileLimit leaves in-budget captures alone", () => {
+    const sess = mk();
+    sess.profiling = true;
+    sess.profilingSince = Date.now() - 1000;
+    expect(sess.checkProfileLimit()).toBe(false);
+    expect(sess.profiling).toBe(true);
+  });
+
+  test("checkProfileLimit is a no-op when not recording", () => {
+    expect(mk().checkProfileLimit()).toBe(false);
   });
 });

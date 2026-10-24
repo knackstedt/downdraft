@@ -8,11 +8,12 @@ import type { RendererModuleContext } from "@downdraft/engine/module/renderer-mo
 import { chroma, hex, tokens } from "../app/theme";
 import type { CpuProfile } from "../targets/model";
 import type { TargetSession } from "../targets/session";
-import type { GpuTextPass, Rgba } from "../text/gpu-text";
+import type { GpuTextPass } from "../text/gpu-text";
 import type { RunCache } from "../text/run-cache";
 import { revealSource } from "../ui/drawer";
 import type { PanelCtx } from "../ui/panels";
 import { drawSeries, fmtValue, laneColor } from "./charts";
+import { buildFlameSpans, flameFnColor, type FlameSpan } from "./flame";
 import { SnapSurface, type SectionHit } from "./snapshot-view";
 import { MONO } from "./text-surface";
 
@@ -132,6 +133,8 @@ export class ProfilerSurface extends SnapSurface {
 
   tick(dt: number): void {
     super.tick(dt);
+    // Auto-stop a capture that exceeded the buffer bound.
+    this.pctx.session()?.checkProfileLimit();
     // Memory view polls the memory + assets providers for its sections.
     if (this.view === "mem") {
       this.memPoll += dt * 1000;
@@ -218,8 +221,6 @@ export class ProfilerSurface extends SnapSurface {
     const canProfile = !!(s.mirror?.connected || s.cdp?.connected || s.agentCmdPort);
     if (s.profiling) {
       x += this.pill(pass, x, y, "■ stop", () => { void s.profileStop(); }, true);
-      const elapsed = s.profilingSince ? ((Date.now() - s.profilingSince) / 1000).toFixed(0) : "…";
-      this.drawText(pass, MONO(), 10, `recording… ${elapsed}s`, x + 8, y + 14, hex(t.warn));
     } else {
       x += this.pill(pass, x, y, "● record", () => { void s.profileStart(); }, false, !canProfile);
     }
@@ -228,11 +229,24 @@ export class ProfilerSurface extends SnapSurface {
     const idx = this.selectedProfile < 0 ? s.profiles.length - 1 : this.selectedProfile;
     this.drawText(pass, MONO(), 10, `${s.profiles.length ? `profile ${idx + 1}/${s.profiles.length}` : "no profiles"}`,
       x + 4, y + 14, hex(t.textFaint));
+    if (s.profiling) {
+      // Right-aligned live status: elapsed / buffer limit + usage bar.
+      const elapsed = s.profilingSince ? (Date.now() - s.profilingSince) / 1000 : 0;
+      const limit = s.profileMaxMs / 1000;
+      const msg = `recording ${elapsed.toFixed(1)}s / ${limit}s`;
+      const bw = this.z(140);
+      const bx = r.x + r.w - bw - 14;
+      this.drawText(pass, MONO(), 10, msg, bx - this.measure(MONO(), 10, msg) - this.z(10),
+        y + 14, hex(t.warn));
+      const frac = Math.min(1, elapsed / Math.max(1, limit));
+      pass.rect(bx, y + this.z(16), bw, this.z(4), hex(t.bgSunken));
+      pass.rect(bx, y + this.z(16), bw * frac, this.z(4), hex(t.warn));
+    }
 
     const prof = s.profiles[idx];
     if (prof && prof !== this.profCacheKey) {
       this.profCacheKey = prof;
-      this.depthCache = this.totalCache = this.startCache = null;
+      this.spansCache = null;
     }
     if (!prof) {
       this.drawText(pass, MONO(), 11,
@@ -269,41 +283,46 @@ export class ProfilerSurface extends SnapSurface {
       this.drawText(pass, MONO(), 9, label, lx, flameTop + rulerH - 4, hex(t.textFaint));
     }
 
-    // Aggregate totals per node for x-scaling.
-    const totals = new Map<number, number>();
-    prof.nodes.forEach((n) => totals.set(n.id, n.totalUs ?? this.nodeTotal(prof, n.id)));
-
     const scale = (r.w - 24) / Math.max(1, span);
     const scope = this.flameZoom;
+    const nodeById = new Map(prof.nodes.map((n) => [n.id, n]));
+    const spans = this.flameSpans(prof);
 
-    let drawn = 0;
-    prof.nodes.forEach((n, i) => {
-      const depth = this.nodeDepth(prof, n.id);
-      const start = (this.nodeStart(prof, n.id) - view.s) * scale;
-      const w = Math.max(1, (totals.get(n.id) ?? 0) * scale);
-      const rx = r.x + 12 + start;
-      const ry = flameTop + rulerH + depth * rowH;
+    if (spans.length === 0) {
+      this.drawText(pass, MONO(), 10,
+        "no sample timeline in this profile — nodes only (imported/folded capture)",
+        r.x + 14, flameTop + rulerH + 8, hex(t.textFaint));
+    }
+    spans.forEach((sp) => {
+      const ry = flameTop + rulerH + sp.depth * rowH;
       if (ry + rowH > flameTop + flameH) return;
+      // Pixel-joined columns: round outward so adjacent same-depth spans
+      // butt-join instead of leaving sub-pixel black comb-teeth.
+      const c0 = Math.floor((sp.s - view.s) * scale);
+      const c1 = Math.ceil((sp.e - view.s) * scale);
+      const rx = r.x + 12 + c0;
+      const w = Math.max(1, c1 - c0);
       if (rx + w < r.x + 12 || rx > r.x + r.w - 12) return;
-      const c = laneColor(i % 8);
+      const n = nodeById.get(sp.nodeId);
+      if (!n) return;
+      const c = flameFnColor(n.functionName || "(anon)");
       pass.rect(Math.max(rx, r.x + 12), ry + 1, Math.min(w, r.x + r.w - 14 - Math.max(rx, r.x + 12)), rowH - 2,
-        chroma(hexToCss(c), scope && scope.fn === n.functionName ? 0.95 : 0.55));
+        chroma(c, scope && scope.fn === n.functionName ? 0.95 : 0.6));
       if (w > 40) {
         this.drawText(pass, MONO(), 9, n.functionName || "(anon)",
           Math.max(rx + 3, r.x + 14), ry + rowH - 4, [0, 0, 0, 0.9], w - 6);
       }
       const nrx = Math.max(rx, r.x + 12);
-      const nStart = this.nodeStart(prof, n.id), nTot = totals.get(n.id) ?? 0;
       this.hit.push({
         x: nrx, y: ry + 1, w: Math.min(w, r.x + r.w - 14 - nrx), h: rowH - 2,
         act: () => {
           // Click a frame: zoom to its span (a bit of padding each side).
+          const nTot = sp.e - sp.s;
           const pad = Math.max(20, nTot * 0.04);
-          this.flameView = { s: nStart - pad, e: nStart + nTot + pad };
+          this.flameView = { s: sp.s - pad, e: sp.e + pad };
           this.flameZoom = { fn: n.functionName, url: n.url };
         },
       });
-      drawn = Math.max(drawn, depth + 1);
     });
     if (this.flameView || scope) {
       const label = `zoom ${fmtUs(span)} · drag to pan · wheel to zoom`;
@@ -401,104 +420,14 @@ export class ProfilerSurface extends SnapSurface {
     return [...map.values()];
   }
 
-  private nodeDepth(prof: CpuProfile, id: number): number {
-    // Depth via parent lookup — build once per frame is expensive; cache.
-    this.depthCache ??= this.buildDepth(prof);
-    return this.depthCache.get(id) ?? 0;
+  /** Per-depth open/close reconstruction of the sampled timeline (see
+   *  `flame.ts`) — cached per profile. */
+  private flameSpans(prof: CpuProfile): FlameSpan[] {
+    this.spansCache ??= buildFlameSpans(prof);
+    return this.spansCache!;
   }
-  private nodeTotal(prof: CpuProfile, id: number): number {
-    this.totalCache ??= this.buildTotals(prof);
-    return this.totalCache.get(id) ?? 0;
-  }
-  private nodeStart(prof: CpuProfile, id: number): number {
-    this.startCache ??= this.buildStarts(prof);
-    return this.startCache.get(id) ?? 0;
-  }
-  private scopeTotal(prof: CpuProfile, scope: { fn: string; url: string }): number {
-    this.totalCache ??= this.buildTotals(prof);
-    let max = 0;
-    prof.nodes.forEach((n) => {
-      if (n.functionName === scope.fn && n.url === scope.url) {
-        const tot = this.totalCache!.get(n.id) ?? 0;
-        if (tot > max) max = tot;
-      }
-    });
-    return max || (prof.endUs - prof.startUs);
-  }
-  private scopeStart(prof: CpuProfile, scope: { fn: string; url: string }): number {
-    this.startCache ??= this.buildStarts(prof);
-    let min = Infinity;
-    prof.nodes.forEach((n) => {
-      if (n.functionName === scope.fn && n.url === scope.url) {
-        const st = this.startCache!.get(n.id) ?? 0;
-        if (st < min) min = st;
-      }
-    });
-    return isFinite(min) ? min : 0;
-  }
-
-  private depthCache: Map<number, number> | null = null;
-  private totalCache: Map<number, number> | null = null;
-  private startCache: Map<number, number> | null = null;
+  private spansCache: FlameSpan[] | null = null;
   private profCacheKey: CpuProfile | null = null;
-
-  private buildDepth(prof: CpuProfile): Map<number, number> {
-    const depth = new Map<number, number>();
-    const byId = new Map(prof.nodes.map((n) => [n.id, n]));
-    const parent = new Map<number, number>();
-    prof.nodes.forEach((n) => n.children.forEach((c) => parent.set(c, n.id)));
-    prof.nodes.forEach((n) => {
-      let d = 0, cur = n.id;
-      for (let guard = 0; parent.has(cur) && guard < 200; guard++) { d++; cur = parent.get(cur)!; }
-      depth.set(n.id, d);
-    });
-    void byId;
-    return depth;
-  }
-
-  private buildTotals(prof: CpuProfile): Map<number, number> {
-    const totals = new Map<number, number>();
-    const byId = new Map(prof.nodes.map((n) => [n.id, n]));
-    // Weight per sample.
-    const dt = prof.timeDeltasUs;
-    const perSample = dt.length ? dt : prof.samples.map(() => (prof.endUs - prof.startUs) / Math.max(1, prof.samples.length));
-    const self = new Map<number, number>();
-    prof.samples.forEach((nid, i) => self.set(nid, (self.get(nid) ?? 0) + (perSample[i] ?? 0)));
-    const parent = new Map<number, number>();
-    prof.nodes.forEach((n) => n.children.forEach((c) => parent.set(c, n.id)));
-    // total = self + all descendants
-    prof.nodes.forEach((n) => {
-      let tot = self.get(n.id) ?? 0;
-      // sum descendants via stack
-      const stack = [...n.children];
-      for (let guard = 0; stack.length && guard < 100000; guard++) {
-        const c = stack.pop()!;
-        tot += self.get(c) ?? 0;
-        stack.push(...(byId.get(c)?.children ?? []));
-      }
-      totals.set(n.id, tot);
-    });
-    return totals;
-  }
-
-  private buildStarts(prof: CpuProfile): Map<number, number> {
-    // Start time = earliest sample time where node appears in the stack.
-    const starts = new Map<number, number>();
-    const parent = new Map<number, number>();
-    prof.nodes.forEach((n) => n.children.forEach((c) => parent.set(c, n.id)));
-    let t = prof.startUs;
-    prof.samples.forEach((nid, i) => {
-      const dt = prof.timeDeltasUs[i] ?? 0;
-      // mark ancestors
-      let cur: number | undefined = nid;
-      for (let guard = 0; cur !== undefined && guard < 200; guard++) {
-        if (!starts.has(cur)) starts.set(cur, t);
-        cur = parent.get(cur);
-      }
-      t += dt;
-    });
-    return starts;
-  }
 
   // ── Memory ─────────────────────────────────────────────────────
 
@@ -518,25 +447,42 @@ export class ProfilerSurface extends SnapSurface {
     });
     void x;
 
-    // Heap lanes — labeled by source lane (thread/procfs/feed) so
-    // five "Heap used" series become "Heap used · renderer" etc.
-    const heapSeries = [...s.series.values()].filter((m) => m.unit === "B" && /heap|rss|mem/i.test(m.id + m.label));
+    // Heap lanes split by scope: per-thread lanes first (broken up by
+    // ProfilingSAB slot), then process/feed-level series.
+    const bSeries = [...s.series.values()].filter((m) => m.unit === "B" && /heap|rss|mem/i.test(m.id + m.label + m.group));
+    const threadSeries = bSeries.filter((m) => m.group.startsWith("thread:"));
+    const procSeries = bSeries.filter((m) => !m.group.startsWith("thread:"));
     let cy = y + this.z(30) - this.scrollY;
     this.bandTop = y + this.z(30);
     this.rangePre = pass.quadCount;
-    heapSeries.slice(0, 8).forEach((m, i) => {
+
+    const lane = (m: (typeof bSeries)[number], i: number) => {
       const ch = this.z(56);
       if (cy + ch > r.y + this.z(TAB_H + 28) && cy < r.y + r.h) {
-        const lane = m.group.replace(/^thread:/, "");
+        const g = m.group.replace(/^thread:/, "");
+        const right = `${fmtValue(m.min, "B")}–${fmtValue(m.max, "B")}  ·  ${g === "proc" ? "process" : g.startsWith("feed:") ? g : `thread ${g}`}`;
         pass.rect(r.x + 10, cy, r.w - 20, ch, hex(t.bgRaised));
         this.drawText(pass, MONO(600), 10, `${m.label}  ${fmtValue(m.v[m.v.length - 1] ?? 0, "B")}`,
           r.x + 18, cy + this.z(15), hex(t.text));
-        this.drawText(pass, MONO(), 9, lane === "proc" ? "process RSS" : lane.startsWith("feed:") ? lane : `thread ${lane}`,
-          r.x + r.w - this.z(200), cy + this.z(15), hex(t.textFaint));
+        this.drawText(pass, MONO(), 9, right, r.x + r.w - this.measure(MONO(), 9, right) - this.z(24),
+          cy + this.z(15), hex(t.textFaint));
         drawSeries(pass, m, r.x + 14, cy + this.z(20), r.w - 28, ch - this.z(24), { color: laneColor(i), windowSec: 120 });
       }
       cy += ch + this.z(6);
-    });
+    };
+
+    if (threadSeries.length) {
+      if (cy + this.z(18) > r.y && cy < r.y + r.h) {
+        this.drawText(pass, MONO(700), 12, "PER-THREAD HEAP", r.x + 14, cy + this.z(10), hex(t.accent));
+      }
+      cy += this.z(22);
+      threadSeries.slice(0, 10).forEach(lane);
+    }
+    if (procSeries.length) {
+      this.drawText(pass, MONO(700), 12, "PROCESS & FEED", r.x + 14, cy + this.z(10), hex(t.accent));
+      cy += this.z(22);
+      procSeries.slice(0, 6).forEach(lane);
+    }
 
     // Engine's memory + assets provider snapshots (kv/tables w/ history).
     (["memory", "assets"] as const).forEach((name) => {
@@ -571,7 +517,7 @@ export class ProfilerSurface extends SnapSurface {
         this.drawText(pass, MONO(), 10, fmtValue(c.retained ?? 0, "B"), r.x + r.w - this.z(90), cy + LH - 4, hex(t.textDim));
         cy += LH;
       });
-    } else if (!heapSeries.length) {
+    } else if (!bSeries.length) {
       this.drawText(pass, MONO(), 11, "no heap data yet — needs mirror metrics, procfs, or an imported snapshot",
         r.x + 14, cy + this.z(12), hex(t.textFaint));
     }
@@ -752,11 +698,6 @@ export class ProfilerSurface extends SnapSurface {
     this.rangePost = pass.quadCount;
     if (!all.length) this.drawText(pass, MONO(), 11, "no metric series yet", r.x + 14, cy + 8, hex(t.textFaint));
   }
-}
-
-function hexToCss(c: Rgba): string {
-  const f = (v: number) => Math.round(v * 255).toString(16).padStart(2, "0");
-  return `#${f(c[0])}${f(c[1])}${f(c[2])}`;
 }
 
 /** Round a duration in µs to a "nice" tick step (1/2/5 × 10^n). */
