@@ -9,7 +9,7 @@
 import type { GameContext } from "@downdraft/engine/app/main";
 import type { HtmlUiContext, UiPanelHandle } from "@downdraft/engine/modules/html-ui";
 import { createLogger } from "@downdraft/engine/util/logger";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { store } from "../app/store";
 import { chromeCss, tokens } from "../app/theme";
@@ -36,9 +36,9 @@ const FONTS: Array<[string, string]> = [
 ];
 
 function fontDir(): string {
-  const local = join(process.cwd(), "assets", "fonts");
-  if (existsSync(local)) return local;
-  return join(new URL("../..", import.meta.url).pathname, "assets", "fonts");
+  // Same dir fonts.ts' FONTS_DIR resolves: src/assets/fonts in the source
+  // tree, dist/src/assets/fonts in the mirrored build.
+  return join(new URL("../assets/fonts", import.meta.url).pathname);
 }
 
 /** Options for mountShell — `z` is the html-ui stacking order for the five
@@ -142,6 +142,10 @@ export function mountShell(ui: HtmlUiContext, ctx: GameContext, opts: ShellMount
   function relayout(): void {
     computeLayout();
     const s = store.getState();
+    // Hidden overlay: hideShell zeroed every doc rect — a targetsVersion
+    // bump or window resize must not resurrect the chrome. showShell()
+    // re-runs this once overlayVisible flips back.
+    if (!s.overlayVisible) return;
     sidebar?.setRect({ x: 0, y: 0, w: sw(s), h: s.windowH });
     tabstrip.setRect({ x: sw(s), y: 0, w: s.windowW - sw(s), h: s.topbarHeight });
     dockBottom.setRect(dockStripRect("bottom"));
