@@ -33,6 +33,18 @@ Each target gets a `TargetSession` (`src/targets/session.ts`) that multiplexes c
 - **MCP HTTP** — the game's automation server (screenshots, input, inspectables).
 - **Feed** — loopback HTTP ingest (`/feed`, bearer-token'd); the target-side agent posts console/network/metric/heap events keyed by `feedKey`.
 
+### Text pipeline
+
+Platinum surfaces rasterize through `ft_shim_*` (cosmic-text in `native-rs/src/text.rs`) — the same FFI `NativeCanvas2D.fillText` uses, so the bitmap contract below applies to **both** consumers:
+
+- **Bitmap bounds**: `[0, ceil(advance)]` of the rasterized string, ink clipped to it. Overhangs (italic f, quotes) survive only because every raster is `" text "` — the space margin gives out-of-advance ink somewhere to land. The bitmap's left edge is `penX - padX` (`padX` = one space advance): **blit at `pen - padX`, never `pen`** — `ChunkBitmap.padX` / `RenderedRun.padX` carry it.
+- **Baseline**: the shim doesn't export line metrics; the baseline row sits at ~0.87×size (measured, varies). Both consumers calibrate with an "H" bottom-ink probe (`RunCache.calibrate`, `ftBaseline`) — never assume `size * 1.0`.
+- **Pixel snapping**: glyphs are already integer-placed inside the bitmap, so quad/blit origins must be whole pixels — fractional origins resample and smear every glyph. Pen advances stay fractional.
+- **Atlas bleed**: `TextAtlas` packs each bitmap into a 1px zeroed gutter; linear sampling at quad edges pulls transparent pad texels, not neighbor ink.
+- **Cold render**: a fresh `FontSystem` handle can return a 0-width first raster — `ft.face()` warms it and `calibrate` retries once. Don't remove the warmup.
+
+Face keys are `family:weight:style` and must exist in `FACE_FILES` (`text/fonts.ts`) — `resolveWeight` constrains to weights that ship the requested style (only `jetbrains:400` has italic).
+
 ### Agent injection
 
 The target-side instrumentation lives in **`packages/platform-native/src/dev/devtools-agent.mjs`** — a plain `.mjs` asset (loadable untransformed by bun/node/deno) that opens the inspector, wraps `fetch`/`WebSocket`/`console`, samples heap stats, and serves jsc commands (`/snapshot`, `/profile/*`, `/gc`) on a loopback port. `draft dev --devtools-agent` sets `DD_DEVTOOLS_AGENT=1`; `dev-shell.mjs` imports it before the runner evaluates game code (the ModuleRunner shares the shell's `globalThis`, so wraps cover game modules). `DD_DEVTOOLS_AGENT=<path>` injects a custom module instead; `--no-hmr` falls back to `bun --preload`. Opt-in only — never injected into `draft release` output. Targets launched outside `draft` can `import "@downdraft/platform-native/dev/devtools-agent.mjs"` directly.
