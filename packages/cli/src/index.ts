@@ -6,6 +6,7 @@ import { ArgError, print, renderHelp } from "./args";
 import { assets } from "./assets";
 import { debug } from "./debug";
 import { dev } from "./dev";
+import { devtools } from "./devtools";
 import { mcp } from "./mcp";
 import { newProject } from "./new";
 import { pluginCommand } from "./plugin-command";
@@ -73,6 +74,9 @@ async function main() {
         break;
       case "dev":
         await dev(process.argv.slice(3));
+        break;
+      case "devtools":
+        await devtools(process.argv.slice(3));
         break;
       case "debug":
         await debug(process.argv.slice(3));

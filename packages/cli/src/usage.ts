@@ -104,6 +104,21 @@ export const COMMANDS: CommandEntry[] = [
     },
   },
   {
+    name: "devtools",
+    usage: "draft devtools [options]",
+    summary: "Launch the standalone platinum-devtools viewer — attaches to running/flaky targets over CDP/feed (works from any directory)",
+    schema: {
+      flags: [
+        { name: "runtime", type: "string", enum: ["bun", "node", "deno"], description: "JS runtime hosting the viewer (default: DD_RUNTIME env, else bun → node → deno auto-detect)" },
+        { name: "no-hmr", type: "boolean", description: "Disable HMR — spawn the viewer entry directly (bun run), no dev shell" },
+        { name: "engine-source", type: "boolean", description: "Resolve @downdraft/engine|platform-native from linked TypeScript source (default in the monorepo)" },
+        { name: "engine-dist", type: "boolean", description: "Resolve engine packages from their pre-built dist/ tree (default outside the monorepo)" },
+        { name: "native-debug", type: "boolean", description: "Load debug native libraries — sets DD_NATIVE_PROFILE=debug for the spawned runtime" },
+        { name: "verbose", alias: "v", type: "boolean", description: "Verbose logging" },
+      ],
+    },
+  },
+  {
     name: "debug",
     usage: "draft debug [path] [options]",
     summary: "Run the engine in debug mode with profiling/visualization",

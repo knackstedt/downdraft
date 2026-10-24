@@ -91,6 +91,11 @@ export interface HtmlUiOptions {
    * (1.25× steps clamped to 0.25–4), an object tunes them.
    */
   zoomKeys?: boolean | UiZoomKeysOptions;
+  /** Provide this context on `HtmlUiTok` for `inject`/`injectOptional`
+   *  consumers (default true). Set false for a private host — e.g. an
+   *  embedded devtools surface that must not collide with the game's own
+   *  createHtmlUi registration regardless of module order. */
+  provideToken?: boolean;
   build(ui: HtmlUiContext): void;
 }
 
@@ -114,10 +119,11 @@ export function isPointerOverUI(x?: number, y?: number): boolean {
 
 export function createHtmlUi(options: HtmlUiOptions): RendererModule {
   const moduleName = options.name ?? "html-ui";
+  const expose = options.provideToken !== false;
   return {
     name: moduleName,
     version: "1.0.0",
-    provides: [HtmlUiTok],
+    provides: expose ? [HtmlUiTok] : [],
     register(ctx: RendererModuleContext) {
       const host = new HtmlUiHost(ctx.getDevice(), ctx.getFormat(), undefined, { profilingTag: `ui:${moduleName}`, gpuUpload: options.gpuUpload, zoomKeys: options.zoomKeys });
       host.bindInput(ctx.getInputBus());
@@ -215,7 +221,7 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
         onDispose(fn) { disposeFns.push(fn); },
       };
 
-      ctx.provide(HtmlUiTok, ui);
+      if (expose) ctx.provide(HtmlUiTok, ui);
       activeContexts.add(ui);
       ctx.onDispose(() => activeContexts.delete(ui));
       ctx.onFrame("afterViewports", (dt: number, e: number) => {

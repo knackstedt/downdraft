@@ -1,15 +1,35 @@
 // ============================================================================
 // hotkeys.ts — global keyboard shortcuts on the input bus.
+//
+// Embedded (overlay) mode: `isVisible` gates every devtools key so a hidden
+// overlay never consumes the host game's input; `toggleKey` is the one
+// exception — it's handled in both states and flips visibility via onToggle.
 // ============================================================================
 
 import type { RendererModuleContext } from "@downdraft/engine/module/renderer-module";
-import { toggleDrawer, saveLayout } from "./drawer";
-import { store, mainTabsFor } from "../app/store";
+import { mainTabsFor, store } from "../app/store";
+import { saveLayout, toggleDrawer } from "./drawer";
 
-export function installHotkeys(mctx: RendererModuleContext): () => void {
+export interface HotkeyOptions {
+  /** Gate for every key except toggleKey. Default: always visible. */
+  isVisible?: () => boolean;
+  /** Key that toggles the overlay (e.g. "F12"). null disables. */
+  toggleKey?: string | null;
+  onToggle?: () => void;
+}
+
+export function installHotkeys(mctx: RendererModuleContext, opts: HotkeyOptions = {}): () => void {
+  const isVisible = opts.isVisible ?? (() => true);
   const bus = mctx.getInputBus();
   const off = bus.onKeyDown((e, ctrl) => {
     const key = e.key;
+    // The toggle key works from either state — it IS the show/hide switch.
+    if (typeof opts.toggleKey === "string" && key === opts.toggleKey) {
+      opts.onToggle?.();
+      ctrl.stopPropagation();
+      return;
+    }
+    if (!isVisible()) return;
     // Esc toggles the bottom drawer (Chrome convention) — unless a panel
     // consumed it for its own purposes.
     if (key === "Escape") {

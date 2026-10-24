@@ -4,25 +4,28 @@
 // ============================================================================
 
 import type { RendererModuleContext } from "@downdraft/engine/module/renderer-module";
-import { registerPanel, surfaceHandle, setFallbackFactory, type PanelCtx } from "./panels";
 import { ConsoleSurface } from "../surfaces/console";
-import { ProfilerSurface } from "../surfaces/profiler";
-import { PerfMonSurface } from "../surfaces/perfmon";
-import { ThreadsSurface } from "../surfaces/threads";
-import { SourcesSurface } from "../surfaces/sources";
-import { SourceSurface } from "../surfaces/source";
-import { PluginsSurface } from "../surfaces/plugins";
 import { EventsSurface } from "../surfaces/events";
-import { NetworkSurface } from "../surfaces/network";
-import { ProviderSurface } from "../surfaces/provider";
-import { WorldSurface } from "../surfaces/world";
 import { GpuSurface } from "../surfaces/gpu";
+import { NetworkSurface } from "../surfaces/network";
+import { PerfMonSurface } from "../surfaces/perfmon";
+import { PluginsSurface } from "../surfaces/plugins";
+import { ProfilerSurface } from "../surfaces/profiler";
+import { ProviderSurface } from "../surfaces/provider";
+import { SourceSurface } from "../surfaces/source";
+import { SourcesSurface } from "../surfaces/sources";
+import { ThreadsSurface } from "../surfaces/threads";
+import { WorldSurface } from "../surfaces/world";
 import { RunCache } from "../text/run-cache";
+import { registerPanel, setFallbackFactory, surfaceHandle, type PanelCtx } from "./panels";
 
 /** Shared resources handed to surface factories at module init. */
 export interface SurfaceFactoryCtx {
   mctx: RendererModuleContext;
   cache: RunCache;
+  /** ScreenUiCompositor.order — embedded mounts use a high value so the
+   *  devtools pass draws above the host game's own screen-space UI. */
+  order: number;
 }
 
 let surfCtx: SurfaceFactoryCtx | null = null;
@@ -37,6 +40,7 @@ function regSurf<S extends { setRect(r: { x: number; y: number; w: number; h: nu
   registerPanel(id, title, (pctx: PanelCtx) => {
     if (!surfCtx) throw new Error("surface ctx not ready");
     const s = make(surfCtx.mctx, surfCtx.cache, pctx);
+    s.order = surfCtx.order;
     surfCtx.mctx.registerUiCompositor?.(s);
     return surfaceHandle(id, title, s);
   });
@@ -63,6 +67,7 @@ export function registerAllPanels(): void {
     const slot = Number(m[1]);
     const name = pctx.session()?.providers.find((x) => x.slot === slot)?.name ?? `slot ${slot}`;
     const s = new ProviderSurface(surfCtx.mctx, surfCtx.cache, pctx, slot, name);
+    s.order = surfCtx.order;
     surfCtx.mctx.registerUiCompositor?.(s);
     return surfaceHandle(id, name, s);
   });

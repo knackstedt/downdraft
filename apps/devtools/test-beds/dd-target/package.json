@@ -9,7 +9,8 @@
   "dependencies": {
     "@downdraft/cli": "^0.6.1",
     "@downdraft/engine": "^0.6.1",
-    "@downdraft/platform-native": "^0.6.1"
+    "@downdraft/platform-native": "^0.6.1",
+    "@downdraft/platinum-devtools": "^0.6.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

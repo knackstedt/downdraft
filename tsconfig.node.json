@@ -36,6 +36,8 @@
     "packages/engine/modules/*/src/**/*.ts",
     "packages/engine/libraries/*/src/**/*.ts",
     "packages/platform-native/src/**/*.ts",
+    "packages/platinum-devtools/src/**/*.ts",
+    "packages/platinum-devtools/tests/**/*.ts",
     "tests/**/*.ts",
     "packages/platform-native/test/**/*.ts"
   ],

@@ -9,13 +9,12 @@
     "release": "draft release",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
-    "test": "bun test tests/ src/ --conditions=downdraft-source 2>/dev/null || bun test tests/"
+    "test": "bun test ../../packages/platinum-devtools/tests/"
   },
   "dependencies": {
     "@downdraft/engine": "^0.6.1",
     "@downdraft/platform-native": "^0.6.1",
-    "harfbuzzjs": "^1.6.3",
-    "zustand": "^5.0.15"
+    "@downdraft/platinum-devtools": "^0.6.1"
   },
   "devDependencies": {
     "@downdraft/cli": "^0.6.1",

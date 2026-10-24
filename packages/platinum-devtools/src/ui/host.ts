@@ -9,9 +9,9 @@
 
 import type { RendererModuleContext } from "@downdraft/engine/module/renderer-module";
 import { store } from "../app/store";
-import { createPanel, type PanelCtx, type PanelHandle } from "./panels";
 import { sessions } from "../targets/runtime";
 import { RunCache } from "../text/run-cache";
+import { createPanel, type PanelCtx, type PanelHandle } from "./panels";
 import { STRIP_H } from "./shell";
 
 export class PanelHost {
@@ -41,6 +41,9 @@ export class PanelHost {
   private desired(): { id: string; rect: { x: number; y: number; w: number; h: number } }[] {
     const s = store.getState();
     const out: { id: string; rect: typeof s.mainRect }[] = [];
+    // Overlay hidden ⇒ no panel instances (hasContent() false → the UI pass
+    // is skipped entirely, so a hidden overlay costs ~nothing per frame).
+    if (!s.overlayVisible) return out;
     out.push({ id: s.mainTab, rect: s.mainRect });
     // Dock bodies start below the 26px html-ui tab strip — surfaces
     // composite above the UI docs, so overlapping them hides the strip.

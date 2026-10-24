@@ -71,10 +71,13 @@ export async function dev(args: string[]): Promise<void> {
 
 /**
  * Native dev mode — runs the game with winit + wgpu under Bun, Node, or Deno.
- * Looks for `src/native-entry.ts` in the game directory.
+ * Looks for `src/native-entry.ts` in the game directory. `overrideDir` lets a
+ * sibling command (`draft devtools`) run a package directory as the game.
  */
-async function devNative(parsed: any): Promise<void> {
-  const resolved = resolveGameDir();
+export async function devNative(parsed: any, overrideDir?: string): Promise<void> {
+  const resolved = overrideDir
+    ? { game: basename(overrideDir), gameDir: overrideDir }
+    : resolveGameDir();
   if (!resolved) {
     log.error("draft", `No game directory found (looking for downdraft.config.json or src/native-entry.ts from "${process.cwd()}").`);
     log.error("draft", `Run "draft dev" from a game directory.`);

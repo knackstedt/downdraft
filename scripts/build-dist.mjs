@@ -84,6 +84,12 @@ const PACKAGES = [
     roots: ["src"],
     globRoots: [],
   },
+  {
+    name: "@downdraft/platinum-devtools",
+    dir: "packages/platinum-devtools",
+    roots: ["src"],
+    globRoots: [],
+  },
 ];
 
 // Files excluded from dist (not part of the shipped surface).

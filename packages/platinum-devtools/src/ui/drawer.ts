@@ -12,10 +12,10 @@
 //   └────────┴──────────────────────────┴────────┘
 // ============================================================================
 
-import { store, type DockId, type DockState, type Rect } from "../app/store";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { store, type DockId, type DockState, type Rect } from "../app/store";
 
 /** Panel title lookup — panel registry fills this; shell falls back to id. */
 export const panelTitles = new Map<string, string>();
@@ -89,11 +89,13 @@ interface InputBusLike {
 
 /** Drag-to-resize on dock dividers — a 5px grab zone along the bottom dock's
  *  top edge and the right dock's left edge. Runs at priority 20, ahead of the
- *  surface handlers (30) whose rects butt against the divider. */
-export function installDockDrag(bus: InputBusLike): () => void {
+ *  surface handlers (30) whose rects butt against the divider. `isVisible`
+ *  gates handling so a hidden embedded overlay never eats the game's input. */
+export function installDockDrag(bus: InputBusLike, isVisible: () => boolean = () => true): () => void {
   let dragging: { id: DockId; last: number } | null = null;
   const GRAB = 5;
   const offDown = bus.onPointerDown((e, ctrl) => {
+    if (!isVisible()) return;
     const s = store.getState();
     const b = s.docks.bottom;
     if (!b.collapsed && b.active &&
@@ -112,7 +114,7 @@ export function installDockDrag(bus: InputBusLike): () => void {
     }
   }, 20);
   const offMove = bus.onPointerMove((e, ctrl) => {
-    if (!dragging) return;
+    if (!dragging || !isVisible()) return;
     ctrl.stopPropagation();
     const pos = dragging.id === "bottom" ? e.clientY : e.clientX;
     dockResize(dragging.id, dragging.last - pos);
@@ -155,6 +157,12 @@ export function revealSource(url: string, line = 0, col = 0): void {
 
 // ── Persistence ──
 
+/** Layout prefs persist under the standalone viewer's data dir. Embedded
+ *  mounts opt out (persistLayout:false) — a host game shouldn't inherit or
+ *  clobber the standalone viewer's saved layout. */
+let persistenceEnabled = true;
+export function setLayoutPersistence(on: boolean): void { persistenceEnabled = on; }
+
 function prefsPath(): string {
   const dir = join(homedir(), ".local", "share", "downdraft-platinum-devtools");
   try { mkdirSync(dir, { recursive: true }); } catch { /* best-effort */ }
@@ -162,6 +170,7 @@ function prefsPath(): string {
 }
 
 export function saveLayout(): void {
+  if (!persistenceEnabled) return;
   const s = store.getState();
   try {
     writeFileSync(prefsPath(), JSON.stringify({
@@ -172,6 +181,7 @@ export function saveLayout(): void {
 }
 
 export function loadLayout(): void {
+  if (!persistenceEnabled) { computeLayout(); return; }
   try {
     const p = prefsPath();
     if (!existsSync(p)) return;

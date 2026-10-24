@@ -67,6 +67,10 @@ export function mainTabsFor(t: TargetInfo | null | undefined): string[] {
 
 export interface AppState {
   running: boolean;
+  /** Master visibility gate — the standalone viewer keeps this pinned true;
+   *  an embedded overlay toggles it (F12). Hidden ⇒ no panel instances, no
+   *  compositor output, no devtools input handling. */
+  overlayVisible: boolean;
   windowW: number;
   windowH: number;
   dpr: number;
@@ -116,6 +120,7 @@ export interface AppState {
 
 export const store = createStore<AppState>(() => ({
   running: true,
+  overlayVisible: true,
   windowW: 1600,
   windowH: 1000,
   dpr: 1,

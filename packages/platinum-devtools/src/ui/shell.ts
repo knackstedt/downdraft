@@ -6,18 +6,20 @@
 // left uncovered so the GPU surfaces + snapshot html panels occupy them.
 // ============================================================================
 
-import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
-import type { HtmlUiContext, UiPanelHandle } from "@downdraft/engine/modules/html-ui";
 import type { GameContext } from "@downdraft/engine/app/main";
+import type { HtmlUiContext, UiPanelHandle } from "@downdraft/engine/modules/html-ui";
 import { createLogger } from "@downdraft/engine/util/logger";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { store } from "../app/store";
 import { chromeCss, tokens } from "../app/theme";
 import {
-  dockMove, dockRemove, dockSelect, dockToggle,
-  setMainTab, loadLayout, computeLayout,
+    computeLayout,
+    dockMove, dockRemove, dockSelect, dockToggle,
+    loadLayout,
+    setMainTab,
 } from "./drawer";
-import { sidebarMarkup, tabstripMarkup, dockStripMarkup, statusbarMarkup } from "./markup";
+import { dockStripMarkup, sidebarMarkup, statusbarMarkup, tabstripMarkup } from "./markup";
 
 import { sessions } from "../targets/runtime";
 
@@ -38,6 +40,10 @@ function fontDir(): string {
   if (existsSync(local)) return local;
   return join(new URL("../..", import.meta.url).pathname, "assets", "fonts");
 }
+
+/** Options for mountShell — `z` is the html-ui stacking order for the five
+ *  chrome docs; embedded overlays pass a high value to sit above game UI. */
+export interface ShellMountOptions { z?: number }
 
 async function loadUiFonts(ui: HtmlUiContext): Promise<string> {
   const dir = fontDir();
@@ -69,7 +75,8 @@ export interface ShellHandles {
   relayout: () => void;
 }
 
-export function mountShell(ui: HtmlUiContext, ctx: GameContext): ShellHandles {
+export function mountShell(ui: HtmlUiContext, ctx: GameContext, opts: ShellMountOptions = {}): ShellHandles {
+  const z = opts.z ?? 10;
   loadLayout();
   const s0 = store.getState();
   store.setState({ windowW: ctx.surface.width, windowH: ctx.surface.height });
@@ -118,11 +125,11 @@ export function mountShell(ui: HtmlUiContext, ctx: GameContext): ShellHandles {
     .then((f) => { fontFaces = f; rerenderAll(); })
     .catch((e) => log.warn("ui", `font load failed: ${e}`));
 
-  const sidebar = ui.mount(wrap(sidebarMarkup(s0)), { id: "sidebar", rect: { x: 0, y: 0, w: s0.sidebarWidth, h: s0.windowH }, z: 10, scale: 2 });
-  const tabstrip = ui.mount(wrap(tabstripMarkup(s0)), { id: "tabstrip", rect: { x: s0.sidebarWidth, y: 0, w: s0.windowW - s0.sidebarWidth, h: s0.topbarHeight }, z: 10, scale: 2 });
-  const dockBottom = ui.mount(wrap(dockStripMarkup(s0.docks.bottom, "bottom", s0)), { id: "dock-bottom", rect: dockStripRect("bottom"), z: 10, scale: 2 });
-  const dockRight = ui.mount(wrap(dockStripMarkup(s0.docks.right, "right", s0)), { id: "dock-right", rect: dockStripRect("right"), z: 10, scale: 2 });
-  const statusbar = ui.mount(wrap(statusbarMarkup(s0)), { id: "statusbar", rect: { x: s0.sidebarWidth, y: s0.windowH - 22, w: s0.windowW - s0.sidebarWidth, h: 22 }, z: 10, scale: 2 });
+  const sidebar = ui.mount(wrap(sidebarMarkup(s0)), { id: "sidebar", rect: { x: 0, y: 0, w: s0.sidebarWidth, h: s0.windowH }, z, scale: 2 });
+  const tabstrip = ui.mount(wrap(tabstripMarkup(s0)), { id: "tabstrip", rect: { x: s0.sidebarWidth, y: 0, w: s0.windowW - s0.sidebarWidth, h: s0.topbarHeight }, z, scale: 2 });
+  const dockBottom = ui.mount(wrap(dockStripMarkup(s0.docks.bottom, "bottom", s0)), { id: "dock-bottom", rect: dockStripRect("bottom"), z, scale: 2 });
+  const dockRight = ui.mount(wrap(dockStripMarkup(s0.docks.right, "right", s0)), { id: "dock-right", rect: dockStripRect("right"), z, scale: 2 });
+  const statusbar = ui.mount(wrap(statusbarMarkup(s0)), { id: "statusbar", rect: { x: s0.sidebarWidth, y: s0.windowH - 22, w: s0.windowW - s0.sidebarWidth, h: 22 }, z, scale: 2 });
   mounted = true;
 
   function relayout(): void {

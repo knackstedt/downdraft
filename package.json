@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "test": "bun test --isolate --conditions=downdraft-source --path-ignore-patterns \"**/node-mobile/build/**\" packages/ examples/plugin-tester/src/*.spec.ts apps/devtools/tests/",
+    "test": "bun test --isolate --conditions=downdraft-source --path-ignore-patterns \"**/node-mobile/build/**\" packages/ examples/plugin-tester/src/*.spec.ts",
     "draft:test": "draft test --game=packaging-smoke",
     "draft:test-cpu": "draft test --game=packaging-smoke",
     "test:e2e": "bun test tests/e2e/packaging-smoke-smoke.spec.ts",
@@ -27,7 +27,8 @@
     "packages/platform-native",
     "examples/plugin-tester",
     "examples/packaging-smoke",
-    "apps/devtools"
+    "apps/devtools",
+    "packages/platinum-devtools"
   ],
   "devDependencies": {
     "@downdraft/cli": "workspace:*",

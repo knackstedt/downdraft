@@ -3,6 +3,7 @@ import type { GameModule } from "@downdraft/engine/app/main";
 import { createGameMcp } from "@downdraft/engine/app/main";
 import { createHtmlUi } from "@downdraft/engine/modules/html-ui";
 import { createLogger } from "@downdraft/engine/util/logger";
+import { mountPlatinumDevtools } from "@downdraft/platinum-devtools";
 import { TargetSimHost } from "./sim-host";
 
 const log = createLogger();
@@ -11,7 +12,8 @@ const log = createLogger();
 // dd-target — platinum-devtools acceptance fixture.
 //
 // A synthetic "game" that exercises every channel the viewer consumes:
-//   - devtools mirror (ui:"web")    → console, threads, metrics, providers
+//   - devtools mirror (ui:"web" — the mirror host; the in-window UI is the
+//     platinum overlay below)   → console, threads, metrics, providers
 //   - profiling SAB                 → per-thread CPU metrics
 //   - sim worker + io worker        → thread list + per-thread eval
 //   - platinum-agent (native-entry) → CDP inspector, network capture, jsc heap
@@ -34,6 +36,10 @@ const state = {
 
 export const gameModule: GameModule = {
   devtools: {
+    // The devtools mirror + providers live inside the "web" frontend host
+    // (ui:"none" creates no mirror at all). Nothing binds F12 to the web
+    // host — its browser UI is only opened via the printed URL — so the
+    // embedded platinum overlay below owns the in-window toggle cleanly.
     ui: "web",
     profiling: true,
     workerHosts: () => {
@@ -65,6 +71,10 @@ export const gameModule: GameModule = {
       },
     });
     (ctx.renderer as GameRenderer).useRendererModule(mod);
+    // Embedded platinum-devtools overlay — F12 toggles. Under `draft dev`
+    // (DOWNDRAFT_DEV=1) it also self-injects the devtools agent, so the game
+    // appears in its own target list alongside every other discovered target.
+    mountPlatinumDevtools(ctx, { overlay: true });
     return { start() {}, dispose() {} };
   },
 
