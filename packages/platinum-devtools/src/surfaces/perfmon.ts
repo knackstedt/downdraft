@@ -39,7 +39,7 @@ export class PerfMonSurface extends TextSurface {
           hz.act();
           this.dirty = true;
           return; }
-    }, 30));
+    }, -20));
   }
 
   /** Tiles in display order: pinned first, then by group. */

@@ -27,7 +27,7 @@ export class ThreadsSurface extends TextSurface {
       if (!this.active || !this.inRect(e.clientX, e.clientY)) return;
       const hz = this.hit.find((h) => e.clientX >= h.x && e.clientX <= h.x + h.w && e.clientY >= h.y && e.clientY <= h.y + h.h);
       if (hz) { ctrl.stopPropagation(); hz.act(); return; }
-    }, 30));
+    }, -20));
   }
 
   protected draw(pass: GpuTextPass): void {

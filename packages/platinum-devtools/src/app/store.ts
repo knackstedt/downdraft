@@ -17,6 +17,8 @@ export interface TargetInfo {
   name: string;
   /** Secondary label — runtime binary + cwd basename (from /proc). */
   detail?: string;
+  /** The session points at this process (embedded devtools surface). */
+  isSelf?: boolean;
   status: "connecting" | "attached" | "degraded" | "lost";
   /** Which channels are live right now. */
   channels: Partial<Record<ChannelName, boolean>>;

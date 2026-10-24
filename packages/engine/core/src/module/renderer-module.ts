@@ -76,6 +76,12 @@ export interface RendererInputBus {
    *  by a subscriber — lets the pointer-lock layer tell UI clicks from
    *  game-canvas clicks. */
   wasPointerDownConsumed(): boolean;
+  /** True when the most recent wheel event was consumed by a subscriber —
+   *  lets game wheel handlers (camera zoom etc.) skip scrolls over UI. */
+  wasWheelConsumed(): boolean;
+  /** True when the most recent keydown was consumed by a subscriber — lets
+   *  game key handlers skip keys claimed by a focused UI editor. */
+  wasKeyDownConsumed(): boolean;
   /** Destroy the bus and remove all DOM listeners. */
   destroy(): void;
 }

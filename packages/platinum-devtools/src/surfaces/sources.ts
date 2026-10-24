@@ -39,13 +39,13 @@ export class SourcesSurface extends TextSurface {
       // Click in the bar's dead space focuses search.
       if (e.clientY < this.rect.y + this.z(BAR_H)) this.searchFocus = true;
       else this.searchFocus = false;
-    }, 30));
+    }, -20));
     this.unsubs.push(bus.onKeyDown((e, ctrl) => {
       if (!this.active || !this.searchFocus) return;
       if (e.key.length === 1) { this.query += e.key; this.scrollTarget = 0; this.dirty = true; ctrl.stopPropagation(); return; }
       if (e.key === "Backspace") { this.query = this.query.slice(0, -1); this.dirty = true; ctrl.stopPropagation(); }
       if (e.key === "Escape" || e.key === "Enter") { this.searchFocus = false; if (e.key === "Escape") this.query = ""; this.dirty = true; ctrl.stopPropagation(); }
-    }, 50));
+    }, -20));
   }
 
   protected contentHeight(): number { return this.contentH; }

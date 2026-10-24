@@ -3,8 +3,8 @@
 // ============================================================================
 
 import type { AppState, DockState, TargetInfo } from "../app/store";
-import { panelTitle } from "./drawer";
 import { mainTabsFor } from "../app/store";
+import { panelTitle } from "./drawer";
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -26,7 +26,7 @@ export function sidebarMarkup(s: AppState): string {
       : `<span class="badge tctl" data-action="detach-target" data-pid="${esc(pid)}" title="detach">⏏</span>`;
     const detail = t.detail ? ` · ${esc(t.detail)}` : "";
     return `<div class="target${t.id === s.activeTargetId ? " active" : ""}${t.status === "lost" ? " lost" : ""}" data-action="select-target" data-id="${esc(t.id)}">
-      <div class="tname">${esc(t.name)}</div>
+      <div class="tname">${esc(t.name)}${t.isSelf ? ` <span class="badge on">self</span>` : ""}</div>
       <div class="tsub">${esc(t.kind)} · pid ${t.pid}${threads}${panels}${detail}</div>
       <div class="tbadges">${statusBadge}${badges}${ctl}</div>
     </div>`;

@@ -116,7 +116,7 @@ export class ConsoleSurface extends TextSurface {
         this.editor.model.anchor = null;
         this.dragging = true;
       }
-    }, 30));
+    }, -20));
 
     this.unsubs.push(bus.onPointerMove((e) => {
       if (!this.dragging) return;
@@ -124,9 +124,9 @@ export class ConsoleSurface extends TextSurface {
       if (!this.editor.model.anchor) this.editor.model.anchor = { ...this.editor.model.cursor };
       this.editor.model.cursor = pos;
       this.dirty = true;
-    }, 30));
+    }, -20));
 
-    this.unsubs.push(bus.onPointerUp(() => { this.dragging = false; }, 30));
+    this.unsubs.push(bus.onPointerUp(() => { this.dragging = false; }, -20));
 
     this.unsubs.push(bus.onKeyDown((e, ctrl) => {
       if (!this.active || !this.focused) return;
@@ -150,7 +150,7 @@ export class ConsoleSurface extends TextSurface {
         return;
       }
       if (this.handleKey(e)) ctrl.stopPropagation();
-    }, 50));
+    }, -20));
   }
 
   private handleFilterKey(e: { key: string }): boolean {

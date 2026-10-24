@@ -43,7 +43,7 @@ export class NetworkSurface extends TextSurface {
       ctrl.stopPropagation();
       const hz = this.hit.find((h) => e.clientX >= h.x && e.clientX <= h.x + h.w && e.clientY >= h.y && e.clientY <= h.y + h.h);
       if (hz) { hz.act(); this.dirty = true; return; }
-    }, 30));
+    }, -20));
   }
 
   protected contentHeight(): number { return this.contentH; }

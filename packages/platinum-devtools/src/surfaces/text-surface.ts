@@ -7,10 +7,10 @@
 // ============================================================================
 
 import type { RendererModuleContext, ScreenUiCompositor } from "@downdraft/engine/module/renderer-module";
-import { GpuTextPass, type Rgba } from "../text/gpu-text";
-import { RunCache } from "../text/run-cache";
 import { store, type Rect } from "../app/store";
 import { faceKey, resolveWeight } from "../text/fonts";
+import { GpuTextPass, type Rgba } from "../text/gpu-text";
+import { RunCache } from "../text/run-cache";
 
 export const MONO = (w = 400) => faceKey("jetbrains", resolveWeight("jetbrains", w), "normal");
 export const MONO_I = (w = 400) => faceKey("jetbrains", resolveWeight("jetbrains", w), "italic");
@@ -57,11 +57,14 @@ export abstract class TextSurface implements ScreenUiCompositor {
 
   protected installInput(): void {
     const bus = this.ctx.getInputBus();
+    // Priority -20 — ahead of html-ui's panel routing (-10). A devtools
+    // surface drawn over an interactive game doc must claim the events in
+    // its rect first, or clicks/keys on a panel land on the doc beneath.
     this.unsubs.push(bus.onWheel((e, ctrl) => {
       if (!this.active || !this.inRect(e.clientX, e.clientY)) return;
       ctrl.stopPropagation();
       this.onWheel(e.deltaY, e.clientX, e.clientY);
-    }, 30));
+    }, -20));
   }
 
   protected inRect(x: number, y: number): boolean {

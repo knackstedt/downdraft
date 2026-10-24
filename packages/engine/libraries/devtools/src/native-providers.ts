@@ -5,6 +5,7 @@
 // Game-specific data registers separately via mirror.registerProvider("game").
 // ============================================================================
 
+import { collectGpuInfo } from "./collectors";
 import type { PanelCommandHandler, PanelName, PanelProvider } from "./snapshot";
 import {
     type DevtoolsCommand,
@@ -216,6 +217,52 @@ async function collectMemory(ctx: EngineProviderContext): Promise<PanelSnapshot>
         name: "Actions",
         controls: [{ type: "button", id: "gc", label: "Force GC" }],
     });
+    return { sections };
+}
+
+/** Adapter/device info + frame telemetry + VRAM + pass timings, reusing the
+ *  collector behind the inspector's getGPUInfo RPC. Registered as the "gpu"
+ *  provider so provider-fed frontends (platinum GPU surface, snapshot pulls)
+ *  get the same data the docked gpu panel fetches via inspector.call. */
+function collectGpu(ctx: EngineProviderContext): PanelSnapshot {
+    if (!ctx.renderer) {
+        return {
+            status: "unsupported",
+            statusMsg: "no renderer on this target",
+            sections: [{ kind: "lines", name: "", lines: [{ text: "target exposes no renderer — GPU telemetry unavailable" }] }],
+        };
+    }
+    const info = collectGpuInfo({ renderer: ctx.renderer, profilingSAB: ctx.profilingSAB ?? null });
+    const sections: SnapshotSection[] = [];
+    // Entries carry their own header rows — split into named kv sections.
+    let name = "";
+    let rows: SnapshotKvRow[] = [];
+    const flush = () => {
+        if (rows.length > 0) sections.push({ kind: "kv", name, rows });
+        rows = [];
+    };
+    info.entries.forEach((e) => {
+        if (e.isHeader) { flush(); name = e.key; }
+        else rows.push(kv(e.key, e.value));
+    });
+    flush();
+    if (info.frameTimes.length > 0) {
+        sections.push({
+            kind: "series",
+            name: "Frame times (ms)",
+            series: [
+                { name: "cpu", values: info.frameTimes.map((f) => f[0]) },
+                { name: "gpu", values: info.frameTimes.map((f) => f[1]) },
+            ],
+        });
+    }
+    if (info.memHistory.length > 0) {
+        sections.push({
+            kind: "series",
+            name: "VRAM (bytes)",
+            series: [{ name: "total", values: info.memHistory }],
+        });
+    }
     return { sections };
 }
 
@@ -737,6 +784,7 @@ function handleEngineCommand(ctx: EngineProviderContext, cmd: DevtoolsCommand): 
  * panels. Game-specific data registers separately on the "game" slot.
  */
 export function registerEngineProviders(mirror: DevtoolsProviderTarget, ctx: EngineProviderContext): void {
+    mirror.registerProvider("gpu", () => collectGpu(ctx));
     mirror.registerProvider("sim", () => collectSim(ctx));
     mirror.registerProvider("memory", () => collectMemory(ctx));
     mirror.registerProvider("render-graph", () => collectRenderGraph(ctx));

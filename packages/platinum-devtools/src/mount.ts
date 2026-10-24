@@ -17,11 +17,12 @@
 // ============================================================================
 
 import type { GameContext } from "@downdraft/engine/app/main";
+import type { DevtoolsBackend } from "@downdraft/engine/libraries/devtools";
 import type { RendererModule } from "@downdraft/engine/module/renderer-module";
 import { createHtmlUi, HtmlUiTok, type HtmlUiContext } from "@downdraft/engine/modules/html-ui";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { store } from "./app/store";
-import { startTargetRuntime, stopTargetRuntime } from "./targets/runtime";
+import { sessions, startTargetRuntime, stopTargetRuntime } from "./targets/runtime";
 import { TextAtlas } from "./text/atlas";
 import { loadFaces } from "./text/fonts";
 import { RunCache } from "./text/run-cache";
@@ -75,6 +76,12 @@ export interface PlatinumMountOptions {
    *  self-attach. "auto" = only when embedded AND DOWNDRAFT_DEV=1 (i.e. under
    *  `draft dev`); true = always; false = never. Default "auto". */
   selfAgent?: "auto" | boolean;
+  /** Embedded only: expose the host game's devtools backend (the Blitz
+   *  dock's in-process DevtoolsBackend) over a loopback mirror WS, so this
+   *  overlay — and any external viewer — can pull provider data (GPU, sim,
+   *  render-graph…) from the game itself. No-op when the game already runs
+   *  devtools.ui:"web" (mirror exists) or "none" (no backend). Default true. */
+  selfMirror?: boolean;
   /** Start target discovery + feed server + session manager. Default true —
    *  required for the surface to see any targets at all. */
   targets?: boolean;
@@ -93,6 +100,36 @@ export interface PlatinumMount {
   setVisible(on: boolean): void;
   readonly visible: boolean;
   dispose(): void;
+}
+
+/** Expose the host game's devtools backend over a loopback mirror WS.
+ *  Blitz games keep their backend in-process — this attaches a
+ *  DevToolsServer to it so remote viewers (this overlay included) get the
+ *  provider channel, and writes the ~/.downdraft/devtools/<pid>.json
+ *  discovery record. Skips web hosts (already mirrored) and missing
+ *  backends (devtools.ui:"none"). */
+async function attachSelfMirror(ctx: GameContext): Promise<(() => void) | null> {
+  const host = (ctx.renderer as {
+    nativeDebugger?: { devtoolsMirror?: DevtoolsBackend; url?: string };
+  }).nativeDebugger;
+  const backend = host?.devtoolsMirror;
+  if (!backend || typeof host?.url === "string") return null;
+  const { DevToolsServer } = await import("@downdraft/engine/libraries/devtools");
+  const server = new DevToolsServer({
+    call: (method, params) => backend.dispatch(method, params ?? {}),
+  });
+  const detach = backend.attachRemote({
+    emit: (e, d) => server.emit(e, d),
+    hasClient: () => server.clientCount > 0,
+  });
+  server.setHello(() => ({
+    version: 1,
+    panels: backend.providerSlots(),
+    inspector: backend.inspectorMethodNames(),
+  }));
+  await server.start();
+  log.info("app", `self mirror exposed at ${server.url}`);
+  return () => { detach(); void server.stop(); };
 }
 
 export function mountPlatinumDevtools(ctx: GameContext, opts: PlatinumMountOptions = {}): PlatinumMount {
@@ -199,12 +236,56 @@ export function mountPlatinumDevtools(ctx: GameContext, opts: PlatinumMountOptio
   };
   ctx.renderer.useRendererModule?.(surfacesModule);
 
+  // ── Pointer lock: games re-lock on canvas click, and their DOM-level
+  //    handlers can't see the input bus's consumed flags. Swallow lock
+  //  requests while the overlay is up — the game's own overlays use the
+  //    same contract. Restored on dispose. ──
+  const lockable = ctx.surface as { requestPointerLock?: () => Promise<void> | void };
+  const origRequestPointerLock = lockable.requestPointerLock;
+  if (origRequestPointerLock) {
+    try {
+      lockable.requestPointerLock = function (this: unknown) {
+        if (store.getState().overlayVisible) return undefined;
+        return origRequestPointerLock.call(this);
+      };
+    } catch { /* non-writable surface — the game's gate still applies */ }
+  }
+
   // ── Target runtime: discovery + feed + sessions. Refcounted — safe when
   //    the host process embeds this alongside another viewer instance. ──
+  let detachSelfMirror: (() => void) | null = null;
+  let mirrorPending = false;
+  let unsubMirrorRetry: (() => void) | null = null;
+  const stopMirrorRetry = () => { unsubMirrorRetry?.(); unsubMirrorRetry = null; };
+  const tryMirror = () => {
+    if (mirrorPending || detachSelfMirror) return;
+    const host = (ctx.renderer as { nativeDebugger?: { url?: string; devtoolsMirror?: unknown } }).nativeDebugger;
+    // Terminal states — stop retrying: already mirrored (web host), no
+    // backend to expose (ui:"none"), or attach previously succeeded.
+    if (host && (typeof host.url === "string" || !host.devtoolsMirror)) { stopMirrorRetry(); return; }
+    mirrorPending = true;
+    attachSelfMirror(ctx)
+      .then((d) => { detachSelfMirror = d; if (d) stopMirrorRetry(); })
+      .catch((e) => log.warn("app", `self mirror failed: ${e}`))
+      .finally(() => { mirrorPending = false; });
+  };
   if (opts.targets !== false) {
     void startTargetRuntime().then(() => {
       log.info("app", "target runtime started");
     });
+    if (overlay) {
+      // The host game is a legitimate target here — let its own discovery
+      // records (mirror, agent, mcp) register it as a session.
+      sessions.setSelfTarget(process.pid);
+      if (opts.selfMirror !== false) {
+        tryMirror();
+        // nativeDebugger lands on the renderer during devtools wiring —
+        // a mount that raced it retries on first show.
+        unsubMirrorRetry = store.subscribe((s) => {
+          if (s.overlayVisible) tryMirror();
+        });
+      }
+    }
   }
 
   // ── Self-target: import the bundled agent so this process announces
@@ -223,6 +304,14 @@ export function mountPlatinumDevtools(ctx: GameContext, opts: PlatinumMountOptio
   return {
     setVisible,
     get visible() { return store.getState().overlayVisible; },
-    dispose() { stopTargetRuntime(); },
+    dispose() {
+      stopMirrorRetry();
+      detachSelfMirror?.();
+      if (origRequestPointerLock) {
+        try { lockable.requestPointerLock = origRequestPointerLock; } catch { /* ignore */ }
+      }
+      if (overlay) sessions.setSelfTarget(null);
+      stopTargetRuntime();
+    },
   };
 }

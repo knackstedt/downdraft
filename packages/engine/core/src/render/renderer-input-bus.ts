@@ -161,11 +161,11 @@ export class RendererInputBusImpl implements RendererInputBus {
     }) as EventListener);
 
     add(this.canvas, "wheel", ((e: WheelEvent) => {
-      this.dispatchWheel(this.wheelSubs, e);
+      this.wheelConsumed = this.dispatchWheel(this.wheelSubs, e);
     }) as EventListener);
 
     add(window, "keydown", ((e: KeyboardEvent) => {
-      this.dispatchKey(this.keyDownSubs, e);
+      this.keyDownConsumed = this.dispatchKey(this.keyDownSubs, e);
     }) as EventListener);
 
     add(window, "keyup", ((e: KeyboardEvent) => {
@@ -194,6 +194,19 @@ export class RendererInputBusImpl implements RendererInputBus {
     return this.pointerDownConsumed;
   }
 
+  private wheelConsumed = false;
+  private keyDownConsumed = false;
+
+  /** True when the most recent wheel event was consumed by a subscriber. */
+  wasWheelConsumed(): boolean {
+    return this.wheelConsumed;
+  }
+
+  /** True when the most recent keydown was consumed by a subscriber. */
+  wasKeyDownConsumed(): boolean {
+    return this.keyDownConsumed;
+  }
+
   private dispatchPointer(subs: Subscription<PointerHandler>[], e: PointerEvent): boolean {
     const ctrl = this.makeControl();
     for (let i = 0; i < subs.length; i++) {
@@ -203,20 +216,22 @@ export class RendererInputBusImpl implements RendererInputBus {
     return false;
   }
 
-  private dispatchWheel(subs: Subscription<WheelHandler>[], e: WheelEvent): void {
+  private dispatchWheel(subs: Subscription<WheelHandler>[], e: WheelEvent): boolean {
     const ctrl = this.makeControl();
     for (let i = 0; i < subs.length; i++) {
       subs[i].handler(e, ctrl);
-      if (ctrl.propagationStopped) break;
+      if (ctrl.propagationStopped) return true;
     }
+    return false;
   }
 
-  private dispatchKey(subs: Subscription<KeyHandler>[], e: KeyboardEvent): void {
+  private dispatchKey(subs: Subscription<KeyHandler>[], e: KeyboardEvent): boolean {
     const ctrl = this.makeControl();
     for (let i = 0; i < subs.length; i++) {
       subs[i].handler(e, ctrl);
-      if (ctrl.propagationStopped) break;
+      if (ctrl.propagationStopped) return true;
     }
+    return false;
   }
 
   private dispatchDrag(subs: Subscription<DragHandler>[], d: DragDelta): void {

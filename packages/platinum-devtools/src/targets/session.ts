@@ -11,23 +11,23 @@
 // version bumps nudge repaints (no per-point reactivity overhead).
 // ============================================================================
 
-import { createLogger } from "@downdraft/engine/util/logger";
 import type { PanelSnapshot } from "@downdraft/engine/libraries/devtools";
-import { MirrorClient, type MirrorHello } from "../dd/mirror-client";
-import { McpClient } from "../dd/mcp-client";
-import { CdpClient } from "../cdp/client";
-import { ProcfsSampler, procDisplayName } from "./procfs";
-import type { DiscoveredEndpoint } from "../dd/discovery";
-import type {
-  ConsoleEntry, CpuProfile, EventMarker, HeapSnapshotInfo, MetricSeries,
-  NetworkEvent, PluginRec, ProviderPanel, RemoteObjectRef, ThreadRec,
-} from "./model";
-import { pushPoint } from "./model";
-import { previewRemote } from "./preview";
-import { bumpConsole, bumpEvents, bumpMetrics, bumpTargets } from "../app/store";
+import { createLogger } from "@downdraft/engine/util/logger";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { bumpConsole, bumpEvents, bumpMetrics, bumpTargets } from "../app/store";
+import { CdpClient } from "../cdp/client";
+import type { DiscoveredEndpoint } from "../dd/discovery";
+import { McpClient } from "../dd/mcp-client";
+import { MirrorClient, type MirrorHello } from "../dd/mirror-client";
+import type {
+    ConsoleEntry, CpuProfile, EventMarker, HeapSnapshotInfo, MetricSeries,
+    NetworkEvent, PluginRec, ProviderPanel, RemoteObjectRef, ThreadRec,
+} from "./model";
+import { pushPoint } from "./model";
+import { previewRemote } from "./preview";
+import { ProcfsSampler, procDisplayName } from "./procfs";
 
 const log = createLogger();
 
@@ -52,6 +52,8 @@ const noSessionEvents: SessionEvents = {
 export class TargetSession {
   readonly id: string;
   readonly pid: number;
+  /** True when this session points at the current process (embedded mount). */
+  readonly isSelf: boolean;
   name: string;
   /** Secondary label — runtime binary + cwd basename (from /proc). */
   detail = "";
@@ -99,6 +101,7 @@ export class TargetSession {
   constructor(ep: DiscoveredEndpoint, ev?: Partial<SessionEvents>) {
     this.id = `pid-${ep.pid}`;
     this.pid = ep.pid;
+    this.isSelf = ep.pid === process.pid;
     this.name = `pid ${ep.pid}`;
     const pn = procDisplayName(ep.pid);
     if (pn) { this.name = pn.name; this.detail = pn.detail; }

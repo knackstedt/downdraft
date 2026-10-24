@@ -74,7 +74,7 @@ export class ProfilerSurface extends SnapSurface {
           hz.act();
           this.dirty = true;
           return; }
-    }, 30));
+    }, -20));
     this.unsubs.push(bus.onPointerMove((e) => {
       if (this.panPending &&
           Math.abs(e.clientX - this.panPending.x) + Math.abs(e.clientY - this.panPending.y) > 4) {
@@ -96,7 +96,7 @@ export class ProfilerSurface extends SnapSurface {
         else this.flameView = { s, e: s + spanUs };
       }
       this.dirty = true;
-    }, 30));
+    }, -20));
     this.unsubs.push(bus.onPointerUp((e, ctrl) => {
       if (this.panPending) {
         // Released without dragging → flame click (frame zoom / reset).
@@ -106,7 +106,7 @@ export class ProfilerSurface extends SnapSurface {
       }
       this.panPending = null;
       this.panning = false;
-    }, 30));
+    }, -20));
   }
 
   private panPending: { x: number; y: number } | null = null;

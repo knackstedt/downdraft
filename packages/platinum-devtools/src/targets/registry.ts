@@ -7,12 +7,12 @@
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
-import { DiscoveryWatcher, scanOnce, type DiscoveredEndpoint } from "../dd/discovery";
-import { TargetSession } from "./session";
-import { bumpTargets, store, targetHasWorld, type TargetInfo } from "../app/store";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { bumpTargets, store, targetHasWorld, type TargetInfo } from "../app/store";
+import { DiscoveryWatcher, scanOnce, type DiscoveredEndpoint } from "../dd/discovery";
+import { TargetSession } from "./session";
 
 const log = createLogger();
 
@@ -28,6 +28,14 @@ export class SessionManager {
 
   constructor() {
     this.watcher = new DiscoveryWatcher((added, removed) => this.onDiscovery(added, removed));
+  }
+
+  /** Pid that should be listed as a target even though it's this process —
+   *  set by an embedded mount that self-injected the agent. The standalone
+   *  viewer leaves it null: inspecting yourself is meaningless there. */
+  private selfPid: number | null = null;
+  setSelfTarget(pid: number | null): void {
+    this.selfPid = pid;
   }
 
   start(): void {
@@ -48,7 +56,9 @@ export class SessionManager {
 
   private onDiscovery(added: DiscoveredEndpoint[], removed: number[]): void {
     added.forEach((ep) => {
-      if (ep.pid === process.pid) return; // don't inspect ourselves
+      // Don't inspect ourselves — except an embedded mount that opted its
+      // own pid in via setSelfTarget (the host game IS the target then).
+      if (ep.pid === process.pid && ep.pid !== this.selfPid) return;
       const prev = this.endpoints.get(ep.pid);
       // Merge channels into the remembered endpoint (discovery files land at
       // different times — mirror json may arrive before the agent file).
@@ -76,6 +86,12 @@ export class SessionManager {
           onSnapshot: () => this.syncStore(),
         });
         this.sessions.set(ep.pid, s);
+        // Embedded self-target: the host game is the natural default —
+        // without this the overlay arbitrarily attaches to whichever
+        // unrelated target discovery found first.
+        if (ep.pid === this.selfPid && !store.getState().activeTargetId) {
+          this.setActive(s.id);
+        }
       }
     });
     removed.forEach((pid) => {
@@ -168,6 +184,7 @@ export class SessionManager {
       kind: s.kind,
       name: s.name,
       detail: s.detail,
+      isSelf: s.isSelf || undefined,
       status: s.status,
       channels: s.channelFlags(),
       caps: [...s.caps],

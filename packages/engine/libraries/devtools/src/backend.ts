@@ -69,6 +69,11 @@ export interface DevtoolsBackendOptions {
 export class DevtoolsBackend {
   private emitFn: (event: string, data: unknown) => void;
   private hasClientFn: () => boolean;
+  /** Additional consumers of the event stream + extra "someone is listening"
+   *  checks — e.g. a DevToolsServer exposing the docked host's backend to
+   *  remote viewers (embedded/standalone platinum devtools). */
+  private emitSinks: ((event: string, data: unknown) => void)[] = [];
+  private hasClientExtras: (() => boolean)[] = [];
   private cdp: CdpBridge;
   private ctx: CollectorContext;
   private threadEvals = new Map<string, EvalFn>();
@@ -159,11 +164,27 @@ export class DevtoolsBackend {
     this.firstUpdate = true;
   }
 
+  /** Fan the event stream + client-presence checks out to a second
+   *  transport (e.g. a DevToolsServer wrapping this backend's providers for
+   *  a remote viewer while the Blitz dock keeps its in-process surface).
+   *  Returns a detach function. */
+  attachRemote(remote: { emit: (event: string, data: unknown) => void; hasClient: () => boolean }): () => void {
+    this.emitSinks.push(remote.emit);
+    this.hasClientExtras.push(remote.hasClient);
+    return () => {
+      this.emitSinks = this.emitSinks.filter((f) => f !== remote.emit);
+      this.hasClientExtras = this.hasClientExtras.filter((f) => f !== remote.hasClient);
+    };
+  }
+
   // ── Emission helpers ──
 
   private emit(event: string, data: unknown): void {
     if (this.disposed) return;
     this.emitFn(event, data);
+    this.emitSinks.forEach((s) => {
+      try { s(event, data); } catch { /* a dead sink must not poison the host */ }
+    });
   }
 
   /** Diagnostic warnings, ≤1/sec — they still reach stdout, but a flood of
@@ -363,7 +384,9 @@ export class DevtoolsBackend {
 
   update(): void {
     if (this.disposed) return;
-    if (!this.hasClientFn()) return; // nobody listening — save the work
+    // Nobody listening — save the work. Remote clients count too (an
+    // attached mirror viewer keeps collection live while the dock is hidden).
+    if (!this.hasClientFn() && !this.hasClientExtras.some((f) => f())) return;
 
     const t0 = performance.now();
     this.flushLoggerBuffer();
