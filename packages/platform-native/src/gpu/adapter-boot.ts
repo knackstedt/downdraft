@@ -140,9 +140,20 @@ export async function acquireAdapterAndDevice(
   // or a failed hardware device request. softwareFallback=false in auto
   // mode only disables the failovers above; when the adapter mode IS
   // software the fallback adapter is the intended device.
+  //
+  // The primary instance's ICD filter leaves llvmpipe out when real hardware
+  // exists (its ~40MB libLLVM isn't paid until needed), so a null retry gets
+  // a dedicated instance that includes software ICDs — same second-instance
+  // pattern as the GL tier.
   if (!adapter && (plan.tryHardwareFirst ? mayFallback : true)) {
     adapter = await requestAdapter(true);
     usedSoftware = !!adapter;
+    if (!adapter) {
+      const swGpu = new WgpuGPU(undefined, { software: true });
+      adapter = await swGpu.requestAdapter({ powerPreference, forceFallbackAdapter: true });
+      usedSoftware = !!adapter;
+      if (adapter) adoptGpuInstance(swGpu, gpu, opts.window);
+    }
   }
   if (!adapter) return null;
   const device = await adapter.requestDevice(describe(adapter));

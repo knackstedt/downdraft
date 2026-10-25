@@ -15,7 +15,7 @@
 import { dlopen } from "./ffi-adapter";
 
 /** Must equal DD_ABI_VERSION in native-rs/src/lib.rs. Bump together. */
-export const EXPECTED_PLATFORM_ABI = 1;
+export const EXPECTED_PLATFORM_ABI = 2;
 
 const checked = new Set<string>();
 

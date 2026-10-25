@@ -325,6 +325,140 @@ fn backend_selector(id: i32) -> Option<Backends> {
     }
 }
 
+/// Restrict the Vulkan loader's ICD set to drivers that can plausibly serve
+/// this machine. The loader enumerates every /usr/share/vulkan/icd.d entry at
+/// vkCreateInstance — on a typical distro that's 8-12 vendor drivers (radv,
+/// anv, lvp, virtio, asahi, …), each dlopen'd, initialized, and queried only
+/// to be discarded. That probing costs ~40-80MB of RSS (mesa ICDs pull in
+/// libLLVM) plus startup latency. Filtering the ICD list to hardware that is
+/// actually present avoids paying for drivers that can never serve a frame.
+///
+/// Detection: kernel DRM driver names under /sys/class/drm/card*/device/driver
+/// plus /dev/nvidiactl for the proprietary NVIDIA driver (which may not own a
+/// DRM node when nvidia-drm modeset is off). llvmpipe (lvp) is only kept when
+/// `include_software` is set — the software-fallback tier creates its own
+/// instance with that flag, so the ~40MB libLLVM lvp drags in isn't paid until
+/// the fallback is actually needed. If nothing is detected, or a kernel driver
+/// appears that isn't in the map, we leave the loader alone — full enumeration
+/// is the safe default.
+///
+/// Overrides, in precedence order:
+///   VK_DRIVER_FILES / VK_ICD_FILENAMES / VK_ADD_DRIVER_FILES set → no-op
+///   DOWNDRAFT_VULKAN_ICD="all"   → disable the filter entirely
+///   DOWNDRAFT_VULKAN_ICD="a:b"   → verbatim ICD json path list
+///   DOWNDRAFT_VULKAN_ICD="nvidia,lvp" → filter to named ICDs (include lvp to
+///     keep the software fallback working)
+#[cfg(target_os = "linux")]
+fn apply_vulkan_icd_filter(include_software: bool) {
+    use std::collections::BTreeSet;
+
+    // VK_DRIVER_FILES / VK_ICD_FILENAMES are set by this filter — a set env
+    // only blocks us when the USER set it (the software tier's second
+    // instance must be able to widen the list the primary instance wrote).
+    static ICD_ENV_OURS: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    if std::env::var_os("VK_ADD_DRIVER_FILES").is_some()
+        || (!ICD_ENV_OURS.load(Ordering::Relaxed)
+            && (std::env::var_os("VK_DRIVER_FILES").is_some()
+                || std::env::var_os("VK_ICD_FILENAMES").is_some()))
+    {
+        return;
+    }
+    if let Ok(v) = std::env::var("DOWNDRAFT_VULKAN_ICD") {
+        if v == "all" || v.is_empty() {
+            return;
+        }
+        let list = if v.contains(':') || v.ends_with(".json") {
+            v.clone()
+        } else {
+            v.split(',')
+                .map(|n| format!("/usr/share/vulkan/icd.d/{n}_icd.json"))
+                .collect::<Vec<_>>()
+                .join(":")
+        };
+        std::env::set_var("VK_DRIVER_FILES", &list);
+        std::env::set_var("VK_ICD_FILENAMES", &list); // pre-1.3.234 loaders
+        ICD_ENV_OURS.store(true, Ordering::Relaxed);
+        return;
+    }
+
+    let icd_for_driver = |name: &str| -> Option<&'static [&'static str]> {
+        Some(match name {
+            "nvidia" => &["nvidia_icd"],
+            "amdgpu" => &["radeon_icd"],
+            "i915" => &["intel_icd", "intel_hasvk_icd"],
+            "xe" => &["intel_icd"],
+            "virtio_gpu" => &["virtio_icd"],
+            "msm" => &["freedreno_icd"],
+            "panfrost" => &["panfrost_icd"],
+            "v3d" | "vc4" | "vc6" => &["broadcom_icd"],
+            "gfxstream" => &["gfxstream_vk_icd"],
+            "apple" => &["asahi_icd"],
+            "nouveau" => &["nouveau_icd"],
+            _ => return None,
+        })
+    };
+
+    let mut want: BTreeSet<&'static str> = BTreeSet::new();
+    if std::path::Path::new("/dev/nvidiactl").exists() {
+        want.insert("nvidia_icd");
+    }
+    if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            // cardN only — connectors (cardN-DP-1) and render nodes don't count.
+            if !name.starts_with("card") || !name[4..].chars().all(|c| c.is_ascii_digit()) {
+                continue;
+            }
+            let link = entry.path().join("device/driver");
+            let Ok(target) = std::fs::read_link(&link) else { continue };
+            let Some(driver) = target.file_name().and_then(|n| n.to_str()) else { continue };
+            let Some(icds) = icd_for_driver(driver) else {
+                // Unmapped kernel driver — don't risk excluding a working ICD.
+                return;
+            };
+            want.extend(icds.iter().copied());
+        }
+    }
+    if want.is_empty() {
+        return;
+    }
+    if include_software {
+        want.insert("lvp_icd");
+    }
+    let dirs = [
+        "/usr/share/vulkan/icd.d",
+        "/usr/local/share/vulkan/icd.d",
+        "/etc/vulkan/icd.d",
+    ];
+    let mut files: Vec<String> = Vec::new();
+    for icd in &want {
+        for dir in dirs {
+            let p = format!("{dir}/{icd}.json");
+            if std::path::Path::new(&p).exists() {
+                files.push(p);
+                break;
+            }
+        }
+    }
+    if files.is_empty() {
+        return;
+    }
+    let list = files.join(":");
+    std::env::set_var("VK_DRIVER_FILES", &list);
+    std::env::set_var("VK_ICD_FILENAMES", &list); // pre-1.3.234 loaders
+    ICD_ENV_OURS.store(true, Ordering::Relaxed);
+}
+
+/// backend_id flag bits for wgpu_shim_create_instance_ex (low byte is the
+/// backend selector — see backend_selector):
+///   0x100 — include software Vulkan ICDs (lvp/lavapipe) in the ICD filter.
+///           The software-fallback tier creates a dedicated instance with
+///           this flag so the primary instance can leave llvmpipe's ~40MB
+///           libLLVM unloaded until the fallback is actually needed.
+const ICD_INCLUDE_SOFTWARE: i32 = 0x100;
+
 #[no_mangle]
 pub extern "C" fn wgpu_shim_create_instance() -> Handle {
     wgpu_shim_create_instance_ex(0)
@@ -333,9 +467,21 @@ pub extern "C" fn wgpu_shim_create_instance() -> Handle {
 #[no_mangle]
 pub extern "C" fn wgpu_shim_create_instance_ex(backend_id: i32) -> Handle {
     ffi!(ptr::null_mut(), {
+        let _include_software = backend_id & ICD_INCLUDE_SOFTWARE != 0;
         let mut desc = InstanceDescriptor::new_without_display_handle_from_env();
-        if let Some(backends) = backend_selector(backend_id) {
+        if let Some(backends) = backend_selector(backend_id & !ICD_INCLUDE_SOFTWARE) {
             desc.backends = backends;
+        } else if std::env::var_os("WGPU_BACKEND").is_none() {
+            // Default to primary backends only. Backends::all() on Linux pulls
+            // in the GL backend, whose EGL init probes every installed mesa
+            // driver + libLLVM (~60MB RSS) just to discard them — the
+            // GL/virgl fallback already builds its second instance via an
+            // explicit _ex selector, so nothing needs GL on the primary path.
+            desc.backends = Backends::PRIMARY;
+        }
+        if desc.backends.contains(Backends::VULKAN) {
+            #[cfg(target_os = "linux")]
+            apply_vulkan_icd_filter(_include_software);
         }
         // wgpu's GLES backend cannot present on Wayland without the
         // platform display handle (the EGL platform display comes from it).
@@ -484,12 +630,21 @@ unsafe fn parse_device_desc(
         }
     }
 
+    // DOWNDRAFT_GPU_MEMORY_HINTS=memory|memory-usage opts into wgpu's
+    // reduced-memory allocator mode (smaller blocks, less retained GPU memory)
+    // — worth it for utility/desktop apps that don't push the device hard.
+    // Default stays Performance.
+    let memory_hints = match std::env::var("DOWNDRAFT_GPU_MEMORY_HINTS").as_deref() {
+        Ok("memory") | Ok("memory-usage") | Ok("MemoryUsage") => MemoryHints::MemoryUsage,
+        _ => MemoryHints::Performance,
+    };
+
     DeviceDescriptor {
         label: None,
         required_features: features,
         required_limits: limits,
         experimental_features: ExperimentalFeatures::disabled(),
-        memory_hints: MemoryHints::default(),
+        memory_hints,
         trace: Trace::Off,
     }
 }

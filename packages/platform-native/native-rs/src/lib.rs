@@ -25,7 +25,10 @@
 /// changes). The JS side asserts this at dlopen time
 /// (packages/platform-native/src/ffi/abi.ts) so a stale .so fails loudly at
 /// load instead of producing blank windows or corrupt calls.
-pub const DD_ABI_VERSION: u32 = 1;
+/// v2: the Vulkan ICD filter defers llvmpipe (lvp) to a dedicated software-
+/// tier instance — pre-v2 JS requests the fallback adapter on the primary
+/// instance and silently fails when lvp isn't enumerated there.
+pub const DD_ABI_VERSION: u32 = 2;
 
 /// ABI handshake export — the only symbol whose name must never change.
 #[no_mangle]

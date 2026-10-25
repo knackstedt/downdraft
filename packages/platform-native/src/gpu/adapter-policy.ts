@@ -7,6 +7,12 @@
 //      DOWNDRAFT_GPU_MODE (performance|stability), DOWNDRAFT_GPU_BACKEND
 //      (vulkan|gl), DOWNDRAFT_GPU_FALLBACK (0|1), DOWNDRAFT_GPU_DENY
 //      (comma-separated driver/name substrings).
+//      Memory-footprint knobs (native side, Linux only):
+//      DOWNDRAFT_VULKAN_ICD — restrict the Vulkan loader's ICD set
+//      ("all" = disable the hardware filter; "nvidia,lvp" = named ICDs;
+//      "a:b" = verbatim icd.json path list). DOWNDRAFT_GPU_MEMORY_HINTS
+//      (memory|memory-usage) switches the wgpu device to MemoryHints::
+//      MemoryUsage — smaller GPU heap reservations, marginally higher CPU.
 //   2. downdraft.config.json "gpu" block — the per-app settings file:
 //        { "gpu": { "mode": "performance"|"stability",
 //                   "adapter": "auto"|"hardware"|"software",

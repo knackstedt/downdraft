@@ -137,21 +137,32 @@ const BACKEND_IDS: Record<Exclude<GpuBackend, "auto">, number> = {
   dx12: 4,
 };
 
+/** backend_id flag bit — include software Vulkan ICDs (lvp/lavapipe) in the
+ *  ICD filter; mirrors ICD_INCLUDE_SOFTWARE in native-rs gpu/mod.rs. The
+ *  software-fallback tier builds its instance with this so the primary
+ *  instance can leave llvmpipe's ~40MB libLLVM unloaded until needed. */
+const ICD_INCLUDE_SOFTWARE = 0x100;
+
 export class WgpuGPU {
   private instancePtr: ptr = 0;
 
   /** @param backend — explicit backend restriction. Defaults to the
    *  resolved policy's backend; the GL-fallback retry passes "gl" to build
-   *  a second instance on the GLES backend. */
-  constructor(backend?: GpuBackend) {
+   *  a second instance on the GLES backend.
+   *  @param opts.software — include software ICDs in this instance's Vulkan
+   *  driver set; the software-fallback tier creates its instance with it. */
+  constructor(backend?: GpuBackend, opts?: { software?: boolean }) {
     // Backend restriction (gpu.backend / DOWNDRAFT_GPU_BACKEND) must happen at
     // instance creation — the adapter set is enumerated from it. "auto" and
     // libs that predate the _ex export take the original env-driven path
     // (WGPU_BACKEND still applies there).
     const resolved = backend ?? resolveGpuPolicy().backend;
-    const ex = resolved !== "auto" ? loadWgpuEx() : null;
+    const ex = resolved !== "auto" || opts?.software ? loadWgpuEx() : null;
     this.instancePtr = ex
-      ? ex.wgpu_shim_create_instance_ex(BACKEND_IDS[resolved as Exclude<GpuBackend, "auto">] ?? 0)
+      ? ex.wgpu_shim_create_instance_ex(
+          (BACKEND_IDS[resolved as Exclude<GpuBackend, "auto">] ?? 0)
+            | (opts?.software ? ICD_INCLUDE_SOFTWARE : 0),
+        )
       : wgpu.wgpu_shim_create_instance();
     if (!this.instancePtr) throw new Error("Failed to create wgpu instance");
   }
@@ -399,6 +410,11 @@ export class WgpuDevice {
    *  liveness writes so a replaced device can't clobber a newer
    *  generation's cells. */
   sharedStateGen = 0n;
+  /** Set by destroy() when the native handles were LEAKED because worker
+   *  views were still attached — callers about to free related handles
+   *  (the instance box) must skip too: a worker may be mid-call inside
+   *  wgpu_shim_process_events on that instance. */
+  nativeHandlesLeaked = false;
   private destroyed = false;
   // `.lost` watchers: the spec promise never resolves on a healthy device,
   // so every `device.lost.then(cb)` appends a reaction that lives forever.
@@ -1111,6 +1127,22 @@ export class WgpuDevice {
     // Signal attached workers before freeing handles — an alive=1 cell on a
     // released device is a use-after-free on the worker's next FFI call.
     this.writeDead();
+    // Still-attached worker views mean a worker may be mid-FFI-call (a
+    // wedged map/work-done wait is exactly what outlives retireSharedDevice's
+    // timeout) or hold a queue clone it hasn't released yet. Freeing the
+    // device now removes its queue id from wgpu-core storage — the worker's
+    // next queue call panics "Cannot get non-existent resource", saved from
+    // an abort only by the shim's catch_unwind. Leak the native handles
+    // instead: teardown reclaims them at process exit, and the late calls
+    // land on still-valid ids.
+    const attached = this.ownsHandle && this.sharedState
+      ? Number(Atomics.load(this.sharedState as any, 3 /* CELL_ATTACHED — shared-device.ts */))
+      : 0;
+    if (attached > 0) {
+      this.nativeHandlesLeaked = true;
+      log.warn("gpu", `device.destroy(): ${attached} worker view(s) still attached — leaking device/queue handles so late worker calls hit live ids`);
+      return;
+    }
     // wgpuDeviceGetQueue returns an owned box per call — this wrapper's clone
     // is always ours to release, regardless of device ownership.
     try { wgpu.wgpu_shim_release_queue(this.queue.ptr); } catch { /* best-effort */ }
