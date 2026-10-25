@@ -14,6 +14,8 @@ References to `games/<name>/...` throughout this document refer to those local c
 
 All publishable `@downdraft/*` packages share one version, driven by the **root `package.json`**. `scripts/bump-version.mjs` (`bun run bump:version`, supports `--to=X.Y.Z` / `--dry-run`) syncs every `packages/*/package.json` version and rewrites inter-package `@downdraft/*` dep ranges to `^<version>` — always run `bun install` afterwards to refresh `bun.lock` (publish installs with `--frozen-lockfile`). `standard-version` (e.g. the `bunminor` shell alias) only bumps the root; `.versionrc`'s `postcommit` hook runs the sync + amend automatically, so the tag lands on a lockstep tree. `publish.yml` verifies `v<tag>` == root version and fails the release on drift — if it fails, run the bump, commit, and move the tag. Pushing the tag drives the whole pipeline: `plan` checks the `native-v<version>` / `node-mobile-v<node>-<rev>` artifact releases, calls the build workflows if incomplete, then publishes (prerelease versions publish under the `next` dist-tag).
 
+**New publishable packages need a one-off manual bootstrap** — OIDC trusted publishing cannot perform a package's *first* publish (npm only exposes a package's trusted-publisher settings once it exists; npm/cli#8544). Before tagging a release that adds a new `packages/*` publishable: `npm publish --access public` from its dir once, then configure the trusted publisher on npmjs.com (package Settings → Trusted publishing → GitHub Actions → this repo, workflow `publish.yml`, allow "npm publish"). `publish-packages.mjs` fails fast on never-published names — a mid-run `E404` on `PUT /@downdraft%2f<name>` means this step was skipped (v0.7.x: `@downdraft/devtools`).
+
 
 ## Runtime status: native is the active runtime
 

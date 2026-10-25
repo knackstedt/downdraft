@@ -44,6 +44,29 @@ for (let _i = 0, _it = dirs, _n = _it.length; _i < _n; _i++) { const dir = _it[_
 // build the dist trees once up front so a broken build fails before any
 // package publishes (per-package prepublishOnly hooks rebuild too, but late).
 if (!dryRun) {
+  // OIDC trusted publishing cannot create a package's first version — npm
+  // only exposes a package's trusted-publisher settings once the package
+  // exists (npm/cli#8544). Flag never-published names up front so the run
+  // fails before any partial publish instead of midway through the order.
+  const neverPublished = [...pkgs.keys()].filter((name) => {
+    if (filter && !name.includes(filter)) return false;
+    const r = spawnSync("npm", ["view", name, "name"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return r.status !== 0 && /E404|404/.test(`${r.stderr ?? ""}${r.stdout ?? ""}`);
+  });
+  if (neverPublished.length) {
+    for (const name of neverPublished) {
+      console.error(
+        `::error::${name} does not exist on npm — trusted publishing (OIDC) cannot perform a package's first publish. ` +
+          `Do a one-off manual publish ("npm publish --access public" from ${pkgs.get(name).dir}), then configure the ` +
+          `trusted publisher on npmjs.com (package Settings → Trusted publishing → GitHub Actions → this repo, ` +
+          `workflow publish.yml, allow "npm publish").`,
+      );
+    }
+    process.exit(1);
+  }
   const r = spawnSync("node", [join(root, "scripts/build-dist.mjs")], { stdio: "inherit" });
   if (r.status !== 0) {
     console.error("FAILED build-dist — aborting before any publish");
