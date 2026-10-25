@@ -21,6 +21,7 @@ export type {
 } from "./types";
 
 export {
+    findWebUiLibrary,
     loadWebUiLib,
     resolveWebUiBackend, WEBUI_FRAME_HEADER, webUiGlobalInit,
     webUiGlobalShutdown,

@@ -42,7 +42,11 @@ const ENV_VAR: Record<WebUiBackend, string[]> = {
   wpe: ["DD_WEBUI_WPE_LIB", "DOWNDRAFT_WEBUI_LIB"],
 };
 
-function findWebUiLibrary(backend: WebUiBackend): string | null {
+/** Resolve the backend cdylib path WITHOUT dlopening it. A path probe is
+ *  the cheap "is the tier staged" check — the cdylib links heavyweight
+ *  runtime deps (NEEDED libcef.so ~125MB), so actually loading it is the
+ *  host's job, deferred to first use. */
+export function findWebUiLibrary(backend: WebUiBackend): string | null {
   return resolveNativeLibrary(LIB_NAME[backend], {
     envVars: ENV_VAR[backend],
     crateDir: join(findPackageRoot(_dirname), "libraries", "webui", `native-${backend}`),

@@ -10,10 +10,17 @@
 // Absent backend → createWebUiHost returns { available:false } and the
 // bridge leaves `downdraft.webui` undefined — games gate on presence, so a
 // missing cdylib never crashes the host.
+//
+// The tier is opt-in by use: the cdylib links its runtime eagerly
+// (NEEDED libcef.so ≈125MB RSS) and global_init spawns helper processes +
+// GPU state (~75MB more), so neither the dlopen nor the init runs until the
+// first createView. Hosts that never mount a webui view pay only a path
+// probe.
 // ============================================================================
 
 import type { WebUiGlobalInitOpts } from "@downdraft/engine/libraries/webui";
 import {
+    findWebUiLibrary,
     loadWebUiLib,
     resolveWebUiBackend,
     webUiGlobalInit,
@@ -85,7 +92,9 @@ function findBackendRuntimeDir(backend: WebUiBackend, libPath: string): string |
 const hosts = new Map<WebUiBackend, WebUiHost | null>();
 
 /** Resolve + create the host for a backend. `explicit` overrides env —
- *  null backend → host creation is skipped (DD_WEBUI_BACKEND=none). */
+ *  null backend → host creation is skipped (DD_WEBUI_BACKEND=none).
+ *  Only a path probe runs here — the cdylib dlopen + global_init defer to
+ *  the first createView so an unused webui tier costs nothing. */
 export function createWebUiHost(opts: {
   backend?: WebUiBackend | "auto" | "none" | null;
   init?: WebUiGlobalInitOpts;
@@ -93,6 +102,11 @@ export function createWebUiHost(opts: {
   const backend = resolveWebUiBackend(opts.backend);
   if (!backend) return null;
   if (hosts.has(backend)) return hosts.get(backend)!;
+  if (!findWebUiLibrary(backend)) {
+    log.warn("webui", `libdowndraft_webui_${backend} not staged — webui tier disabled`);
+    hosts.set(backend, null);
+    return null;
+  }
   const host = buildHost(backend, opts.init);
   hosts.set(backend, host);
   return host;
@@ -113,38 +127,47 @@ function normalizeNavUrl(url: string): string {
 }
 
 function buildHost(backend: WebUiBackend, initOpts: WebUiGlobalInitOpts = {}): WebUiHost | null {
-  const entry = loadWebUiLib(backend);
-  if (!entry) {
-    const why = webUiLoadError(backend);
-    log.warn("webui", why
-      ? `libdowndraft_webui_${backend} failed to load — webui tier disabled (${why})`
-      : `libdowndraft_webui_${backend} not found — webui tier disabled (run "bun run build:native")`);
-    return null;
-  }
+  // Lazy backend bring-up — dlopen pulls NEEDED libcef.so (~125MB) and
+  // global_init spawns the helper processes + profile (~75MB more), so both
+  // wait for the first createView. A staged-but-broken artifact only fails
+  // when something actually tries to use it.
+  let initState: "pending" | "ready" | "failed" = "pending";
+  const ensureReady = (): boolean => {
+    if (initState !== "pending") return initState === "ready";
+    const entry = loadWebUiLib(backend);
+    if (!entry) {
+      const why = webUiLoadError(backend);
+      log.warn("webui", `libdowndraft_webui_${backend} failed to load — webui tier disabled (${why ?? "dlopen failed"})`);
+      initState = "failed";
+      return false;
+    }
+    const runtimeDir = findBackendRuntimeDir(backend, entry.path);
+    const init: WebUiGlobalInitOpts = {
+      headless: true,
+      ...initOpts,
+    };
+    if (backend === "cef") {
+      init.cefDir = init.cefDir ?? runtimeDir;
+      // The helper binary stages next to the cdylib (build-native `bins`).
+      init.helperPath = init.helperPath ?? join(dirname(entry.path), "downdraft_cef_helper");
+      // Per-app CEF profile — the native fallback is a single shared
+      // tmp/downdraft-webui-cef dir whose SingletonLock makes the second
+      // app's global_init fail ("Opening in existing browser session").
+      const userData = process.env.DOWNDRAFT_USER_DATA;
+      init.cachePath = init.cachePath
+        ?? (userData ? join(userData, "webui-cef") : undefined);
+    } else {
+      init.wpePrefix = init.wpePrefix ?? runtimeDir;
+    }
 
-  const runtimeDir = findBackendRuntimeDir(backend, entry.path);
-  const init: WebUiGlobalInitOpts = {
-    headless: true,
-    ...initOpts,
+    if (!webUiGlobalInit(backend, init)) {
+      log.warn("webui", `${backend} global_init failed — webui tier disabled`);
+      initState = "failed";
+      return false;
+    }
+    initState = "ready";
+    return true;
   };
-  if (backend === "cef") {
-    init.cefDir = init.cefDir ?? runtimeDir;
-    // The helper binary stages next to the cdylib (build-native `bins`).
-    init.helperPath = init.helperPath ?? join(dirname(entry.path), "downdraft_cef_helper");
-    // Per-app CEF profile — the native fallback is a single shared
-    // tmp/downdraft-webui-cef dir whose SingletonLock makes the second
-    // app's global_init fail ("Opening in existing browser session").
-    const userData = process.env.DOWNDRAFT_USER_DATA;
-    init.cachePath = init.cachePath
-      ?? (userData ? join(userData, "webui-cef") : undefined);
-  } else {
-    init.wpePrefix = init.wpePrefix ?? runtimeDir;
-  }
-
-  if (!webUiGlobalInit(backend, init)) {
-    log.warn("webui", `${backend} global_init failed — webui tier disabled`);
-    return null;
-  }
 
   // ── View registry + event plumbing ──
   const views = new Map<string, WebUIView>();
@@ -218,6 +241,7 @@ function buildHost(backend: WebUiBackend, initOpts: WebUiGlobalInitOpts = {}): W
     backend,
 
     createView: async (config: WebUiViewConfig): Promise<boolean> => {
+      if (!ensureReady()) return false;
       const existing = views.get(config.id);
       if (existing) { existing.destroy(); views.delete(config.id); }
       const view = WebUIView.create(backend, {
