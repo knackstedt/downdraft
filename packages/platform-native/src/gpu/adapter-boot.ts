@@ -6,6 +6,9 @@
 //
 //   planGpuBoot      → resolve policy, arm the crash sentinel, honor the
 //                      crash latch and any explicit adapter choice
+//   latch probe      → a crash-latched boot still probes the adapter (info
+//                      query only) — a changed driver stack or elapsed
+//                      probation unlatches and retries hardware
 //   adapter request  → real adapter first (unless software-only)
 //   deny check       → reject adapters known to abort() in requestDevice —
 //                      the info query is the last safe interception point
@@ -20,7 +23,7 @@
 
 import { createLogger } from "@downdraft/engine/util/logger";
 import type { ptr } from "../ffi/ffi-adapter";
-import { denyReasonForAdapter, planGpuBoot, type GpuBootPlan, type GpuPolicyInput } from "./adapter-policy";
+import { denyReasonForAdapter, planGpuBoot, recordHardwareAttempt, type GpuBootPlan, type GpuPolicyInput } from "./adapter-policy";
 import { computeDeviceDescriptor } from "./device-request";
 import { WgpuGPU, type NativeAdapterInfo, type WgpuAdapter, type WgpuDevice } from "./wgpu-device";
 
@@ -77,7 +80,47 @@ export async function acquireAdapterAndDevice(
   const mayGlFallback =
     policy.glFallback && policy.adapter === "auto" && policy.backend === "auto";
 
-  if (plan.tryHardwareFirst) {
+  // Crash-latched boot — the software adapter came from gpu-state.json,
+  // not a user choice. Probe the environment before committing: a
+  // requestAdapter + info query is the last safe interception point (the
+  // abort risk lives in requestDevice), so it's a cheap check for a driver
+  // stack that changed since the crashes — the common "user fixed the
+  // driver" case — or an elapsed probation window. When the probe itself
+  // can't run (probeDead, or it returned nothing) probation retries go in
+  // blind via the normal hardware path below.
+  if (!plan.tryHardwareFirst && plan.latched) {
+    if (!plan.probeDead) {
+      let probe: WgpuAdapter | null = null;
+      plan.beginProbe();
+      try {
+        probe = await requestAdapter(false);
+      } catch (e) {
+        log.warn("gpu", `latch probe failed — staying on the software adapter (${(e as Error).message ?? e})`);
+      } finally {
+        // A thrown error still disarms — only a hard process death leaves
+        // the sentinel behind to set probeDead.
+        plan.endProbe();
+      }
+      if (probe) {
+        const denyReason = denyReasonForAdapter(probe.nativeInfo, policy.deny);
+        const recovery = denyReason ? null : plan.latchRecoveryReason(probe.nativeInfo);
+        if (recovery) {
+          plan.retryHardware(recovery);
+          adapter = probe;
+        } else {
+          probe.release();
+          if (denyReason) {
+            log.warn("gpu", `${denyReason} — staying on the software adapter`);
+          }
+        }
+      }
+    }
+    if (!adapter && plan.probationDue()) {
+      plan.retryHardware("crash-latch probation elapsed");
+    }
+  }
+
+  if (plan.tryHardwareFirst && !adapter) {
     adapter = await requestAdapter(false);
     if (adapter) {
       const reason = denyReasonForAdapter(adapter.nativeInfo, policy.deny);
@@ -98,6 +141,9 @@ export async function acquireAdapterAndDevice(
   // Device request on the hardware adapter — a clean failure (returned
   // error, not a process abort) retries on the lower tiers.
   if (adapter && !adapter.__ddSoftwareAdapter) {
+    // Snapshot the driver stack BEFORE requestDevice — a crash here is
+    // what the latch attributes, so the record doubles as "who did it".
+    recordHardwareAttempt(opts, adapter.nativeInfo);
     try {
       const device = await adapter.requestDevice(describe(adapter));
       return finish(adapter, device, gpu, false, plan);

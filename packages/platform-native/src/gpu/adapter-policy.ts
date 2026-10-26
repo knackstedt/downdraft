@@ -29,8 +29,9 @@
 //      it declaratively; standalone configs flow through `draft dev`.
 //   3. Persisted engine state — <userData>/gpu/gpu-state.json. The boot
 //      sentinel (below) latches `latchedAdapter: "software"` after repeated
-//      hardware-boot deaths so crashy drivers stop being retried. Delete
-//      the file (or set adapter:"hardware") to try hardware again.
+//      hardware-boot deaths so crashy drivers stop being retried. The
+//      latch self-heals (see "Latch recovery" below); deleting the file
+//      or setting adapter:"hardware" also retries hardware immediately.
 //
 // Non-game apps — test-beds and bespoke createNativeHost callers with no
 // downdraft.config.json — get the defaults wholesale: auto adapter with
@@ -45,6 +46,18 @@
 // presented (or on clean exit). A stale sentinel on the next boot counts as
 // a hardware-boot crash; after CRASH_LATCH_THRESHOLD it latches the app
 // onto the software adapter.
+//
+// Latch recovery: a latched boot is NOT necessarily permanent — users fix
+// drivers. Each latched boot may run a "probe" (requestAdapter + info
+// query, the last safe interception point — requestDevice is where drivers
+// abort). The probe unlatches when the adapter/driver identity differs
+// from the stack recorded at latch time (driver updated/reinstalled), or
+// when the probation window (LATCH_RETRY_BASE_MS, doubling on each failed
+// retry up to LATCH_RETRY_MAX_MS) has elapsed. A probe-boot.pending
+// sentinel guards the pathological case: a driver corrupted enough to die
+// inside requestAdapter itself sets probeDead, after which latched boots
+// skip the probe and only retry hardware blind on the probation schedule
+// — so a poisoned stack can't turn the app into a crash-every-boot loop.
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
@@ -111,9 +124,24 @@ const BUILTIN_DENY = ["venus", "gfxstream"];
 
 export interface AdapterIdentity {
   driver?: string;
+  driverInfo?: string;
   name?: string;
   backend?: string;
   deviceType?: string;
+  vendor?: number;
+  device?: number;
+}
+
+/** Any field differing between two adapter identity snapshots means the
+ *  driver stack changed (update, reinstall, different card). */
+export function adapterIdentityChanged(
+  a: AdapterIdentity | null | undefined,
+  b: AdapterIdentity | null | undefined,
+): boolean {
+  if (!a || !b) return false;
+  const fields: (keyof AdapterIdentity)[] =
+    ["name", "driver", "driverInfo", "backend", "deviceType", "vendor", "device"];
+  return fields.some((f) => a[f] !== b[f]);
 }
 
 /**
@@ -184,12 +212,33 @@ function readGpuConfigBlock(gameDir?: string): Record<string, unknown> {
 
 export interface GpuPersistedState {
   /** Set after repeated hardware-boot deaths — forces the software adapter
-   *  until cleared (config adapter:"hardware" overrides it). */
+   *  until cleared (config adapter:"hardware" overrides it; the recovery
+   *  fields below drive the automatic unlatch). */
   latchedAdapter?: "software";
   /** Consecutive boots that died mid hardware-attempt. */
   hardwareBootCrashes?: number;
   /** ISO timestamp of the last detected hardware-boot crash. */
   lastHardwareCrash?: string;
+  /** Identity of the last hardware adapter that survived the info query —
+   *  written BEFORE requestDevice on every hardware attempt, so a crash-
+   *  latch records which driver stack killed it. */
+  lastHardwareAdapterInfo?: AdapterIdentity;
+  /** Snapshot of lastHardwareAdapterInfo taken when the latch (last)
+   *  engaged. A probed adapter whose identity differs is proof the driver
+   *  stack changed since the crashes — grounds to retry hardware. */
+  latchedAdapterInfo?: AdapterIdentity;
+  /** ISO timestamp of when the latch last (re)engaged — starts the
+   *  probation window. */
+  latchedAt?: string;
+  /** Probation window in ms: how long after latchedAt a latched boot must
+   *  wait before retrying hardware even without proof the driver changed.
+   *  Doubles (capped at LATCH_RETRY_MAX_MS) each time a retry re-crashes. */
+  latchRetryMs?: number;
+  /** A previous recovery probe died inside requestAdapter itself — the
+   *  adapter request was presumed safe, so a death there means the stack
+   *  can't even be queried. Latched boots then skip the probe and only
+   *  retry hardware blind on the probation schedule. */
+  probeDead?: boolean;
 }
 
 function gpuStateDir(input: GpuPolicyInput): string {
@@ -207,6 +256,10 @@ function gpuSentinelPath(input: GpuPolicyInput): string {
   return join(gpuStateDir(input), "hardware-boot.pending");
 }
 
+function probeSentinelPath(input: GpuPolicyInput): string {
+  return join(gpuStateDir(input), "probe-boot.pending");
+}
+
 export function readGpuState(input: GpuPolicyInput = {}): GpuPersistedState {
   try {
     const s = JSON.parse(readFileSync(gpuStatePath(input), "utf8"));
@@ -222,6 +275,22 @@ function writeGpuState(input: GpuPolicyInput, state: GpuPersistedState): void {
   } catch (e) {
     log.warn("gpu", `gpu-state persist failed: ${(e as Error).message}`);
   }
+}
+
+/** Persist the hardware adapter's identity BEFORE requestDevice — if the
+ *  device request kills the process, the crash latch records which driver
+ *  stack did it so a later driver change can unlatch. A successful info
+ *  read also clears probeDead (an adapter request that works proves the
+ *  stack is queryable again). */
+export function recordHardwareAttempt(
+  input: GpuPolicyInput,
+  info: AdapterIdentity | null | undefined,
+): void {
+  if (!info) return;
+  const state = readGpuState(input);
+  state.lastHardwareAdapterInfo = { ...info };
+  delete state.probeDead;
+  writeGpuState(input, state);
 }
 
 // ── Policy resolution ──
@@ -320,9 +389,17 @@ export function resolveGpuPolicy(input: GpuPolicyInput = {}): GpuPolicy {
 // ── Boot plan + crash sentinel ──
 
 /** After this many consecutive hardware-boot deaths, latch the app onto
- *  the software adapter until gpu-state.json is removed or the config
- *  explicitly requests hardware. */
+ *  the software adapter until gpu-state.json is removed, the config
+ *  explicitly requests hardware, or a recovery path (below) unlatches it. */
 export const CRASH_LATCH_THRESHOLD = 2;
+
+/** Crash-latch recovery: a latched boot retries the hardware adapter when
+ *  a probe shows the adapter/driver identity differs from the stack that
+ *  crashed (driver updated/reinstalled) — or unconditionally once the
+ *  probation window has elapsed. A retry that dies re-latches and doubles
+ *  the window, capped at LATCH_RETRY_MAX_MS. */
+export const LATCH_RETRY_BASE_MS = 24 * 60 * 60 * 1000;
+export const LATCH_RETRY_MAX_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Per-process identity stamped into the sentinel — the dev shell's early
  *  boot and createNativeHost both plan within ONE process; a sentinel that
@@ -333,10 +410,36 @@ export interface GpuBootPlan {
   /** The resolved policy (post-latch). */
   policy: GpuPolicy;
   /** Attempt the real adapter first? False → go straight to the software
-   *  adapter (explicit software mode or latched after crashes). */
-  tryHardwareFirst: boolean;
+   *  adapter (explicit software mode or latched after crashes). Flipped to
+   *  true by retryHardware() when a latch-recovery check wins. */
+  readonly tryHardwareFirst: boolean;
   /** True when a stale sentinel from a previous dead boot was detected. */
   detectedCrash: boolean;
+  /** The software adapter was chosen by the crash latch — not an explicit
+   *  software request — so the boot may probe the environment for a reason
+   *  to unlatch (changed driver stack, elapsed probation). */
+  latched: boolean;
+  /** A previous recovery probe died inside requestAdapter — skip probing
+   *  this boot; recovery can only retry blind on the probation schedule. */
+  probeDead: boolean;
+  /** The probation window since the latch has elapsed — a latched boot may
+   *  retry hardware even without proof the driver stack changed. */
+  probationDue(): boolean;
+  /** For a latched boot: a human-readable reason the persisted latch no
+   *  longer applies to this adapter (changed driver stack or elapsed
+   *  probation), or null to stay on software. Call with the probed
+   *  adapter's info — cheap and safe (requestDevice is the abort risk,
+   *  not the info query). */
+  latchRecoveryReason(info: AdapterIdentity | null | undefined): string | null;
+  /** Arm/disarm the probe sentinel around a recovery probe's
+   *  requestAdapter+info. A stale probe sentinel next boot sets
+   *  probeDead. */
+  beginProbe(): void;
+  endProbe(): void;
+  /** Override the latch and run a hardware attempt — flips
+   *  tryHardwareFirst and arms the hardware-boot sentinel. Must run
+   *  before requestDevice. */
+  retryHardware(reason: string): void;
   /** Call when the GPU stack is proven healthy — the first presented frame
    *  (NativeCanvasContext's first acquire) or a clean host teardown. Clears
    *  the sentinel and the crash counter; also clears the latch when the
@@ -353,6 +456,7 @@ export interface GpuBootPlan {
 export function planGpuBoot(input: GpuPolicyInput = {}): GpuBootPlan {
   const policy = resolveGpuPolicy(input);
   const sentinelPath = gpuSentinelPath(input);
+  const probePath = probeSentinelPath(input);
   // An explicit adapter choice (env/config) overrides the crash latch —
   // the user asked for this mode on purpose.
   const explicitAdapter = policy.explicitAdapter;
@@ -360,36 +464,61 @@ export function planGpuBoot(input: GpuPolicyInput = {}): GpuBootPlan {
   const state = readGpuState(input);
   let detectedCrash = false;
 
-  if (existsSync(sentinelPath)) {
+  const consumeMarker = (path: string): boolean => {
     let stale = true;
     try {
-      const marker = JSON.parse(readFileSync(sentinelPath, "utf8"));
+      const marker = JSON.parse(readFileSync(path, "utf8"));
       stale = marker?.nonce !== PROCESS_NONCE;
     } catch { /* unparseable marker — treat as stale */ }
-    if (stale) {
-      detectedCrash = true;
-      state.hardwareBootCrashes = (state.hardwareBootCrashes ?? 0) + 1;
-      state.lastHardwareCrash = new Date().toISOString();
-      if ((state.hardwareBootCrashes ?? 0) >= CRASH_LATCH_THRESHOLD && !explicitAdapter) {
-        state.latchedAdapter = "software";
-      }
-      writeGpuState(input, state);
-      log.error("gpu",
-        `previous hardware GPU boot died before first frame (crash #${state.hardwareBootCrashes})` +
-        (state.latchedAdapter && !explicitAdapter ? " — latching software adapter" : ""));
-    }
-    // The marker is consumed — a boot that now goes software-only (latched)
-    // must not leave it behind to be re-counted next boot.
-    clearSentinel();
+    try { rmSync(path); } catch { /* already gone */ }
+    return stale;
+  };
+
+  // A stale probe sentinel means a recovery probe died inside
+  // requestAdapter — presumed safe, so the stack can't even be queried.
+  // Probing is poisoned for this state dir; recovery falls back to blind
+  // probation retries.
+  if (existsSync(probePath) && consumeMarker(probePath)) {
+    state.probeDead = true;
+    writeGpuState(input, state);
+    log.error("gpu",
+      "previous hardware probe died inside the adapter request — disabling latch probes");
   }
+
+  if (existsSync(sentinelPath) && consumeMarker(sentinelPath)) {
+    detectedCrash = true;
+    state.hardwareBootCrashes = (state.hardwareBootCrashes ?? 0) + 1;
+    state.lastHardwareCrash = new Date().toISOString();
+    const alreadyLatched = state.latchedAdapter === "software";
+    if (!explicitAdapter &&
+        (alreadyLatched || (state.hardwareBootCrashes ?? 0) >= CRASH_LATCH_THRESHOLD)) {
+      // (Re)latch — a probation retry that died doubles the wait window.
+      state.latchRetryMs = alreadyLatched
+        ? Math.min((state.latchRetryMs ?? LATCH_RETRY_BASE_MS) * 2, LATCH_RETRY_MAX_MS)
+        : LATCH_RETRY_BASE_MS;
+      state.latchedAdapter = "software";
+      state.latchedAt = new Date().toISOString();
+      state.latchedAdapterInfo = state.lastHardwareAdapterInfo ?? state.latchedAdapterInfo;
+    }
+    writeGpuState(input, state);
+    log.error("gpu",
+      `previous hardware GPU boot died before first frame (crash #${state.hardwareBootCrashes})` +
+      (state.latchedAdapter && !explicitAdapter ? " — latching software adapter" : ""));
+  }
+  // The marker is consumed — a boot that now goes software-only (latched)
+  // must not leave it behind to be re-counted next boot.
 
   // Re-apply the latch the stale-sentinel pass may just have set.
   if (policy.adapter === "auto" && state.latchedAdapter === "software") {
     policy.adapter = "software";
   }
 
-  const tryHardwareFirst = policy.adapter !== "software";
-  if (tryHardwareFirst) {
+  const latched = !explicitAdapter && state.latchedAdapter === "software";
+  const probeDead = state.probeDead === true;
+
+  let tryHardwareFirst = policy.adapter !== "software";
+
+  const armSentinel = (): void => {
     try {
       mkdirSync(gpuStateDir(input), { recursive: true });
       writeFileSync(sentinelPath, JSON.stringify({ nonce: PROCESS_NONCE, pid: process.pid, ts: Date.now() }));
@@ -397,11 +526,49 @@ export function planGpuBoot(input: GpuPolicyInput = {}): GpuBootPlan {
       // quit before first frame don't false-positive the next boot.
       process.once("exit", clearSentinel);
     } catch { /* no writable state dir — sentinel just doesn't arm */ }
-  }
+  };
+
+  if (tryHardwareFirst) armSentinel();
 
   function clearSentinel(): void {
     try { rmSync(sentinelPath); } catch { /* already gone */ }
   }
+
+  const probationDue = (): boolean => {
+    if (!latched) return false;
+    const at = Date.parse(state.latchedAt ?? "");
+    return Number.isFinite(at) &&
+      Date.now() - at >= (state.latchRetryMs ?? LATCH_RETRY_BASE_MS);
+  };
+
+  const latchRecoveryReason = (info: AdapterIdentity | null | undefined): string | null => {
+    if (!latched) return null;
+    if (adapterIdentityChanged(state.latchedAdapterInfo, info)) {
+      const prev = state.latchedAdapterInfo;
+      return `driver stack changed since the latch ` +
+        `(${[prev?.driver, prev?.driverInfo].filter(Boolean).join(" ") || "?"} → ` +
+        `${[info?.driver, info?.driverInfo].filter(Boolean).join(" ") || "?"})`;
+    }
+    if (probationDue()) return "crash-latch probation elapsed";
+    return null;
+  };
+
+  const retryHardware = (reason: string): void => {
+    if (!latched || tryHardwareFirst) return;
+    tryHardwareFirst = true;
+    log.warn("gpu", `crash-latch recovery: ${reason} — retrying the hardware adapter`);
+    armSentinel();
+  };
+
+  const beginProbe = (): void => {
+    try {
+      mkdirSync(gpuStateDir(input), { recursive: true });
+      writeFileSync(probePath, JSON.stringify({ nonce: PROCESS_NONCE, pid: process.pid, ts: Date.now() }));
+    } catch { /* no writable state dir — probe guard just doesn't arm */ }
+  };
+  const endProbe = (): void => {
+    try { rmSync(probePath); } catch { /* already gone */ }
+  };
 
   let marked = false;
   const markHealthy = (): void => {
@@ -410,13 +577,32 @@ export function planGpuBoot(input: GpuPolicyInput = {}): GpuBootPlan {
     clearSentinel();
     const s = readGpuState(input);
     // A proven-healthy boot resets the crash streak; a healthy HARDWARE
-    // boot also clears the latch (explicit hardware choice that now works).
+    // attempt also clears the latch (explicit hardware choice or a
+    // successful recovery retry that now works).
     if ((s.hardwareBootCrashes ?? 0) > 0 || (s.latchedAdapter && tryHardwareFirst)) {
       const next: GpuPersistedState = { ...s, hardwareBootCrashes: 0 };
-      if (tryHardwareFirst) delete next.latchedAdapter;
+      if (tryHardwareFirst) {
+        delete next.latchedAdapter;
+        delete next.latchedAdapterInfo;
+        delete next.latchedAt;
+        delete next.latchRetryMs;
+        delete next.probeDead;
+      }
       writeGpuState(input, next);
     }
   };
 
-  return { policy, tryHardwareFirst, detectedCrash, markHealthy };
+  return {
+    policy,
+    get tryHardwareFirst() { return tryHardwareFirst; },
+    detectedCrash,
+    latched,
+    probeDead,
+    probationDue,
+    latchRecoveryReason,
+    beginProbe,
+    endProbe,
+    retryHardware,
+    markHealthy,
+  };
 }

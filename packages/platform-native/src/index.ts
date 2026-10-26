@@ -22,7 +22,7 @@ export { VirtualCanvas, VirtualCanvasContext } from "./compat/virtual-canvas-con
 export { dlopen, ptr, readMappedRange, type CFunction } from "./ffi/ffi-adapter";
 export { findShimLibrary, libFileName, PLATFORM_DIR, resolveNativeLibrary, resolvePlatformLibrary, resolveShimLibrary, RUST_TRIPLE } from "./ffi/lib-paths";
 export { acquireAdapterAndDevice, type AcquiredGpu, type AcquireGpuOptions } from "./gpu/adapter-boot";
-export { CRASH_LATCH_THRESHOLD, denyReasonForAdapter, planGpuBoot, readGpuState, resolveGpuPolicy, type AdapterIdentity, type GpuAdapterMode, type GpuBackend, type GpuBootPlan, type GpuPersistedState, type GpuPolicy, type GpuPolicyInput } from "./gpu/adapter-policy";
+export { adapterIdentityChanged, CRASH_LATCH_THRESHOLD, denyReasonForAdapter, LATCH_RETRY_BASE_MS, LATCH_RETRY_MAX_MS, planGpuBoot, readGpuState, recordHardwareAttempt, resolveGpuPolicy, type AdapterIdentity, type GpuAdapterMode, type GpuBackend, type GpuBootPlan, type GpuPersistedState, type GpuPolicy, type GpuPolicyInput } from "./gpu/adapter-policy";
 export { borrowGpuBuffer, borrowGpuTexture, importGpuBuffer, importGpuTexture, type BorrowedTextureMeta } from "./gpu/borrow";
 export { createGpuWorkerContext, type GpuAttachMsg, type GpuDetachedMsg, type GpuDetachMsg, type GpuReadyMsg, type GpuWorkerContext } from "./gpu/gpu-worker-context";
 export { installGPU, resetGPU } from "./gpu/install";

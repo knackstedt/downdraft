@@ -5,9 +5,12 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+    adapterIdentityChanged,
     denyReasonForAdapter,
+    LATCH_RETRY_BASE_MS,
     planGpuBoot,
     readGpuState,
+    recordHardwareAttempt,
     resolveGpuPolicy,
 } from "./adapter-policy";
 
@@ -247,5 +250,123 @@ describe("planGpuBoot + crash sentinel", () => {
     const plan = planGpuBoot({ appId: APP });
     expect(plan.tryHardwareFirst).toBe(false);
     expect(existsSync(join(stateDir(), "hardware-boot.pending"))).toBe(false);
+  });
+});
+
+describe("crash-latch recovery", () => {
+  const latchedState = (extra: object = {}) => ({
+    latchedAdapter: "software",
+    latchedAt: new Date().toISOString(),
+    latchRetryMs: LATCH_RETRY_BASE_MS,
+    latchedAdapterInfo: { driver: "nvidia", driverInfo: "535.1", name: "RTX 3090" },
+    ...extra,
+  });
+
+  it("latching snapshots the driver stack that crashed", () => {
+    writeState({
+      hardwareBootCrashes: 1,
+      lastHardwareAdapterInfo: { driver: "nvidia", driverInfo: "535.1", name: "RTX 3090" },
+    });
+    writeSentinel();
+    const plan = planGpuBoot({ appId: APP });
+    expect(plan.latched).toBe(true);
+    const s = readGpuState({ appId: APP });
+    expect(s.latchedAdapter).toBe("software");
+    expect(s.latchedAdapterInfo?.driverInfo).toBe("535.1");
+    expect(s.latchRetryMs).toBe(LATCH_RETRY_BASE_MS);
+    expect(s.latchedAt).toBeTruthy();
+  });
+
+  it("unlatches when the probed driver stack differs from the one that crashed", () => {
+    writeState(latchedState());
+    const plan = planGpuBoot({ appId: APP });
+    expect(plan.latched).toBe(true);
+    expect(plan.tryHardwareFirst).toBe(false);
+    const reason = plan.latchRecoveryReason(
+      { driver: "nvidia", driverInfo: "550.2", name: "RTX 3090" });
+    expect(reason).toContain("changed");
+    // Same stack, probation not due → stay on software.
+    expect(plan.latchRecoveryReason(
+      { driver: "nvidia", driverInfo: "535.1", name: "RTX 3090" })).toBeNull();
+  });
+
+  it("retryHardware flips the plan and a healthy boot clears all latch state", () => {
+    writeState(latchedState());
+    const plan = planGpuBoot({ appId: APP });
+    plan.retryHardware("test recovery");
+    expect(plan.tryHardwareFirst).toBe(true);
+    expect(existsSync(join(stateDir(), "hardware-boot.pending"))).toBe(true);
+    plan.markHealthy();
+    const s = readGpuState({ appId: APP });
+    expect(s.latchedAdapter).toBeUndefined();
+    expect(s.latchedAdapterInfo).toBeUndefined();
+    expect(s.latchRetryMs).toBeUndefined();
+    expect(s.latchedAt).toBeUndefined();
+    expect(s.probeDead).toBeUndefined();
+  });
+
+  it("probation recovers even when the driver stack is unchanged", () => {
+    writeState(latchedState({
+      latchedAt: new Date(Date.now() - LATCH_RETRY_BASE_MS - 1000).toISOString(),
+    }));
+    const plan = planGpuBoot({ appId: APP });
+    expect(plan.probationDue()).toBe(true);
+    expect(plan.latchRecoveryReason(
+      { driver: "nvidia", driverInfo: "535.1", name: "RTX 3090" }))
+      .toContain("probation");
+  });
+
+  it("probation not due → no recovery on an unchanged stack", () => {
+    writeState(latchedState());
+    const plan = planGpuBoot({ appId: APP });
+    expect(plan.probationDue()).toBe(false);
+    expect(plan.latchRecoveryReason(
+      { driver: "nvidia", driverInfo: "535.1", name: "RTX 3090" })).toBeNull();
+  });
+
+  it("a recovery retry that dies re-latches with a doubled probation window", () => {
+    writeState(latchedState());
+    writeSentinel(); // the retry's armed sentinel, left behind by the death
+    const plan = planGpuBoot({ appId: APP });
+    expect(plan.detectedCrash).toBe(true);
+    expect(plan.tryHardwareFirst).toBe(false);
+    const s = readGpuState({ appId: APP });
+    expect(s.latchedAdapter).toBe("software");
+    expect(s.latchRetryMs).toBe(LATCH_RETRY_BASE_MS * 2);
+  });
+
+  it("a stale probe sentinel sets probeDead — recovery can only retry blind", () => {
+    writeState(latchedState());
+    writeFileSync(join(stateDir(), "probe-boot.pending"),
+      JSON.stringify({ nonce: "stale-other-process", pid: 1, ts: 1 }));
+    const plan = planGpuBoot({ appId: APP });
+    expect(plan.probeDead).toBe(true);
+    expect(readGpuState({ appId: APP }).probeDead).toBe(true);
+    // probeDead blocks the probe but not probation itself.
+    expect(plan.latched).toBe(true);
+  });
+
+  it("recordHardwareAttempt snapshots the driver stack and clears probeDead", () => {
+    writeState({ probeDead: true });
+    recordHardwareAttempt({ appId: APP }, { driver: "nvidia", driverInfo: "550.2", name: "RTX 3090" });
+    const s = readGpuState({ appId: APP });
+    expect(s.lastHardwareAdapterInfo?.driverInfo).toBe("550.2");
+    expect(s.probeDead).toBeUndefined();
+  });
+
+  it("adapterIdentityChanged compares the full stack identity", () => {
+    const a = { driver: "nvidia", driverInfo: "535.1", name: "RTX 3090" };
+    expect(adapterIdentityChanged(a, { ...a, driverInfo: "550.2" })).toBe(true);
+    expect(adapterIdentityChanged(a, { ...a })).toBe(false);
+    expect(adapterIdentityChanged(undefined, a)).toBe(false);
+    expect(adapterIdentityChanged(a, null)).toBe(false);
+  });
+
+  it("explicit software is not 'latched' — no recovery probing", () => {
+    writeState(latchedState());
+    process.env.DOWNDRAFT_GPU = "swiftshader";
+    const plan = planGpuBoot({ appId: APP });
+    expect(plan.latched).toBe(false);
+    expect(plan.latchRecoveryReason({ driver: "other" })).toBeNull();
   });
 });
