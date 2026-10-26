@@ -161,8 +161,10 @@ export function sharedDeviceAlive(cells: DeviceStateCells | SharedArrayBuffer): 
  * may then safely device.destroy() with no FFI call in flight on the freed
  * handles. Resolves false on timeout: a worker blocked inside a bounded FFI
  * wait (maps/work-done can take seconds under device loss) hasn't acked —
- * either keep waiting or proceed knowing the shim's release of a busy handle
- * is the remaining risk. Poll-style polling, not Atomics.wait — the owner's
+ * either keep waiting or proceed. Proceeding is safe: WgpuDevice.destroy()
+ * leaks the native handles while views are still attached rather than
+ * freeing them under an in-flight call. Poll-style polling, not Atomics.wait
+ * — the owner's
  * event loop must stay live for the workers' detach to be observable anyway
  * (workers typically detach from a posted teardown message, not polling).
  */
@@ -347,10 +349,14 @@ export function attachSharedDevice(
     detach() {
       if (detached) return;
       detached = true;
-      if (i64) Atomics.sub(i64, CELL_ATTACHED, 1n);
-      // Local unwire only — ownsHandle:false means destroy() releases just
-      // this thread's queue clone, never the owner's device/queue boxes.
+      // Local unwire BEFORE decrementing the attach count — the owner frees
+      // the device the moment the count reaches 0, and our release_queue
+      // landing after that panics inside wgpu on the dead queue id. While
+      // we're still counted, owner destroy() leaks rather than frees.
+      // ownsHandle:false means destroy() releases just this thread's queue
+      // clone, never the owner's device/queue boxes.
       try { rawDevice.destroy(); } catch { /* best-effort */ }
+      if (i64) Atomics.sub(i64, CELL_ATTACHED, 1n);
     },
     pumpEvents() {
       if (!isUsable()) {

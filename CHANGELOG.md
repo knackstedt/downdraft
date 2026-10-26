@@ -18,6 +18,10 @@ All notable changes to this project will be documented in this file. See [standa
 - **`DOWNDRAFT_GPU=auto` is the default adapter mode** — hardware-first with automatic software failover; `draft test`'s `--renderer=cpu|gpu` mapping is unchanged.
 - **`backend:"gl"` (virgl GLES) presents on Wayland — experimental** — the event loop's `OwnedDisplayHandle` is now bound to `InstanceDescriptor.display` when GL is requested (required for wgpu's EGL/Wayland presentation), the surface configure path clamps requested usages to real caps, and `viewFormats` are dropped with format-mismatched views coerced to the base format (GLES lacks `VIEW_FORMATS` downlevel flags). Caveats: srgb view reinterpretation degrades to a gamma shift, `captureScreenshot` is unavailable (GLES surfaces expose no `COPY_SRC`), and GLES feature coverage is narrower than Vulkan. Opt-in via `gpu.backend:"gl"`/`DOWNDRAFT_GPU_BACKEND=gl`; the auto backend set is unchanged.
 
+### Fixed
+
+- **Foreign/corrupt pipeline-cache seed no longer bricks rendering** — `wgpu_shim_pipeline_cache_init` now wraps `create_pipeline_cache` in a validation scope: a rejected seed (e.g. a blob flushed by a different adapter — test runners on the software adapter share `<userData>` with hardware boots) is retried with no data so the device gets a live empty cache instead of attaching the invalid one (which previously made every `create_render_pipeline` return an invalid pipeline → per-frame `set_pipeline` validation flood). New return `2` = seed rejected/fresh cache attached; `pipeline-cache.ts` deletes the stale `gpu-pipeline-cache.bin` on `2` so the next boot skips the failed-validation round-trip. `0`/`1` semantics unchanged — no ABI bump.
+
 ## [0.5.0](https://github.com/knackstedt/downdraft/compare/v0.4.9...v0.5.0) (2026-10-15)
 
 ### Breaking

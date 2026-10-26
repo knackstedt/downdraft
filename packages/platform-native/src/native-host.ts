@@ -499,7 +499,14 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       // it — then the instance, so late-arriving finalizer polls still have
       // a live pump target until the very end.
       try { device.destroy(); } catch { /* best-effort */ }
-      try { wgpu.wgpu_shim_release_instance(gpu.getInstancePtr()); } catch { /* best-effort */ }
+      // If destroy() leaked the device because workers are still attached, a
+      // worker may also be mid-call inside wgpu_shim_process_events, which
+      // derefs the instance box directly — freeing it here would dangle that
+      // borrow. Leak the instance alongside; the SAB-dead views still can't
+      // start new calls.
+      if (!device.nativeHandlesLeaked) {
+        try { wgpu.wgpu_shim_release_instance(gpu.getInstancePtr()); } catch { /* best-effort */ }
+      }
       // The instance box is freed — clear the global NOW, not in the
       // destroyHostLayer sweep the dev runtime runs after us: the
       // supervisor's Tier-4 fallback path never reaches destroyHostLayer,

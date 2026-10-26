@@ -12,7 +12,7 @@
 // platform lib predates the symbols (loadWgpuAsync() null / undefined entry).
 // ============================================================================
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { createLogger } from "@downdraft/engine/util/logger";
@@ -53,7 +53,16 @@ export function initPipelineCache(device: WgpuDevice): boolean {
     data as unknown as never,
     data.byteLength,
   );
-  if (ok === 1) {
+  if (ok === 1 || ok === 2) {
+    if (ok === 2 && path) {
+      // Seed rejected (foreign device / corrupt) — the shim attached a fresh
+      // empty cache; drop the stale blob so the next boot doesn't pay the
+      // failed-validation round-trip again.
+      try {
+        rmSync(path, { force: true });
+        log.info("gpu", "stale pipeline cache removed — will regenerate");
+      } catch { /* best effort */ }
+    }
     log.debug("gpu", `pipeline cache attached (${data.byteLength} B seed)`);
     registerExitFlush(device);
     return true;

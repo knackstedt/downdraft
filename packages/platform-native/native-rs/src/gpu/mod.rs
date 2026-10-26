@@ -2288,9 +2288,14 @@ pub extern "C" fn wgpu_shim_create_compute_pipeline_async(
 // bytes in at boot and reads them back out periodically/on shutdown.
 
 /// Attach a PipelineCache to the device. `data` must be bytes from a prior
-/// get_data call on this same driver (fallback=true tolerates a stale or
-/// foreign blob — the cache starts empty instead of erroring). Requires the
-/// PIPELINE_CACHE feature; returns 1 on success, 0 otherwise.
+/// get_data call on this same driver. A stale or foreign blob fails
+/// validation — and wgpu still returns a (now-invalid) PipelineCache object,
+/// which then poisons every later pipeline create (`set_pipeline` on an
+/// invalid RenderPipeline, every frame). The create is therefore wrapped in
+/// a validation scope: a rejected seed is retried with no data so the device
+/// still gets a live empty cache. Requires the PIPELINE_CACHE feature.
+/// Returns 1 = cache attached, 2 = seed rejected (fresh empty cache attached
+/// — the caller should drop the on-disk blob), 0 = no cache attached.
 #[no_mangle]
 pub extern "C" fn wgpu_shim_pipeline_cache_init(
     device: Handle,
@@ -2300,14 +2305,41 @@ pub extern "C" fn wgpu_shim_pipeline_cache_init(
     ffi!(0, unsafe {
         let shim = obj::<ShimDevice>(device);
         let data = flat(data_ptr, data_len as usize);
-        let desc = PipelineCacheDescriptor {
-            label: Some("downdraft-pipeline-cache"),
-            data: if data.is_empty() { None } else { Some(data) },
-            fallback: true,
+        let try_attach = |seed: Option<&[u8]>| -> Option<PipelineCache> {
+            let guard = shim.device.push_error_scope(ErrorFilter::Validation);
+            let cache = shim.device.create_pipeline_cache(&PipelineCacheDescriptor {
+                label: Some("downdraft-pipeline-cache"),
+                data: seed,
+                fallback: true,
+            });
+            // A scope error means the returned cache is invalid — drop it
+            // rather than store it on the device.
+            match block_on_gpu(guard.pop()) {
+                Some(None) => Some(cache),
+                _ => None,
+            }
         };
-        let cache = shim.device.create_pipeline_cache(&desc);
-        *shim.pipeline_cache.lock().unwrap() = Some(cache);
-        1
+        if !data.is_empty() {
+            if let Some(cache) = try_attach(Some(data)) {
+                *shim.pipeline_cache.lock().unwrap() = Some(cache);
+                return 1;
+            }
+            eprintln!("[wgpu] pipeline cache seed rejected (foreign device or corrupt) — starting fresh");
+            return match try_attach(None) {
+                Some(cache) => {
+                    *shim.pipeline_cache.lock().unwrap() = Some(cache);
+                    2
+                }
+                None => 0,
+            };
+        }
+        match try_attach(None) {
+            Some(cache) => {
+                *shim.pipeline_cache.lock().unwrap() = Some(cache);
+                1
+            }
+            None => 0,
+        }
     })
 }
 
