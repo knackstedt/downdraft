@@ -132,6 +132,10 @@ export interface GpuPassMailboxLike {
   /** Import all pending refs for `slot` into owning command buffers —
    *  renderer-only; call right before the submit they should join. */
   drain(slot: string): GPUCommandBuffer[];
+  /** Optional wake callback — invoked each time a pass is consumed so a
+   *  damage-gated render loop can schedule a frame instead of waiting for
+   *  its idle keepalive. */
+  onPush?: () => void;
 }
 
 /** The subset of the live native host object games legitimately reach for —

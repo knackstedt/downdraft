@@ -57,6 +57,7 @@ export interface RendererModuleHostCallbacks {
   setRAFSource: (src: RAFSource | null, cancel: CancelRAF | null) => void;
   setViewportCount: (count: number) => void;
   getUIInputRouter: () => UIInputRouter | null;
+  requestFrame: () => void;
   registerUiCompositor?: (c: import("../module/renderer-module").ScreenUiCompositor) => () => void;
 }
 
@@ -566,6 +567,7 @@ export class RendererModuleHost {
       getInputBus: () => this.inputBus,
 
       getUIInputRouter: () => this.callbacks.getUIInputRouter(),
+      requestFrame: () => this.callbacks.requestFrame(),
       registerUiCompositor: this.callbacks.registerUiCompositor
         ? (c) => this.callbacks.registerUiCompositor!(c)
         : undefined,

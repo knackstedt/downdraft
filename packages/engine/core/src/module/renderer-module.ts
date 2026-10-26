@@ -135,6 +135,14 @@ export interface ScreenUiCompositor {
   render(pass: GPURenderPassEncoder, surfaceWidth: number, surfaceHeight: number): void;
   /** When false for all compositors, no UI pass is opened. */
   hasContent(): boolean;
+  /**
+   * Damage signal for damage-gated renderers (`GameRendererConfig.damageOnly`):
+   * return true when this compositor's output changed since the last presented
+   * frame — new pixels uploaded, a quad moved, a panel added/removed. Polled
+   * once per render tick and self-clearing ("take"). Compositors that omit it
+   * are treated as always-dirty so the gate can never starve them.
+   */
+  takeDirty?(): boolean;
   /** Draw order — higher renders later (on top). Default 0; the devtools
    *  dock uses a large value so it overlays fullscreen game UI panels. */
   order?: number;
@@ -176,6 +184,14 @@ export interface RendererModuleContext {
    * end-of-frame UI pass. Returns an unregister function.
    */
   registerUiCompositor?(c: ScreenUiCompositor): () => void;
+
+  /**
+   * Mark the next frame damaged — forces a present under
+   * `GameRendererConfig.damageOnly`. Use when a module changes
+   * GPU-visible state outside compositor reporting (offscreen targets,
+   * ad-hoc uploads) and needs the change on screen.
+   */
+  requestFrame(): void;
 
   /**
    * The native host's worker-pass mailbox — workers finish command buffers

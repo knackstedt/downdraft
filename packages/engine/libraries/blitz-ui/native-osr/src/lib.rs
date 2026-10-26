@@ -273,7 +273,12 @@ pub(crate) fn doc_enter(handle: *mut OsrDoc) -> Option<DocGuard> {
 /// the shell's redraw request covers event-driven visual changes.
 fn doc_has_damage(d: &OsrDoc) -> bool {
     let doc = d.doc.inner();
-    let root = doc.root_node();
+    // Read the root ELEMENT's flags, not the document root node's: ancestor
+    // marking propagates flags through the document node, but resolve()'s
+    // clear pass starts at the root element — the document node's flags are
+    // residue that is never cleared, which kept every frame permanently
+    // "damaged" (full raster+diff each pump tick that diffed to nothing).
+    let root = doc.try_root_element().unwrap_or_else(|| doc.root_node());
     // has_damaged_descendants covers post-restyle layout/paint damage;
     // has_dirty_descendants covers queued restyle work — pseudo-state flips
     // (focus/active from clicks, :hover from moves) mark ancestors dirty but

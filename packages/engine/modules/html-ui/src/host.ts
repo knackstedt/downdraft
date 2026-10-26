@@ -381,6 +381,7 @@ export class HtmlUiHost {
     };
     this.panels.set(id, panel);
     this.order.push(id);
+    this.markDirty();
     // Doc viewport scale = raster px per CSS px = scale * zoom; layout size
     // is rect/zoom CSS px so the raster still covers rect*scale texture px.
     const eff = zoom * this.userZoom;
@@ -451,15 +452,22 @@ export class HtmlUiHost {
         if (r.x === rect.x && r.y === rect.y && r.w === rect.w && r.h === rect.h && z === p.zoom) return;
         p.rect = { ...rect };
         p.zoom = z;
+        this.markDirty();
         this.sendPanelResize(p);
       },
       setDocHeight: (h) => {
         if (p.docH === h) return;
         p.docH = h;
+        this.markDirty();
         this.sendPanelResize(p);
       },
-      setSrcRect: (src) => { p.src = src ? { ...src } : null; },
-      setZ: (z) => { p.z = z; },
+      setSrcRect: (src) => {
+        if (src === null && p.src === null) return;
+        if (src && p.src && src.x === p.src.x && src.y === p.src.y && src.w === p.src.w && src.h === p.src.h) return;
+        p.src = src ? { ...src } : null;
+        this.markDirty();
+      },
+      setZ: (z) => { if (p.z === z) return; p.z = z; this.markDirty(); },
       setInteractive: (on) => { p.spec.interactive = on; },
       onEvent: (fn) => { p.handlers.add(fn); return () => { p.handlers.delete(fn); }; },
       getAttr: (t, name) => new Promise((resolve) => {
@@ -531,6 +539,7 @@ export class HtmlUiHost {
       if (r.x === 0 && r.y === 0 && r.w === w && r.h === h && p.zoom === z) return;
       p.rect = { x: 0, y: 0, w, h };
       p.zoom = z;
+      this.markDirty();
       if (p.fitDebounceMs <= 0) { this.sendPanelResize(p); return; }
       if (p.fitTimer) clearTimeout(p.fitTimer);
       p.fitTimer = setTimeout(() => {
@@ -569,6 +578,7 @@ export class HtmlUiHost {
     const p = this.panels.get(id);
     if (!p) return;
     this.panels.delete(id);
+    this.markDirty();
     if (p.fitTimer) { clearTimeout(p.fitTimer); p.fitTimer = null; }
     this.order = this.order.filter((x) => x !== id);
     this.retireTexture(p);
@@ -614,9 +624,25 @@ export class HtmlUiHost {
   /** Which doc backend is live — "worker" (raster off-thread) or "local". */
   get backendKind(): "worker" | "local" { return this.backend.kind; }
 
+  /** Damage flag for GameRenderer's damage gate — set wherever the
+   *  composited output can change (new pixels, quad moves, panel
+   *  add/remove); polled + cleared by the renderer each tick. Starts
+   *  dirty: the first frames must draw before any producer marks. */
+  private uiDirty = true;
+  /** Wake hook — createHtmlUi wires this to ctx.requestFrame() so damage
+   *  re-arms the render chain when it is parked on the idle keepalive;
+   *  without it a late doc frame would wait for the next keepalive tick. */
+  onDamage: (() => void) | null = null;
+  private markDirty(): void { this.uiDirty = true; this.onDamage?.(); }
+
   /** Compositor surface for GameRenderer's end-of-frame UI pass. */
-  get compositor(): { hasContent(): boolean; render(pass: GPURenderPassEncoder, w: number, h: number): void } {
+  get compositor(): { hasContent(): boolean; takeDirty(): boolean; render(pass: GPURenderPassEncoder, w: number, h: number): void } {
     return {
+      // Polling here too: under damageOnly the render chain parks on a
+      // keepalive timer, and takeDirty is the only compositor call that
+      // still runs — without it a SAB-only frame (gpuUpload off) arriving
+      // while idle would never be noticed until an unrelated wake.
+      takeDirty: () => { this.pollSabFrames(); const d = this.uiDirty; this.uiDirty = false; return d; },
       // Polling here (not only in render) means a freshly-bound panel's
       // first SAB frame lands the same frame — hasContent is what gates the
       // compositor into the UI pass.
@@ -890,6 +916,7 @@ export class HtmlUiHost {
           // mismatched texPtr means the worker is writing a stale target
           // (a bind it ignored, or a texture retired underneath it): fall
           // back to SAB and repost the live texture's bind to reconverge.
+          this.markDirty();
           const cur = p.texture ? BigInt((p.texture as unknown as { ptr: number | bigint }).ptr) : null;
           const fp = m.texPtr !== undefined ? BigInt(m.texPtr) : null;
           if (fp === null || fp !== cur) {
@@ -920,6 +947,7 @@ export class HtmlUiHost {
         if (!m.pixels) break;
         this.ensureTexture(p, m.pw, m.ph);
         if (!p.texture) return;
+        this.markDirty();
         this.device.queue.copyExternalImageToTexture(
           { source: { data: new Uint8Array(m.pixels), width: m.w, height: m.h } } as unknown as GPUCopyExternalImageSourceInfo,
           { texture: p.texture, origin: [m.x, m.y, 0] } as unknown as GPUCopyExternalImageDestInfo,
@@ -1021,6 +1049,7 @@ export class HtmlUiHost {
     if (Atomics.load(i32, 0) !== seq0) { this.send({ type: "refresh", id: p.id }); return; }
     p.lastSeq = seq0;
     p.lastRect = { x, y, w, h };
+    this.markDirty();
   }
 
   /** Poll bound SAB frame channels once per render frame and upload pending
@@ -1090,6 +1119,7 @@ export class HtmlUiHost {
 
   private ensureTexture(p: Panel, w: number, h: number): void {
     if (p.texture && p.texW === w && p.texH === h) return;
+    this.markDirty(); // texture swap — the quad rebinds to fresh storage
     this.retireTexture(p);
     const tw = Math.max(1, w), th = Math.max(1, h);
     p.texture = this.device.createTexture({

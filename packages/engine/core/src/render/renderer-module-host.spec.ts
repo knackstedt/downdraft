@@ -49,6 +49,7 @@ function createMockCallbacks() {
     setRAFSource: vi.fn(),
     setViewportCount: vi.fn(),
     getUIInputRouter: () => null,
+    requestFrame: vi.fn(),
   };
 }
 

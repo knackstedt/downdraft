@@ -701,9 +701,10 @@ export class NativeWindow extends MiniEventTarget {
       // timers, worker messages, MCP — that can't run while parked in FFI).
       // Ramp the wait on successive quiet iterations so a quiescent app
       // sleeps properly; any event or a re-armed rAF snaps the cadence back
-      // via idleLoopStreak=0. Capped at 16ms so JS-side stalls stay within
-      // one display frame even while idle.
-      waitMs = 4 << Math.min(this.idleLoopStreak, 2);
+      // via idleLoopStreak=0. Capped at 32ms — damage-gated renderers park
+      // their rAF entirely, so a deeper sleep is what drops idle CPU to
+      // noise; JS timers only slip while the app is already quiescent.
+      waitMs = 4 << Math.min(this.idleLoopStreak, 3);
     }
     // waitMs === 0 means a frame is due — drain without blocking. Otherwise
     // block for waitMs; an event return drains the rest of its burst. A

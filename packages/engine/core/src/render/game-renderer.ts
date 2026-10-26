@@ -132,6 +132,33 @@ export interface GameRendererConfig {
    */
   enableTelemetry?: boolean;
   /**
+   * Damage-driven rendering: when true, renderFrame() skips the entire GPU
+   * block (surface acquire, pass encoding, submit, present) on ticks where
+   * nothing reported damage — an idle app burns ~no render thread instead
+   * of compositing the same frame at display refresh. While skipped ticks
+   * continue, the rAF chain also disarms and the loop drops to a low-rate
+   * keepalive timer (damageIdleFps): the platform's rAF wait is what keeps
+   * the native event pump hot, so disarming is what lets it sleep. Damage
+   * sources re-arm the chain immediately via requestFrame(): UI compositors
+   * reporting takeDirty(), pointer/wheel/key events on the surface, resize,
+   * worker GPU passes, device recovery, renderOnce(), and explicit calls
+   * from games or renderer modules (ctx.requestFrame()). Frame hooks still
+   * run on every keepalive tick — they are damage producers — so periodic
+   * producers keep working at the reduced rate rather than freezing.
+   * Intended for UI-style apps whose content is event-driven; leave off
+   * for games.
+   */
+  damageOnly?: boolean;
+  /**
+   * Keepalive tick rate (Hz) while damageOnly is idle — the loop re-arms
+   * on a plain timer instead of rAF so the event pump can sleep between
+   * ticks while frame hooks still get a low-rate cadence. Default 20.
+   * Set 0 to sleep fully: the chain only wakes on requestFrame() marks
+   * (input, compositor damage, resize, module calls) — use when every
+   * producer is event-driven and none rely on per-tick hooks.
+   */
+  damageIdleFps?: number;
+  /**
    * GPU device-loss handling:
    * - "auto" (default): attempt in-place recovery — re-request the adapter/
    *   device, reconfigure the canvas, re-prepare UI + all registered frame
@@ -262,6 +289,26 @@ export class GameRenderer implements CanvasResizeHandler {
   private rafCount = 0;
   private lastRafTime = 0;
 
+  // Damage gate (config.damageOnly) — renderFrame() skips all GPU work on
+  // ticks where nothing marked damage since the last presented frame.
+  private damageOnly: boolean;
+  /** Set by requestFrame(), input events, resize, renderOnce, recovery. */
+  private frameDamage = true;
+  /** Forced-render ticks after enabling or device recovery — covers the
+   *  settle window where producers (fonts, late texture binds, first
+   *  rasters) haven't reported damage yet. */
+  private damageWarmup = 0;
+  private damageInputUnsub: Array<() => void> = [];
+  /** True when the last renderFrame() skipped its GPU block — render()'s
+   *  tail reads this to park the chain on the keepalive timer. */
+  private frameSkipped = false;
+  /** Interval (ms) for the damage-mode keepalive tick; 0 = full sleep. */
+  private damageIdleMs = 0;
+  private damageIdleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Gate observability — presented vs skipped ticks since boot, exposed on
+   *  `globalThis.__ddDamageStats` while damageOnly is on (debug_eval). */
+  private damageStats = { rendered: 0, skipped: 0, compositorHits: 0, idleTicks: 0 };
+
   // Viewport management
   private viewportCount = 1;
   private viewports: ViewportRect[] = [];
@@ -335,9 +382,35 @@ export class GameRenderer implements CanvasResizeHandler {
     this.msaaSampleCount = config.msaaSampleCount ?? 1;
     this.depthTextureCacheSize = config.depthTextureCacheSize ?? 3;
     this.mode = config.mode ?? "3d";
+    this.damageOnly = config.damageOnly ?? false;
+    this.damageIdleMs = config.damageIdleFps === undefined ? 50
+      : config.damageIdleFps > 0 ? 1000 / config.damageIdleFps : 0;
+    if (this.damageOnly) {
+      this.damageWarmup = 8;
+      (globalThis as Record<string, unknown>).__ddDamageStats = this.damageStats;
+    }
     this.deviceManager = new GPUDeviceManager();
     this.inputManager = new InputManager(canvas, config.enablePointerLock ?? false);
     this.frameGraph = new FrameGraph();
+
+    // Damage-mode input wake — a gesture must produce a frame even before
+    // the doc's raster lands (hover/press feedback, wheel steps). Attached
+    // unconditionally; the mark is a no-op unless damageOnly is on. The
+    // native surface dispatches pointer*/wheel on the canvas and key
+    // events on window (matching DOM parity).
+    const mark = () => { if (this.damageOnly) this.requestFrame(); };
+    if (typeof canvas.addEventListener === "function") {
+      ["pointermove", "pointerdown", "pointerup", "wheel"].forEach((t) => {
+        canvas.addEventListener(t, mark);
+        this.damageInputUnsub.push(() => canvas.removeEventListener(t, mark));
+      });
+    }
+    if (typeof window !== "undefined") {
+      ["keydown", "keyup"].forEach((t) => {
+        window.addEventListener(t, mark);
+        this.damageInputUnsub.push(() => window.removeEventListener(t, mark));
+      });
+    }
   }
 
   /** Build requiredLimits for the bindless binding model (clamped to adapter). */
@@ -454,6 +527,7 @@ export class GameRenderer implements CanvasResizeHandler {
         },
         setViewportCount: (count) => this.setViewportCount(count),
         getUIInputRouter: () => this.uiInputRouter,
+        requestFrame: () => this.requestFrame(),
         registerUiCompositor: (c) => {
           const isNew = !this.uiCompositors.has(c);
           this.uiCompositors.add(c);
@@ -638,6 +712,8 @@ export class GameRenderer implements CanvasResizeHandler {
       await this.callbacks.onDeviceRecovered?.(device);
 
       this.deviceLost = false;
+      this.damageWarmup = 8; // redraw unconditionally while resources settle
+      if (this.damageOnly && this.running) this.scheduleRender();
       log.warn("game-renderer", "GPU device recovered — rendering resumed without reload");
     } catch (err) {
       log.error("game-renderer", `Device recovery failed: ${err}`);
@@ -706,6 +782,7 @@ export class GameRenderer implements CanvasResizeHandler {
   }
 
   onResize(cssWidth: number, cssHeight: number, dpr: number): void {
+    this.requestFrame();
     this.lastCssW = cssWidth;
     this.lastCssH = cssHeight;
     this.lastRawDpr = dpr;
@@ -785,6 +862,45 @@ export class GameRenderer implements CanvasResizeHandler {
     this.limiterActive = this.rafInterval < this.targetFrameTime * 0.85;
   }
 
+  // --- Damage gate (config.damageOnly) ---
+
+  /** Mark the next frame damaged — the damage gate lets it through — and
+   *  re-arm the render chain when it is parked on the idle keepalive. Public
+   *  so games and renderer modules (ctx.requestFrame()) can force a present
+   *  when they changed GPU-visible state outside compositor reporting. */
+  requestFrame(): void {
+    this.frameDamage = true;
+    if (this.running) this.scheduleRender();
+  }
+
+  /** Runtime toggle for damage-driven rendering (see config.damageOnly).
+   *  Enabling warms up for a few frames so producers settle; disabling
+   *  resumes continuous rendering immediately. */
+  setDamageOnly(on: boolean): void {
+    if (on === this.damageOnly) return;
+    this.damageOnly = on;
+    if (on) this.damageWarmup = 8;
+    else this.frameSkipped = false;
+    if (this.running) this.scheduleRender();
+  }
+
+  /** True when the next frame should present: anything marked damage, a
+   *  warmup tick is pending, or any UI compositor reports dirty output.
+   *  Compositors that don't implement takeDirty() are treated as
+   *  always-dirty — a missing signal must not starve a compositor. */
+  private consumeFrameDamage(): boolean {
+    let d = this.frameDamage;
+    this.frameDamage = false;
+    if (this.damageWarmup > 0) { this.damageWarmup--; d = true; }
+    const cs = this.uiCompositorOrder;
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i];
+      if (c.takeDirty === undefined || c.takeDirty()) { this.damageStats.compositorHits++; d = true; }
+    }
+    if (d) this.damageStats.rendered++; else this.damageStats.skipped++;
+    return d;
+  }
+
   // --- Render loop ---
 
   start(): void {
@@ -798,6 +914,7 @@ export class GameRenderer implements CanvasResizeHandler {
 
   stop(): void {
     this.running = false;
+    this.cancelIdleTick();
     // cancelRaf only exists when a rAF source override (XR) is installed —
     // fall back to the global so the pending callback is actually removed.
     const cancel = this.cancelRaf ?? (typeof cancelAnimationFrame === "function" ? cancelAnimationFrame : null);
@@ -821,6 +938,7 @@ export class GameRenderer implements CanvasResizeHandler {
     const savedLimiter = this.limiterActive;
     this.limiterActive = false;
     try {
+      this.frameDamage = true; // one-shot capture must clear the damage gate
       this.prepareForcedFrame();
       this.renderFrame();
     } finally {
@@ -835,11 +953,33 @@ export class GameRenderer implements CanvasResizeHandler {
 
   /** Schedule the next render() invocation. Centralized here so renderFrame()
    *  stays scheduling-free — renderOnce() and test paths call renderFrame()
-   *  directly and must never grow a parallel loop. */
+   *  directly and must never grow a parallel loop. An armed rAF supersedes
+   *  a pending damage-idle keepalive. */
   private scheduleRender(): void {
+    this.cancelIdleTick();
     if (this.rafPending) return;
     this.rafPending = true;
     this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
+  }
+
+  /** Park the loop on the damage-mode keepalive timer — a skipped tick
+   *  disarms rAF so the platform's event pump drops to its idle backoff,
+   *  and this timer gives frame hooks a low-rate cadence until a damage
+   *  source re-arms the chain via requestFrame(). */
+  private scheduleIdleTick(): void {
+    if (this.damageIdleTimer !== null || this.rafPending) return;
+    this.damageStats.idleTicks++;
+    this.damageIdleTimer = setTimeout(() => {
+      this.damageIdleTimer = null;
+      if (this.running && !this.rafPending) this.render();
+    }, this.damageIdleMs);
+  }
+
+  private cancelIdleTick(): void {
+    if (this.damageIdleTimer !== null) {
+      clearTimeout(this.damageIdleTimer);
+      this.damageIdleTimer = null;
+    }
   }
 
   private render = (): void => {
@@ -884,7 +1024,17 @@ export class GameRenderer implements CanvasResizeHandler {
       // .lost access mints a fresh promise — per-error attaches accumulated
       // duplicate watchers during an error storm.
     }
-    this.scheduleRender();
+    // A damage-gated skip parks the chain: no rAF re-arm means the native
+    // event pump drops to its deep-sleep backoff instead of staying hot at
+    // frame cadence. Damage marks (requestFrame, input, compositor dirty,
+    // resize) re-arm on demand; the keepalive timer (when configured) keeps
+    // frame-hook producers ticking at a low rate in between.
+    if (this.damageOnly && this.frameSkipped) {
+      if (this.damageIdleMs > 0) this.scheduleIdleTick();
+      // damageIdleMs === 0: sleep until a damage source calls requestFrame().
+    } else {
+      this.scheduleRender();
+    }
   };
 
   /**
@@ -954,6 +1104,23 @@ export class GameRenderer implements CanvasResizeHandler {
     // Before viewports callback (game-specific: particle ticks, pre-viewport setup)
     this.callbacks.beforeViewports?.(dt, this.elapsedTime);
     this.rendererModuleHost?.dispatchFrame("beforeViewports", dt, this.elapsedTime);
+
+    // Damage gate — nothing marked damage since the last presented frame:
+    // skip the entire GPU block (acquire/encode/submit/present). The
+    // remaining frame hooks still tick because they are damage producers
+    // (html-ui onUpdate writes, animation timers) — stopping them would
+    // freeze self-sustaining animation. A skipped tick isn't a rendered
+    // frame, so the FPS meter doesn't count it.
+    if (this.damageOnly && !this.consumeFrameDamage()) {
+      this.frameCount--;
+      this.frameSkipped = true;
+      this.callbacks.afterViewports?.(dt, this.elapsedTime);
+      this.rendererModuleHost?.dispatchFrame("afterViewports", dt, this.elapsedTime);
+      this.callbacks.afterFrame?.(dt, this.elapsedTime);
+      this.rendererModuleHost?.dispatchFrame("afterFrame", dt, this.elapsedTime);
+      return;
+    }
+    this.frameSkipped = false;
 
     // If an uncaptured GPU error has fired, skip all GPU work this frame to
     // avoid the per-frame cascade of native "is invalid due to a previous
@@ -1033,6 +1200,9 @@ export class GameRenderer implements CanvasResizeHandler {
     // frame instead of rendezvousing the render thread.
     const passMailbox = getNativeHost()?.passMailbox;
     if (passMailbox) {
+      // Worker passes arriving while the damage chain sleeps must re-arm
+      // it — wired once, onPush is a no-op when the loop is already armed.
+      if (passMailbox.onPush === undefined) passMailbox.onPush = () => this.requestFrame();
       frameCommandBuffers.push(...passMailbox.drain("preSubmit"));
     }
 
@@ -1628,6 +1798,8 @@ export class GameRenderer implements CanvasResizeHandler {
     this.rendererModuleHost?.disposeAll();
     this.rendererModuleHost = null;
     this.inputManager.destroy();
+    this.damageInputUnsub.forEach((u) => u());
+    this.damageInputUnsub = [];
     this.gpuProfiler?.destroy();
     this.gpuProfiler = null;
     this.telemetryCollector = null;

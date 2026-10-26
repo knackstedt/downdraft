@@ -66,6 +66,11 @@ export function postPass(
 export class GpuPassMailbox {
     private pending = new Map<string, WorkerCommandRef[]>();
 
+    /** Optional wake callback — fired for every consumed gpuPass message so
+     *  a damage-gated render loop can re-arm instead of waiting for its
+     *  idle keepalive tick. */
+    onPush?: () => void;
+
     /** Listen for gpuPass messages on a worker's message stream. Returns an
      *  unwatch function — call it when the worker is torn down. */
     watch(worker: MessagePortLike): () => void {
@@ -82,6 +87,7 @@ export class GpuPassMailbox {
             const arr = this.pending.get(m.slot) ?? [];
             arr.push(m.ref);
             this.pending.set(m.slot, arr);
+            this.onPush?.();
             return true;
         }
         return false;

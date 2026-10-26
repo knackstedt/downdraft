@@ -126,6 +126,10 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
     provides: expose ? [HtmlUiTok] : [],
     register(ctx: RendererModuleContext) {
       const host = new HtmlUiHost(ctx.getDevice(), ctx.getFormat(), undefined, { profilingTag: `ui:${moduleName}`, gpuUpload: options.gpuUpload, zoomKeys: options.zoomKeys });
+      // Damage marks must wake the renderer, not just flag the compositor —
+      // under damageOnly the chain disarms rAF between ticks, so a doc frame
+      // landing while idle would otherwise wait for the keepalive timer.
+      host.onDamage = () => ctx.requestFrame();
       host.bindInput(ctx.getInputBus());
       ctx.onDispose(() => host.dispose());
       const unregCompositor = ctx.registerUiCompositor?.(host.compositor);

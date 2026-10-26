@@ -91,6 +91,14 @@ export abstract class TextSurface implements ScreenUiCompositor {
     return this.active && this.rect.w > 0 && this.rect.h > 0;
   }
 
+  /** Damage-gate signal (GameRenderer damageOnly) — `dirty` is set wherever
+   *  content/geometry changes; report + clear it once per poll. */
+  takeDirty(): boolean {
+    const d = this.dirty;
+    this.dirty = false;
+    return d;
+  }
+
   /** Subclass draws quads into the batch (surface px space, y-down). */
   protected abstract draw(pass: GpuTextPass): void;
 
