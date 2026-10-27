@@ -10,7 +10,7 @@ import type { CdpProfile } from "./cdp-bridge";
 
 export interface CollectorContext {
   renderer: any;
-  gameScene?: any;
+  appScene?: any;
   profilingSAB: SharedArrayBuffer | null;
 }
 
@@ -111,11 +111,11 @@ function sceneInspectorApi(): Record<string, any> | null {
 }
 
 /** Scene-graph tree (label + ctor + child counts). Prefers a live
- *  `gameScene.stage` walk; falls back to the SceneInspector's scene store
- *  (`__downdraftDevtools.getSceneTree`) so games without a DOM-like stage still
+ *  `appScene.stage` walk; falls back to the SceneInspector's scene store
+ *  (`__downdraftDevtools.getSceneTree`) so apps without a DOM-like stage still
  *  get a populated tree — with stable nodeIds for pick/details. */
 export function collectSceneTree(ctx: CollectorContext): TreeRow[] {
-  const stage = ctx.gameScene?.stage;
+  const stage = ctx.appScene?.stage;
   if (stage) {
     const nodes: TreeRow[] = [];
     let idCounter = 1;

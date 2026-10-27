@@ -10,7 +10,7 @@ function validManifest(overrides: Partial<PluginManifest> = {}): PluginManifest 
     name: "Test Plugin",
     version: "1.0.0",
     engineVersion: "^0.1.0",
-    game: "test-game",
+    app: "test-app",
     format: "worker-js",
     tier: "native",
     thread: "sim",
@@ -175,14 +175,14 @@ describe("validatePluginManifest", () => {
 describe("mod.json packs", () => {
   /** A mod.json with logic + extensions. The legacy format/tier/thread fields
    *  are still required by validatePluginManifest (it validates both shapes);
-   *  a pure mod.json game would set them to match the logic. */
+   *  a pure mod.json app would set them to match the logic. */
   function modManifest(overrides: Partial<PluginManifest> = {}): PluginManifest {
     return {
       id: "test-mod",
       name: "Test Mod",
       version: "1.0.0",
       engineVersion: "^0.1.0",
-      game: "test-game",
+      app: "test-app",
       format: "worker-js",
       tier: "native",
       thread: "sim",

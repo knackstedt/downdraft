@@ -2,16 +2,16 @@
 // EditorContext — the editor's backend object.
 //
 // Composes an `EngineContext` (the standalone editing world from
-// `@downdraft/engine/mcp`: World + Scene + GameWorld + Hierarchy +
+// `@downdraft/engine/mcp`: World + Scene + AppWorld + Hierarchy +
 // AssetManager + MaterialLibrary + CheckpointManager + SaveSystem +
 // UndoRedoManager) with editor session state: the `EditorDocument`,
 // `SelectionModel`, `EditorCommandRegistry`, and filesystem access.
 //
 // Design-document mode (Phase 0–5): the EngineContext is standalone — the
-// editor owns a private World/Scene on the main thread and the game's
+// editor owns a private World/Scene on the main thread and the app's
 // renderer maps entities to visuals via an `EditorSceneAdapter`.
-// Live-sim mode (Phase 6) swaps in `EngineContext.fromGame()` backed by the
-// game's world — the command layer above doesn't change.
+// Live-sim mode (Phase 6) swaps in `EngineContext.fromApp()` backed by the
+// app's world — the command layer above doesn't change.
 // ============================================================================
 
 import type { Entity } from "@downdraft/engine";
@@ -54,9 +54,9 @@ export function createNodeFs(): EditorFs {
   };
 }
 
-// ── Scene adapter (game-provided visual bridge) ──
+// ── Scene adapter (app-provided visual bridge) ──
 // The design world is pure ECS data; the adapter maps entities to whatever
-// the game uses to draw them (ModelRenderer, custom passes). Phase 0 is
+// the app uses to draw them (ModelRenderer, custom passes). Phase 0 is
 // headless — no adapter is required. Phase 1 ships the generic adapter.
 
 export interface EditorRay {
@@ -79,7 +79,7 @@ export interface EditorSceneAdapter {
 }
 
 export interface EditorContextOptions {
-  /** Provide a pre-built EngineContext (e.g. `EngineContext.fromGame()` for
+  /** Provide a pre-built EngineContext (e.g. `EngineContext.fromApp()` for
    *  live-world editing). When omitted a standalone design world is created. */
   engine?: EngineContext;
   sceneName?: string;
@@ -107,7 +107,7 @@ export class EditorContext {
    * stale key keep resolving (redo after an undo-remove relies on this).
    */
   private keyAliases = new Map<string, string>();
-  /** Component name the transform commands read/write. Games with a
+  /** Component name the transform commands read/write. Apps with a
    *  differently-named transform component can override via module config. */
   transformComponent = "transform";
 

@@ -5,7 +5,7 @@ describe("createPluginMcpTools", () => {
   afterAll(() => setStrict(null));
 
   it("plugin_list returns all plugins with status", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     host.registerLoader({
       format: "quickjs",
       async load() {},
@@ -16,7 +16,7 @@ describe("createPluginMcpTools", () => {
         name: "Test",
         version: "1.0.0",
         engineVersion: "^0.1.0",
-        game: "test-game",
+        app: "test-app",
         format: "quickjs",
         tier: "script",
         thread: "renderer",
@@ -39,7 +39,7 @@ describe("createPluginMcpTools", () => {
   });
 
   it("plugin_get_info returns details for a single plugin", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     host.registerLoader({ format: "quickjs", async load() {} });
     host.discover(
       {
@@ -47,7 +47,7 @@ describe("createPluginMcpTools", () => {
         name: "Detail",
         version: "2.0.0",
         engineVersion: "^0.1.0",
-        game: "test-game",
+        app: "test-app",
         format: "quickjs",
         tier: "script",
         thread: "renderer",
@@ -70,7 +70,7 @@ describe("createPluginMcpTools", () => {
   });
 
   it("plugin_get_info returns error for unknown plugin", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     const tools = createPluginMcpTools(host);
     const infoTool = tools.find((t) => t.def.name === "plugin_get_info")!;
     const result = await infoTool.handler({ id: "nonexistent" }) as any;
@@ -79,7 +79,7 @@ describe("createPluginMcpTools", () => {
   });
 
   it("plugin_reload reloads a plugin", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     let count = 0;
     host.registerLoader({
       format: "quickjs",
@@ -91,7 +91,7 @@ describe("createPluginMcpTools", () => {
         name: "Reload",
         version: "1.0.0",
         engineVersion: "^0.1.0",
-        game: "test-game",
+        app: "test-app",
         format: "quickjs",
         tier: "script",
         thread: "renderer",
@@ -114,7 +114,7 @@ describe("createPluginMcpTools", () => {
   });
 
   it("registers 5 tools", () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     const tools = createPluginMcpTools(host);
     expect(tools.length).toBe(5);
     expect(tools.map((t) => t.def.name)).toEqual([

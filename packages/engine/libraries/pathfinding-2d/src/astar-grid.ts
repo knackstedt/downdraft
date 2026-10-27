@@ -1,10 +1,10 @@
 // ============================================================================
 // A* grid pathfinder — weighted multi-goal search over a 2D cell grid
 //
-// Extracted from a game's grid-movement pathfinder: the generic machinery
+// Extracted from an app's grid-movement pathfinder: the generic machinery
 // (binary min-heap, visited/gScore/cameFrom arrays, multi-goal A* loop, path
 // reconstruction, adjacent-goal enumeration, cylinder wrap on X) lives here;
-// the game supplies movement grading via `gradeMove` and optional extra
+// the app supplies movement grading via `gradeMove` and optional extra
 // neighbor expansion via `expandExtra`.
 //
 // Pure + synchronous + worker-agnostic: zero-alloc hot path (all scratch
@@ -42,13 +42,13 @@ export interface AStarGridConfig<Mode = string> {
   /**
    * Grade a candidate step (cx,cy) → (nx,ny): return the cost/mode and the
    * final target cell, or null when the move is illegal. This is where the
-   * game encodes walkability, headroom, support, gravity modeling, and
+   * app encodes walkability, headroom, support, gravity modeling, and
    * movement-mode costs.
    */
   gradeMove(cx: number, cy: number, nx: number, ny: number): GradedMove<Mode> | null;
   /**
    * Extra neighbor expansion for non-cardinal moves (jumps, diagonal climbs).
-   * Called per popped node; push each candidate via `push`. The game is
+   * Called per popped node; push each candidate via `push`. The app is
    * responsible for validating the move — pushed cells are enqueued as-is.
    */
   expandExtra?(
@@ -231,7 +231,7 @@ export function createAStarGrid<Mode = string>(config: AStarGridConfig<Mode>): A
       if (cy - 1 >= 0) expandNeighbor(cx, cy, cx, cy - 1, current, currentG, goalCoords);
       if (cy + 1 < H) expandNeighbor(cx, cy, cx, cy + 1, current, currentG, goalCoords);
 
-      // Game-specific extra moves (jumps, diagonal climbs, teleports...).
+      // App-specific extra moves (jumps, diagonal climbs, teleports...).
       expandExtra?.(cx, cy, (nx2, ny2, cost, mode) => {
         if (nx2 < 0 || nx2 >= W || ny2 < 0 || ny2 >= H) return;
         const nIdx = ny2 * W + nx2;

@@ -93,9 +93,9 @@ async function awaitGpuOp(token: number | bigint, instancePtr: ptr): Promise<ptr
 // ── Live-device registry ──
 // Every WgpuDevice registers itself so the window event loop can poll the
 // native device-lost flag for ALL devices (the host's device, plus any device
-// a renderer created itself — GameRenderer.init opens its own). Without this
+// a renderer created itself — AppRenderer.init opens its own). Without this
 // pump, device.lost never resolves on native and the entire loss-recovery
-// path (GameRenderer.recoverDevice, game .lost handlers) is dead code.
+// path (AppRenderer.recoverDevice, app .lost handlers) is dead code.
 //
 // Keyed on globalThis, not module state: under the dev shell this file is
 // evaluated in TWO realms — the Vite ModuleRunner (native-dev-runtime →
@@ -924,7 +924,7 @@ export class WgpuDevice {
       const shaders = fragmentShader ? [vertexShader, fragmentShader] : [vertexShader];
       autoBindGroupLayouts = this.createAutoBindGroupLayouts(shaders);
       if (autoBindGroupLayouts.length > 0) {
-        const autoLayout = this.createPipelineLayout({ bindGroupLayouts: autoBindGroupLayouts as unknown as Iterable<GPUBindGroupLayout> });
+        const autoLayout = this.createPipelineLayout({ bindGroupLayouts: autoBindGroupLayouts as unknown as GPUPipelineLayoutDescriptor["bindGroupLayouts"] });
         layoutPtr = autoLayout.ptr;
         layout = autoLayout;
       }
@@ -1060,7 +1060,7 @@ export class WgpuDevice {
     if (layout === "auto") {
       autoBindGroupLayouts = this.createAutoBindGroupLayouts([shader]);
       if (autoBindGroupLayouts.length > 0) {
-        const autoLayout = this.createPipelineLayout({ bindGroupLayouts: autoBindGroupLayouts as unknown as Iterable<GPUBindGroupLayout> });
+        const autoLayout = this.createPipelineLayout({ bindGroupLayouts: autoBindGroupLayouts as unknown as GPUPipelineLayoutDescriptor["bindGroupLayouts"] });
         layoutPtr = autoLayout.ptr;
         layout = autoLayout;
       }

@@ -1,11 +1,11 @@
 // ============================================================================
 // PersistenceLib — declarative engine library descriptor for @downdraft/engine/libraries/persistence
 //
-// Games declare `libraries: [PersistenceLib]` (or with config override) in
-// their GameModule. The host creates a DirectorySaveStore (sim-side),
+// Apps declare `libraries: [PersistenceLib]` (or with config override) in
+// their AppModule. The host creates a DirectorySaveStore (sim-side),
 // initializes it, and exposes it via a typed token.
 //
-// Games that need full control can still import DirectorySaveStore or
+// Apps that need full control can still import DirectorySaveStore or
 // FileSaveStore directly (escape hatch). On native, the host-mode save path
 // (downdraft.saveStore → HostServices → FileSaveStore) is the default —
 // PersistenceLib is for sim workers that want their own store.
@@ -21,7 +21,7 @@ const log = createLogger("info");
 // ── Config ──
 
 export interface PersistenceLibConfig {
-  /** Engine/game version string for save headers (e.g. "0.1.0"). Required. */
+  /** Engine/app version string for save headers (e.g. "0.1.0"). Required. */
   engineVersion: string;
   /** Subdirectory name under the store root for saves. Default: "saves". */
   savesDirName?: string;
@@ -50,7 +50,7 @@ export const PersistenceLib: EngineLibrary<PersistenceLibConfig> = {
         maxGenerations: config.maxGenerations,
       });
       // init() is async (resolves the root directory). The host calls
-      // create() synchronously, so we kick off init() and let the game await
+      // create() synchronously, so we kick off init() and let the app await
       // it in onReady if needed. The store is safe to provide immediately;
       // save/load calls will throw until init() resolves.
       store.init().catch((err) => {

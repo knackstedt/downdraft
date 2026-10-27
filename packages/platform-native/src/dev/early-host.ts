@@ -75,7 +75,7 @@ export async function bootEarlyHost(cfg: {
       focused: cfg.window.focused,
       // Same appId that scopes userData — also the desktop identity baked
       // into the winit attrs (Wayland app_id / X11 WM_CLASS) so dev-run
-      // games don't all collapse into one taskbar group.
+      // apps don't all collapse into one taskbar group.
       appId: cfg.appId,
     });
     const surface = window.getSurface();

@@ -1,0 +1,63 @@
+import { AppRenderer } from "@downdraft/engine";
+import type { AppModule, SimWorkerSeed } from "@downdraft/engine/app/main";
+import { WaterLib } from "@downdraft/engine/libraries/water";
+import { SimHost } from "./sim-host";
+
+// ============================================================================
+// AppModule template — declarative app with libraries + plugins
+//
+// The SAME module drives both entry points:
+//   src/native-entry.ts — Bun + SDL + wgpu-native (draft dev, the default)
+//
+// This template shows the full declarative pattern:
+// - Engine libraries (WaterLib) for SAB allocation + DI tokens
+// - Declarative event routing (events map)
+// - Save config
+// - App-specific hooks (onReady, onDispose)
+//
+// Feature modules such as @downdraft/engine/modules/terrain can be registered on the
+// renderer's module host inside onReady.
+// ============================================================================
+
+export const appModule: AppModule = {
+  // ── Engine libraries (declarative SAB allocation + DI tokens) ──
+  libraries: [WaterLib],
+
+  // ── Renderer + Sim ──
+  renderer: (canvas) => new AppRenderer(canvas),
+  sim: (seed?: SimWorkerSeed) => new SimHost(seed?.libraryBuffers),
+  simConfig: { seed: 12345, appmode: 0, rules: {} },
+
+  // ── Sim→Renderer event routing (declarative) ──
+  events: {
+    ready: (_data, _ctx) => {
+      console.log("[app] Sim ready");
+    },
+    error: (data) => {
+      console.error("[app] Sim error:", data);
+    },
+  },
+
+  // ── Save ──
+  save: {
+    mode: "auto",
+    engineVersion: "0.1.0",
+    maxGenerations: 3,
+  },
+
+  // ── Post-init wiring ──
+  onReady: (ctx) => {
+    // Library-allocated SABs are available on ctx.extraBuffers, keyed by the
+    // library descriptor's channel name.
+    console.log("[app] ready", {
+      simSAB: ctx.simSAB,
+      inputSAB: ctx.inputSAB,
+      water: ctx.extraBuffers.water,
+    });
+  },
+
+  // ── Cleanup ──
+  onDispose: () => {
+    console.log("[app] disposed");
+  },
+};

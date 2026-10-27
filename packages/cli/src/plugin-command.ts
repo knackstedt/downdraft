@@ -2,15 +2,15 @@
 // `draft plugin` — CLI subcommand for plugin management.
 //
 // Usage:
-//   draft plugin new <name> --format <format> --game <game> [options]
-//   draft plugin list [--game <game>]
+//   draft plugin new <name> --format <format> --app <app> [options]
+//   draft plugin list [--app <app>]
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine";
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { basename, join } from "path";
 import { print } from "./args";
-import { findGameDirUpward, findMonorepoRoot } from "./paths";
+import { findAppDirUpward, findMonorepoRoot } from "./paths";
 import { scaffoldPlugin } from "./scaffold-plugin";
 
 const log = createLogger();
@@ -46,7 +46,7 @@ export async function pluginCommand(args: string[]): Promise<void> {
 }
 
 async function pluginNew(args: string[], modMode: boolean): Promise<void> {
-  // Simple arg parsing: draft plugin new <name> --format <format> --game <game> [--version <ver>] [--author <name>] [--description <desc>] [--target <dir>] [--force] [--mod] [--with <ext>]
+  // Simple arg parsing: draft plugin new <name> --format <format> --app <app> [--version <ver>] [--author <name>] [--description <desc>] [--target <dir>] [--force] [--mod] [--with <ext>]
   const positional: string[] = [];
   const flags: Record<string, string | boolean> = {};
   for (let i = 0; i < args.length; i++) {
@@ -67,14 +67,14 @@ async function pluginNew(args: string[], modMode: boolean): Promise<void> {
 
   const id = positional[0];
   if (!id) {
-    log.error("plugin", `Usage: draft ${modMode ? "mod" : "plugin"} new <name> --format <format> --game <game>`);
+    log.error("plugin", `Usage: draft ${modMode ? "mod" : "plugin"} new <name> --format <format> --app <app>`);
     process.exit(1);
   }
 
   const format = (flags.format as string) ?? (modMode ? "asset" : "worker-js");
-  const game = (flags.game as string) ?? "";
-  if (!game) {
-    log.error("plugin", "--game is required (e.g. --game my-game)");
+  const app = (flags.app as string) ?? "";
+  if (!app) {
+    log.error("plugin", "--app is required (e.g. --app my-app)");
     process.exit(1);
   }
 
@@ -114,7 +114,7 @@ async function pluginNew(args: string[], modMode: boolean): Promise<void> {
     id,
     name,
     format: format as any,
-    game,
+    app,
     version,
     author,
     description,
@@ -126,35 +126,39 @@ async function pluginNew(args: string[], modMode: boolean): Promise<void> {
 }
 
 function pluginList(args: string[]): void {
-  // Find all games/*/plugins/*/{plugin.json,mod.json} (monorepo), or
-  // <gameDir>/plugins/* when running inside a standalone game repo.
+  // Find all apps/*/plugins/*/{plugin.json,mod.json} (monorepo), or
+  // <appDir>/plugins/* when running inside a standalone app repo.
   const monorepoRoot = findMonorepoRoot();
-  const filterGame = args.find((a) => !a.startsWith("--"));
+  const filterApp = args.find((a) => !a.startsWith("--"));
 
-  let gameDirs: { name: string; dir: string }[];
+  let appDirs: { name: string; dir: string }[];
   if (monorepoRoot) {
-    const gamesDir = join(monorepoRoot, "games");
-    if (!existsSync(gamesDir)) {
-      log.info("plugin", "No games/ directory found.");
+    // apps/ holds tracked in-repo apps; games/ holds local clones.
+    appDirs = ["apps", "games"]
+      .flatMap((base) => {
+        const dir = join(monorepoRoot, base);
+        return existsSync(dir)
+          ? readdirSync(dir).filter((g) => statSync(join(dir, g)).isDirectory()).map((g) => ({ name: g, dir: join(dir, g) }))
+          : [];
+      });
+    if (appDirs.length === 0) {
+      log.info("plugin", "No apps/ or games/ directories found.");
       return;
     }
-    gameDirs = readdirSync(gamesDir)
-      .filter((g) => existsSync(join(gamesDir, g)))
-      .map((g) => ({ name: g, dir: join(gamesDir, g) }));
   } else {
-    const gameDir = findGameDirUpward();
-    if (!gameDir) {
-      log.info("plugin", "No games/ directory found and not inside a game repo.");
+    const appDir = findAppDirUpward();
+    if (!appDir) {
+      log.info("plugin", "No apps/ directory found and not inside an app repo.");
       return;
     }
-    gameDirs = [{ name: basename(gameDir), dir: gameDir }];
+    appDirs = [{ name: basename(appDir), dir: appDir }];
   }
 
   let found = 0;
 
-  for (let _i = 0, _it = gameDirs, _n = _it.length; _i < _n; _i++) { const { name: game, dir: gameDirPath } = _it[_i];
-    if (filterGame && game !== filterGame) continue;
-    const pluginsDir = join(gameDirPath, "plugins");
+  for (let _i = 0, _it = appDirs, _n = _it.length; _i < _n; _i++) { const { name: app, dir: appDirPath } = _it[_i];
+    if (filterApp && app !== filterApp) continue;
+    const pluginsDir = join(appDirPath, "plugins");
     if (!existsSync(pluginsDir)) continue;
     for (const plugin of readdirSync(pluginsDir)) {
       // Prefer mod.json, fall back to plugin.json.
@@ -172,10 +176,10 @@ function pluginList(args: string[]): void {
             )
           : 0;
         const extLabel = isMod && extCount > 0 ? ` (${extCount} ext)` : "";
-        log.info("plugin", `  ${game}/${plugin} — ${manifest.name ?? plugin} v${manifest.version ?? "?"} [${manifest.format ?? "?"}/${manifest.tier ?? "?"}]${isMod ? " [mod]" : ""}${extLabel}`);
+        log.info("plugin", `  ${app}/${plugin} — ${manifest.name ?? plugin} v${manifest.version ?? "?"} [${manifest.format ?? "?"}/${manifest.tier ?? "?"}]${isMod ? " [mod]" : ""}${extLabel}`);
         found++;
       } catch {
-        log.warn("plugin", `  ${game}/${plugin} — invalid ${isMod ? "mod.json" : "plugin.json"}`);
+        log.warn("plugin", `  ${app}/${plugin} — invalid ${isMod ? "mod.json" : "plugin.json"}`);
       }
     }
   }
@@ -193,16 +197,16 @@ function printPluginHelp(modMode: boolean): void {
 draft ${cmd} — manage user-authored ${modMode ? "mods" : "plugins"}
 
 Usage:
-  draft ${cmd} new <name> --format <format> --game <game> [options]
-  draft ${cmd} list [--game <game>]
+  draft ${cmd} new <name> --format <format> --app <app> [options]
+  draft ${cmd} list [--app <app>]
 
 Commands:
   new     Scaffold a new ${modMode ? "mod" : "plugin"} directory
-  list    List discovered ${modMode ? "mods + plugins" : "plugins + mods"} in games/*/plugins/*
+  list    List discovered ${modMode ? "mods + plugins" : "plugins + mods"} in apps/*/plugins/*
 
 Options for 'new':
   --format <format>     Plugin format: worker-js, quickjs, wasm, asset${modMode ? " (default: asset)" : " (default: worker-js)"}
-  --game <game>         Target game appId (required, e.g. my-game)
+  --app <app>         Target app appId (required, e.g. my-app)
   --name <name>         Display name (default: derived from id)
   --version <ver>       Plugin version (default: 1.0.0)
   --author <name>       Author name

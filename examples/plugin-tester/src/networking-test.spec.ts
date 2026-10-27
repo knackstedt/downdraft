@@ -413,12 +413,12 @@ describe("LobbyManager", () => {
     expect(lobby.getLobby()).toBeNull();
   });
 
-  it("should start game from waiting state", async () => {
+  it("should start app from waiting state", async () => {
     const platform = createMockPlatformAdapter();
     await platform.init();
     const lobby = new LobbyManager(platform);
     await lobby.create();
-    lobby.startGame();
+    lobby.startApp();
     expect(lobby.getState()).toBe("active");
   });
 

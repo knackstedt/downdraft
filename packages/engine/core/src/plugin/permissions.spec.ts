@@ -23,7 +23,7 @@ describe("permissions", () => {
   });
 
   describe("resolvePermissions", () => {
-    it("grants all requested native perms when no game allowlist", () => {
+    it("grants all requested native perms when no app allowlist", () => {
       const r = resolvePermissions(["ecs", "sab", "events"], "native");
       expect(r.granted.has("ecs")).toBe(true);
       expect(r.granted.has("sab")).toBe(true);
@@ -44,7 +44,7 @@ describe("permissions", () => {
       expect(r.denied.some((d) => d.permission === "events")).toBe(true);
     });
 
-    it("game allowlist further restricts native tier", () => {
+    it("app allowlist further restricts native tier", () => {
       const allow = new Set<PluginPermission>(["ecs", "events"]);
       const r = resolvePermissions(["ecs", "sab", "network", "events"], "native", allow);
       expect(r.granted.has("ecs")).toBe(true);

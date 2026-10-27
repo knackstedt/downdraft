@@ -91,7 +91,7 @@ interface InputBusLike {
  *  top edge and the right dock's left edge. Runs at priority -20, ahead of
  *  html-ui's panel routing (-10) and alongside the surface handlers whose
  *  rects butt against the divider. `isVisible` gates handling so a hidden
- *  embedded overlay never eats the game's input. */
+ *  embedded overlay never eats the app's input. */
 export function installDockDrag(bus: InputBusLike, isVisible: () => boolean = () => true): () => void {
   let dragging: { id: DockId; last: number } | null = null;
   const GRAB = 5;
@@ -159,7 +159,7 @@ export function revealSource(url: string, line = 0, col = 0): void {
 // ── Persistence ──
 
 /** Layout prefs persist under the standalone viewer's data dir. Embedded
- *  mounts opt out (persistLayout:false) — a host game shouldn't inherit or
+ *  mounts opt out (persistLayout:false) — a host app shouldn't inherit or
  *  clobber the standalone viewer's saved layout. */
 let persistenceEnabled = true;
 export function setLayoutPersistence(on: boolean): void { persistenceEnabled = on; }

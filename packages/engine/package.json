@@ -9,7 +9,7 @@
   "type": "module",
   "main": "./dist/core/src/index.js",
   "types": "./core/src/index.ts",
-  "description": "Downdraft engine — core runtime (ECS, WebGPU renderer, module/DI system, SAB sim channels), runtime-agnostic game bootstrap (startGame/bootstrapGame, HostAPI types), and all engine libraries + feature modules, exposed as subpath exports.",
+  "description": "Downdraft engine — core runtime (ECS, WebGPU renderer, module/DI system, SAB sim channels), runtime-agnostic app bootstrap (startApp/bootstrapApp, HostAPI types), and all engine libraries + feature modules, exposed as subpath exports.",
   "scripts": {
     "build:dist": "node ../../scripts/build-dist.mjs --pkg=engine",
     "prepublishOnly": "node ../../scripts/build-dist.mjs"
@@ -279,20 +279,20 @@
       "default": "./dist/libraries/entities/src/*.js"
     },
     "./libraries/entities/*.wgsl": "./libraries/entities/src/*.wgsl",
-    "./libraries/gamepad": {
-      "types": "./libraries/gamepad/src/index.ts",
-      "downdraft-source": "./libraries/gamepad/src/index.ts",
-      "default": "./dist/libraries/gamepad/src/index.js"
+    "./libraries/controller": {
+      "types": "./libraries/controller/src/index.ts",
+      "downdraft-source": "./libraries/controller/src/index.ts",
+      "default": "./dist/libraries/controller/src/index.js"
     },
-    "./libraries/gamepad/*": {
-      "types": "./libraries/gamepad/src/*.ts",
-      "downdraft-source": "./libraries/gamepad/src/*.ts",
-      "default": "./dist/libraries/gamepad/src/*.js"
+    "./libraries/controller/*": {
+      "types": "./libraries/controller/src/*.ts",
+      "downdraft-source": "./libraries/controller/src/*.ts",
+      "default": "./dist/libraries/controller/src/*.js"
     },
-    "./libraries/gamepad/*.ts": {
-      "types": "./libraries/gamepad/src/*.ts",
-      "downdraft-source": "./libraries/gamepad/src/*.ts",
-      "default": "./dist/libraries/gamepad/src/*.js"
+    "./libraries/controller/*.ts": {
+      "types": "./libraries/controller/src/*.ts",
+      "downdraft-source": "./libraries/controller/src/*.ts",
+      "default": "./dist/libraries/controller/src/*.js"
     },
     "./libraries/gaussian-splats": {
       "types": "./libraries/gaussian-splats/src/index.ts",

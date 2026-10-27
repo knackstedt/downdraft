@@ -20,12 +20,12 @@
 //                   "softwareFallback": true|false,
 //                   "glFallback": true|false,
 //                   "deny": ["driver-substring", ...] } }
-//      "mode" is the coarse app knob — a preset: "performance" (games)
+//      "mode" is the coarse app knob — a preset: "performance" (apps)
 //      means hardware-only, never silently degrade; "stability" (desktop
 //      apps) means the graceful chain vulkan → gl(virgl) → software.
 //      The granular fields may be set beside it to override individual
 //      pieces of the preset.
-//      Resolved from DD_GAME_DIR, else by walking up from cwd — games set
+//      Resolved from DD_APP_DIR, else by walking up from cwd — apps set
 //      it declaratively; standalone configs flow through `draft dev`.
 //   3. Persisted engine state — <userData>/gpu/gpu-state.json. The boot
 //      sentinel (below) latches `latchedAdapter: "software"` after repeated
@@ -33,7 +33,7 @@
 //      latch self-heals (see "Latch recovery" below); deleting the file
 //      or setting adapter:"hardware" also retries hardware immediately.
 //
-// Non-game apps — test-beds and bespoke createNativeHost callers with no
+// Non-app apps — test-beds and bespoke createNativeHost callers with no
 // downdraft.config.json — get the defaults wholesale: auto adapter with
 // softwareFallback ON, so a crashy hardware driver degrades to the
 // software adapter instead of killing the app.
@@ -80,7 +80,7 @@ export type GpuAdapterMode = "auto" | "hardware" | "software";
 export type GpuBackend = "auto" | "vulkan" | "gl" | "metal" | "dx12";
 
 /** Graphics-mode preset — the "app settings" knob:
- *    performance — hardware adapter or nothing (games): no fallback chain.
+ *    performance — hardware adapter or nothing (apps): no fallback chain.
  *    stability   — degrade gracefully (desktop apps): try the primary
  *                  backend, then the GL backend (virgl), then software. */
 export type GpuMode = "performance" | "stability";
@@ -108,9 +108,9 @@ export interface GpuPolicy {
 export interface GpuPolicyInput {
   /** Per-app id — resolves the userData dir for the persisted crash latch. */
   appId?: string;
-  /** Dir containing downdraft.config.json. Defaults to DD_GAME_DIR, then a
-   *  cwd walk — non-game apps have no config and take the defaults. */
-  gameDir?: string;
+  /** Dir containing downdraft.config.json. Defaults to DD_APP_DIR, then a
+   *  cwd walk — non-app apps have no config and take the defaults. */
+  appDir?: string;
 }
 
 // ── Adapter denylist ──
@@ -195,8 +195,8 @@ function findConfigDir(seed: string): string | null {
   }
 }
 
-function readGpuConfigBlock(gameDir?: string): Record<string, unknown> {
-  const dir = gameDir ?? process.env.DD_GAME_DIR ?? findConfigDir(process.cwd());
+function readGpuConfigBlock(appDir?: string): Record<string, unknown> {
+  const dir = appDir ?? process.env.DD_APP_DIR ?? findConfigDir(process.cwd());
   if (!dir) return {};
   if (configCache.has(dir)) return configCache.get(dir) ?? {};
   let gpu: Record<string, unknown> | null = null;
@@ -318,7 +318,7 @@ export function resolveGpuPolicy(input: GpuPolicyInput = {}): GpuPolicy {
 
   // downdraft.config.json "gpu" block — mode preset first, then the
   // explicit granular fields (they outrank the preset they sit beside).
-  const cfg = readGpuConfigBlock(input.gameDir);
+  const cfg = readGpuConfigBlock(input.appDir);
   if (Object.keys(cfg).length) source.push("downdraft.config.json");
   if (typeof cfg.mode === "string" && GPU_MODES.has(cfg.mode)) {
     applyMode(policy, cfg.mode as GpuMode);

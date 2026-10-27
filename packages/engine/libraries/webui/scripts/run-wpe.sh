@@ -21,7 +21,7 @@ DIST="$(realpath "$1")"; shift
 # WPEWebProcess/WPENetworkProcess children instead find the vendored libs
 # through the merged /usr/lib/x86_64-linux-gnu below (system files win on
 # conflicts). LD_LIBRARY_PATH must NOT be exported here — it would leak
-# the vendored wayland/GL stack into the host game process and break
+# the vendored wayland/GL stack into the host app process and break
 # wgpu surface creation.
 exec unshare -rm --propagation private bash -c '
   DIST="$1"; shift

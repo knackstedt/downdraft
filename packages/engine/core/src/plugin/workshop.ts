@@ -141,7 +141,7 @@ export class WorkshopFetcher {
     }
     this.cache.set(entry.id, cachePath);
     // Note: actual asset files are fetched lazily by the AssetPluginLoader
-    // via the BlobStore (or eagerly if the game wires a prefetch). The cache
+    // via the BlobStore (or eagerly if the app wires a prefetch). The cache
     // path is exposed so the loader's `resolveBase` can point at it.
     return { manifest, cachePath };
   }

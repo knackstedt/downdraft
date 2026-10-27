@@ -7,7 +7,7 @@
 // accessibility), the returned scale is > 1.0. It is clamped to a minimum of
 // 1.0 — we never scale text down below the engine's designed sizes.
 //
-// The detected scale is used as the default font scale for game UI. Games
+// The detected scale is used as the default font scale for app UI. Apps
 // can let the user increase it further via a settings control; the effective
 // scale is `max(systemFontScale, userFontScale)`.
 // ============================================================================
@@ -34,7 +34,7 @@ export function getSystemFontScale(): number {
 
 /**
  * localStorage key for the user's font-scale preference.
- * Stored as a number (e.g. 1.25). Games read this on startup to set their
+ * Stored as a number (e.g. 1.25). Apps read this on startup to set their
  * UI font scale (`setUIFontScale`).
  */
 export const FONT_SCALE_STORAGE_KEY = "dd:fontScale";

@@ -253,7 +253,7 @@ export type {
  *  per HostAPI (resolved via createWebUi opts > DD_WEBUI_BACKEND > config >
  *  CLI flag > platform default). CEF on desktop, WPE on android; linux can
  *  host either. Absent the cdylib, `downdraft.webui` is simply undefined —
- *  games gate on its presence. Shape lives in
+ *  apps gate on its presence. Shape lives in
  *  libraries/webui/src/types.ts (WebUiHostBridge). */
 export type HostWebUIAPI = WebUiHostBridge;
 
@@ -262,18 +262,18 @@ export type HostWebUIAPI = WebUiHostBridge;
 // ---------------------------------------------------------------------------
 
 export interface HostAPI {
-  /** Host feature descriptor — what this host can actually do. Games should
+  /** Host feature descriptor — what this host can actually do. Apps should
    *  gate on `getHostCapabilities()` (which prefers this field and falls
    *  back to runtime detection) rather than probing globals. */
   readonly capabilities?: HostCapabilities;
   /** Typed host save store — present on the native host. Carries real
-   *  SaveState/LoadResult with no JSON boundary; the saveGameState/
-   *  loadGameState methods below are the JSON-string compatibility surface
+   *  SaveState/LoadResult with no JSON boundary; the saveAppState/
+   *  loadAppState methods below are the JSON-string compatibility surface
    *  for hosts without a typed store. */
   readonly saveStore?: ISaveStore;
-  saveGameState(slotName: string, stateJson: string, opts?: SaveOptions): Promise<boolean>;
-  loadGameState(slotName: string, opts?: LoadOptions): Promise<string | null>;
-  deleteGameState(slotName: string): Promise<boolean>;
+  saveAppState(slotName: string, stateJson: string, opts?: SaveOptions): Promise<boolean>;
+  loadAppState(slotName: string, opts?: LoadOptions): Promise<string | null>;
+  deleteAppState(slotName: string): Promise<boolean>;
   listSaveSlots(): Promise<SaveSlotInfo[]>;
   listSaveGenerations(slotName: string): Promise<SaveGenerationInfo[]>;
   deleteSaveGeneration(slotName: string, gen: number): Promise<boolean>;
@@ -283,7 +283,7 @@ export interface HostAPI {
   getSaveProperties(slotName: string): Promise<Record<string, unknown>>;
   quit(): Promise<void>;
   /** Request a full host restart for unrecoverable failures (device loss,
-   *  resetGame, HMR fallback). Native: detached self-respawn with a restart
+   *  resetSim, HMR fallback). Native: detached self-respawn with a restart
    *  budget; DOM hosts may leave this unimplemented — callers fall back to
    *  `window.location.reload()`. Returns false when refused. */
   requestRestart?(reason: string): boolean;

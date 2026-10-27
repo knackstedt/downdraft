@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "game": {
+    "app": {
       "command": "bun",
       "args": ["packages/cli/src/index.ts", "mcp", "stdio"]
     }

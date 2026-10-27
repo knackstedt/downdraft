@@ -15,7 +15,7 @@ export interface ComponentSection {
 
 // --- Save State ---
 // The structured payload that gets serialized to the binary save format.
-// Games populate this via ISimulation.serializeState() + IRendererStateProvider.
+// Apps populate this via ISimulation.serializeState() + IRendererStateProvider.
 
 export interface SaveState {
   /** Per-component sections, each with its own schema version */
@@ -25,7 +25,7 @@ export interface SaveState {
 }
 
 export interface SaveMeta {
-  /** Engine/game semver that produced this save */
+  /** Engine/app semver that produced this save */
   engineVersion: string;
   /** Unix epoch seconds */
   timestamp: number;
@@ -51,7 +51,7 @@ export interface SaveSlotInfo {
   generationCount: number;
   /** Whether a thumbnail is stored for this slot */
   hasThumbnail: boolean;
-  /** Slot-level properties (game mode, playtime, world name, etc.) */
+  /** Slot-level properties (app mode, playtime, world name, etc.) */
   properties?: Record<string, unknown>;
 }
 
@@ -79,7 +79,7 @@ export interface SaveOptions {
   maxGenerations?: number;
   /** Thumbnail image data (PNG/WebP bytes). Stored as a separate file. */
   thumbnail?: ArrayBuffer | Uint8Array;
-  /** Arbitrary slot-level properties (game mode, playtime, world name, etc.) */
+  /** Arbitrary slot-level properties (app mode, playtime, world name, etc.) */
   properties?: Record<string, unknown>;
   /** Binary blobs from the serializer (typed arrays keyed by blobRef). */
   blobs?: Record<string, ArrayBuffer>;
@@ -188,7 +188,7 @@ export interface ISaveStore {
 }
 
 // --- Renderer State Provider ---
-// Games implement this to provide lightweight renderer metadata for saves.
+// Apps implement this to provide lightweight renderer metadata for saves.
 
 export interface IRendererStateProvider {
   serializeRendererMeta(): Record<string, unknown>;
@@ -196,7 +196,7 @@ export interface IRendererStateProvider {
 }
 
 // --- Save State Builder ---
-// Helper for games to construct a SaveState from sim + renderer state.
+// Helper for apps to construct a SaveState from sim + renderer state.
 
 export interface SaveStateBuilder {
   /** Set a component section with its schema version */

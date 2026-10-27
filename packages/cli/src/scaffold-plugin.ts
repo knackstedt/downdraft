@@ -1,8 +1,8 @@
 // ============================================================================
 // Plugin scaffold — generates a new plugin directory from a template.
 //
-// Usage: `draft plugin new <name> --format <format> --game <game> [options]`
-//        `draft mod new <name> --game <game> [options]`
+// Usage: `draft plugin new <name> --format <format> --app <app> [options]`
+//        `draft mod new <name> --app <app> [options]`
 //
 // Generates:
 //   - mod.json (manifest, when --mod is used) or plugin.json (legacy)
@@ -25,8 +25,8 @@ export interface PluginScaffoldOptions {
   name: string;
   /** Plugin format. */
   format: PluginFormat;
-  /** Target game appId (e.g. "downdraft-my-game"). */
-  game: string;
+  /** Target app appId (e.g. "downdraft-my-app"). */
+  app: string;
   /** Plugin version. */
   version: string;
   /** Author. */
@@ -72,7 +72,7 @@ export async function scaffoldPlugin(opts: PluginScaffoldOptions): Promise<void>
     author: opts.author ?? "",
     description: opts.description ?? "",
     engineVersion: "^0.1.0",
-    game: opts.game,
+    app: opts.app,
     format: opts.format,
     tier: defaults.tier,
     thread: defaults.thread,
@@ -135,7 +135,7 @@ export async function scaffoldPlugin(opts: PluginScaffoldOptions): Promise<void>
   }
 
   // ── package.json ──
-  const pkgName = `@${opts.game.replace(/^downdraft-/, "")}/plugin-${opts.id}`;
+  const pkgName = `@${opts.app.replace(/^downdraft-/, "")}/plugin-${opts.id}`;
   const pkg = {
     name: pkgName,
     version: opts.version,
@@ -171,7 +171,7 @@ export async function scaffoldPlugin(opts: PluginScaffoldOptions): Promise<void>
   log.info("plugin", `  Format:    ${opts.format}`);
   log.info("plugin", `  Tier:      ${defaults.tier}`);
   log.info("plugin", `  Thread:    ${defaults.thread}`);
-  log.info("plugin", `  Game:      ${opts.game}`);
+  log.info("plugin", `  App:      ${opts.app}`);
   log.info("plugin", `  Manifest:  ${opts.mod ? "mod.json" : "plugin.json"}`);
   if (opts.mod && opts.extensions?.length) {
     log.info("plugin", `  Extensions: ${opts.extensions.join(", ")}`);
@@ -181,7 +181,7 @@ export async function scaffoldPlugin(opts: PluginScaffoldOptions): Promise<void>
   log.info("plugin", `Next steps:`);
   log.info("plugin", `  1. Edit ${opts.mod ? "mod.json" : "plugin.json"} to declare provides/requires/permissions`);
   log.info("plugin", `  2. Implement the plugin entry in src/`);
-  log.info("plugin", `  3. Add the plugin to your game's GameModule.plugins config`);
+  log.info("plugin", `  3. Add the plugin to your app's AppModule.plugins config`);
 }
 
 function WORKER_JS_TEMPLATE(opts: PluginScaffoldOptions): string {
@@ -265,13 +265,13 @@ ${opts.description ?? "A user-authored plugin for the Downdraft Engine."}
 - **Format:** \`${opts.format}\`
 - **Tier:** \`${FORMAT_DEFAULTS[opts.format].tier}\`
 - **Thread:** \`${FORMAT_DEFAULTS[opts.format].thread}\`
-- **Game:** \`${opts.game}\`${extList}
+- **App:** \`${opts.app}\`${extList}
 
 ## Getting started
 
 1. Edit \`${manifestFile}\` to declare your \`provides\`, \`requires\`, and \`permissions\`.
 2. Implement the plugin entry in \`src/\`.
-3. Add the plugin to your game's \`GameModule.plugins\` config.
+3. Add the plugin to your app's \`AppModule.plugins\` config.
 
 ## Built with
 

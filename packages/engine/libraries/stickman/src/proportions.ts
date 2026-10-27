@@ -8,9 +8,9 @@
 //
 // These constants are the single source of truth shared by:
 //   - the WGSL stickman shader (via computeSkeleton)
-//   - the DOM/SVG NPC overlay in games that use stickman rendering
+//   - the DOM/SVG NPC overlay in apps that use stickman rendering
 //
-// Keep them in sync with the player collision box in each game.
+// Keep them in sync with the player collision box in each app.
 
 export const PLAYER_W = 3;
 export const PLAYER_H = 7;

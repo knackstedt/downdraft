@@ -12,8 +12,8 @@ export interface RemoteInputPacket {
   mouseDeltaY: number;
   mouseButtons: number[];
   wheelDelta: number;
-  gamepadButtons: number[];
-  gamepadAxes: number[];
+  controllerButtons: number[];
+  controllerAxes: number[];
 }
 
 export class RemoteInputBridge {
@@ -89,16 +89,16 @@ export class RemoteInputBridge {
       packet.mouseDeltaY,
       packet.mouseButtons,
       packet.wheelDelta,
-      packet.gamepadButtons,
-      packet.gamepadAxes,
+      packet.controllerButtons,
+      packet.controllerAxes,
     );
   }
 
   private serializePacket(packet: RemoteInputPacket): Uint8Array {
     const keyCount = packet.keys.length;
     const mbCount = packet.mouseButtons.length;
-    const gpBtnCount = packet.gamepadButtons.length;
-    const gpAxisCount = packet.gamepadAxes.length;
+    const gpBtnCount = packet.controllerButtons.length;
+    const gpAxisCount = packet.controllerAxes.length;
 
     const headerSize = 1 + 1 + 2 + 4 * 6 + 1 + 1 + 1 + 1;
     const keysSize = keyCount * 4;
@@ -129,10 +129,10 @@ export class RemoteInputBridge {
     packet.mouseButtons.forEach((mb) => {
       dv.setUint32(offset, mb); offset += 4;
     });
-    packet.gamepadButtons.forEach((btn) => {
+    packet.controllerButtons.forEach((btn) => {
       dv.setUint32(offset, btn); offset += 4;
     });
-    packet.gamepadAxes.forEach((axis) => {
+    packet.controllerAxes.forEach((axis) => {
       dv.setFloat32(offset, axis); offset += 4;
     });
 
@@ -163,13 +163,13 @@ export class RemoteInputBridge {
     for (let i = 0; i < mbCount; i++) {
       mouseButtons.push(dv.getUint32(offset)); offset += 4;
     }
-    const gamepadButtons: number[] = [];
+    const controllerButtons: number[] = [];
     for (let i = 0; i < gpBtnCount; i++) {
-      gamepadButtons.push(dv.getUint32(offset)); offset += 4;
+      controllerButtons.push(dv.getUint32(offset)); offset += 4;
     }
-    const gamepadAxes: number[] = [];
+    const controllerAxes: number[] = [];
     for (let i = 0; i < gpAxisCount; i++) {
-      gamepadAxes.push(dv.getFloat32(offset)); offset += 4;
+      controllerAxes.push(dv.getFloat32(offset)); offset += 4;
     }
 
     return {
@@ -181,8 +181,8 @@ export class RemoteInputBridge {
       mouseDeltaY,
       mouseButtons,
       wheelDelta,
-      gamepadButtons,
-      gamepadAxes,
+      controllerButtons,
+      controllerAxes,
     };
   }
 }

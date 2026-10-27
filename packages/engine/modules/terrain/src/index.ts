@@ -3,14 +3,14 @@
 //
 // Composes @downdraft/engine/libraries/marching-cubes (mesh extraction + chunked voxel
 // fields) with LOD management, streaming, and deformation broadcasting into a
-// single Module with typed DI. Games register this plugin instead of manually
+// single Module with typed DI. Apps register this plugin instead of manually
 // wiring TerrainSystem + TerrainLODManager + mesh worker pools.
 //
 // Provides:
 //   - TerrainStreamingTok — the terrain streaming config (LOD levels, voxel sizes)
 //
-// The actual TerrainSystem and TerrainLODManager are game-specific (they need
-// a game-provided DensityField), so games create them in onReady and inject
+// The actual TerrainSystem and TerrainLODManager are app-specific (they need
+// an app-provided DensityField), so apps create them in onReady and inject
 // TerrainStreamingTok for the config.
 //
 // Requires:
@@ -66,7 +66,7 @@ export function createTerrainModule(config: TerrainModuleConfig = {}): Module {
       ctx.provide(TerrainStreamingTok, streamingConfig);
 
       // The actual terrain system (chunk gen, LOD, deform) and LOD manager
-      // are game-specific — they need a game-provided DensityField. Games
+      // are app-specific — they need an app-provided DensityField. Apps
       // create them in onReady and inject TerrainStreamingTok for the config.
     },
   };

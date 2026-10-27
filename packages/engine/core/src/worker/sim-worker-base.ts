@@ -1,8 +1,8 @@
 // ============================================================================
-// createSimWorker — helper for game sim worker entries.
+// createSimWorker — helper for app sim worker entries.
 //
 // Handles the standard sim worker API: init, pause, resume, shutdown, setSpeed,
-// step, getStats, resize. Games provide only onInit, onTick, and optional
+// step, getStats, resize. Apps provide only onInit, onTick, and optional
 // onResize/onAfterTicks/onShutdown.
 //
 // This enforces the standard API shape — consumers can't deviate. The helper
@@ -19,7 +19,7 @@
 //   - SAB polyfill buffer sync (when SharedArrayBuffer is unavailable, e.g.
 //     polyfilled — see sab-polyfill.ts + buffer-sync.ts)
 //
-// Usage in a game worker entry:
+// Usage in an app worker entry:
 //   createSimWorker({
 //     fixedDt: 1/30,
 //     onInit(sab, gridW, gridH) { ... },
@@ -173,7 +173,7 @@ export interface SimWorkerControl {
   events: { emit: (kind: string, data?: any) => void };
   /**
    * Reseed the deterministic RNG exposed as `ctx.rng`. Call from `onInit`
-   * once the game's seed is known (e.g. `control.setSeed(simConfig.seed)`).
+   * once the app's seed is known (e.g. `control.setSeed(simConfig.seed)`).
    * If `Math.random` was trapped (deterministic mode), the trap draws from
    * the reseeded stream too.
    */
@@ -194,7 +194,7 @@ export interface CreateSimWorkerOptions {
   /**
    * If true, the worker starts in paused mode. The renderer must call
    * resume() to begin simulation. Useful when save data must be loaded
-   * before the sim starts (an entity game may want its own onInit to own sim start). Default: false.
+   * before the sim starts (an entity app may want its own onInit to own sim start). Default: false.
    */
   startPaused?: boolean;
 
@@ -292,7 +292,7 @@ export interface CreateSimWorkerOptions {
   extraApi?: Record<string, (...args: any[]) => any>;
 
   /**
-   * Save/load plumbing. When provided, the standard API gains the game
+   * Save/load plumbing. When provided, the standard API gains the app
    * persistence contract shared by the worker-host save flow:
    *
    *   save(slotName, opts?)           → { slotName, stateJson, success, gen?, meta? }
@@ -306,7 +306,7 @@ export interface CreateSimWorkerOptions {
    * SaveMeta (defaults merged with the `meta()` hook's extras) is returned
    * as `meta` so the renderer-side store can persist real metadata.
    * The emitted "saved" event carries `origin: "renderer"` — sim-initiated
-   * saves (Simulation.save) emit without an origin so game handlers can
+   * saves (Simulation.save) emit without an origin so app handlers can
    * distinguish who must persist the payload.
    */
   save?: {
@@ -314,9 +314,9 @@ export interface CreateSimWorkerOptions {
      * Serialize the sim's current state. When `componentName` is set this
      * returns that component's data payload (wrapped as `{ v, data }` under
      * `components[componentName]`); when omitted it returns the full
-     * components map directly (multi-component games).
+     * components map directly (multi-component apps).
      *
-     * Optional — omit for push-model games where the renderer captures state
+     * Optional — omit for push-model apps where the renderer captures state
      * itself (e.g. reads the SAB) and only pushes data in on load. When
      * omitted, save()/captureState() are not exposed.
      */
@@ -382,7 +382,7 @@ export interface CreateSimWorkerOptions {
 
 /**
  * Creates and starts a sim worker with the standard API.
- * Call this at the top level of a game's worker entry file.
+ * Call this at the top level of an app's worker entry file.
  *
  * The exposed API is:
  *   init(sab, ...args) — calls onInit, starts the loop, emits "ready"
@@ -433,7 +433,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
    * wire forms: raw data, a components map (`{ name: { v, data } }`), and a
    * full SaveState (`{ components: { name: { v, data } } }`). When
    * componentName is omitted the components map / raw payload is returned
-   * as-is for multi-component games.
+   * as-is for multi-component apps.
    */
   const extractRestoreData = (parsed: any): unknown => {
     const name = opts.save!.componentName;
@@ -696,7 +696,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
     async init(sab: SharedArrayBuffer, ...args: any[]): Promise<void> {
       await opts.onInit(sab, control, ...args);
 
-      // SAB polyfill: set up buffer sync if SAB is unavailable and the game
+      // SAB polyfill: set up buffer sync if SAB is unavailable and the app
       // provided a sync config. The BufferSyncWorker posts written regions
       // to the main thread after each tick batch (see syncToMain() above).
       if (!usingRealSAB && opts.onSyncConfig) {
@@ -818,7 +818,7 @@ export function createSimWorker(opts: CreateSimWorkerOptions): SimWorkerControl 
 
           /**
            * Raw capture payload — no store interaction. Lets a
-           * renderer-owned save system (createGameSaveSystem) pull the
+           * renderer-owned save system (createSaveSystem) pull the
            * worker's state and embed it in its own SaveState. Binary
            * payloads (typed arrays) come back in `blobs`, transferred via
            * structured clone.

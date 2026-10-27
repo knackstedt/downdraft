@@ -71,7 +71,7 @@ describe("WASM ABI v3 host-call bridge", () => {
       } as any;
     });
 
-    it("forwards spawn_prop + on_host_call_result to the game's host-call bridge", async () => {
+    it("forwards spawn_prop + on_host_call_result to the app's host-call bridge", async () => {
       // A tiny WAT module that calls env.spawn_prop in register() and stores
       // the result in on_host_call_result.
       const wat = `
@@ -102,7 +102,7 @@ describe("WASM ABI v3 host-call bridge", () => {
       const bytes = await compileWat(wat);
       // Instantiate directly (bypass the loader's fetch path).
       const host = new PluginHost({
-        gameId: "test-game",
+        appId: "test-app",
         engineVersion: "0.1.0",
         moduleHost: new ModuleHost(new World()),
         hostCalls,
@@ -131,7 +131,7 @@ describe("WASM ABI v3 host-call bridge", () => {
       host.discover(
         {
           id: "wasm-test", name: "Wasm Test", version: "1.0.0",
-          engineVersion: "^0.1.0", game: "test-game",
+          engineVersion: "^0.1.0", app: "test-app",
           format: "wasm", tier: "native", thread: "own-worker",
           entry: "./x.wasm", permissions: ["ecs", "physics", "assets"],
         } as PluginManifest,
@@ -170,7 +170,7 @@ describe("WASM ABI v3 host-call bridge", () => {
       `;
       const bytes = await compileWat(wat);
       const host = new PluginHost({
-        gameId: "test-game",
+        appId: "test-app",
         engineVersion: "0.1.0",
         moduleHost: new ModuleHost(new World()),
         hostCalls: rejectingHostCalls,
@@ -196,7 +196,7 @@ describe("WASM ABI v3 host-call bridge", () => {
       host.discover(
         {
           id: "wasm-err-test", name: "Wasm Err Test", version: "1.0.0",
-          engineVersion: "^0.1.0", game: "test-game",
+          engineVersion: "^0.1.0", app: "test-app",
           format: "wasm", tier: "native", thread: "own-worker",
           entry: "./x.wasm", permissions: ["ecs", "physics"],
         } as PluginManifest,

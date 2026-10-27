@@ -3,7 +3,7 @@
 //
 // Each `PluginPermission` maps to a set of Web Worker globals the sandbox
 // shim keeps (vs. strips) before the plugin's code runs. The host resolves
-// the *granted* permission set = (requested ∩ tier-allowed ∩ game-allowlist),
+// the *granted* permission set = (requested ∩ tier-allowed ∩ app-allowlist),
 // then hands it to the sandbox shim which deletes/overrides disallowed
 // globals.
 //
@@ -121,7 +121,7 @@ export const PERMISSION_GLOBALS: Record<PluginPermission, readonly string[]> = {
 // ── Permission resolution ──
 
 export interface PermissionGrant {
-  /** The final granted permission set (requested ∩ tier ∩ game-allowlist). */
+  /** The final granted permission set (requested ∩ tier ∩ app-allowlist). */
   granted: ReadonlySet<PluginPermission>;
   /** Permissions requested but denied (with reason). */
   denied: Array<{ permission: PluginPermission; reason: string }>;
@@ -132,15 +132,15 @@ export interface PermissionGrant {
  *
  * @param requested  Permissions requested in the manifest.
  * @param tier       The plugin's tier.
- * @param gameAllow  Optional game-defined allowlist. If provided, only
- *                   permissions in this set can be granted (game can forbid
+ * @param appAllow  Optional app-defined allowlist. If provided, only
+ *                   permissions in this set can be granted (app can forbid
  *                   e.g. `network` even for native-tier plugins). If omitted,
  *                   the tier set is the only constraint.
  */
 export function resolvePermissions(
   requested: PluginPermission[],
   tier: PluginTier,
-  gameAllow?: ReadonlySet<PluginPermission>,
+  appAllow?: ReadonlySet<PluginPermission>,
 ): PermissionGrant {
   const tierSet = TIER_ALLOWED[tier];
   const granted = new Set<PluginPermission>();
@@ -151,8 +151,8 @@ export function resolvePermissions(
       denied.push({ permission: p, reason: `not allowed for tier "${tier}"` });
       continue;
     }
-    if (gameAllow && !gameAllow.has(p)) {
-      denied.push({ permission: p, reason: "denied by game allowlist" });
+    if (appAllow && !appAllow.has(p)) {
+      denied.push({ permission: p, reason: "denied by app allowlist" });
       continue;
     }
     granted.add(p);

@@ -5,7 +5,7 @@ Status: Accepted
 ## Context
 
 Bun is the repo's package manager, test runner, and packaging compiler — but
-tying the *game runtime* to Bun would couple games to one vendor's runtime and
+tying the *app runtime* to Bun would couple apps to one vendor's runtime and
 exclude teams standardized on Node or Deno.
 
 ## Decision
@@ -17,7 +17,7 @@ capabilities are probed through `platform/runtime.ts`.
 
 ## Consequences
 
-- Engine and game runtime code must never assume Bun-only APIs (`Bun.*`,
+- Engine and app runtime code must never assume Bun-only APIs (`Bun.*`,
   `bun:ffi`, `bun:test`). Use the runtime abstractions.
 - `bun.lock` is the repo's lockfile; Deno uses the generated `deno.json`
   import map (`scripts/gen-deno-import-map.mjs`, checked in CI).

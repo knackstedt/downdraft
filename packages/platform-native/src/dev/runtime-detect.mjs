@@ -2,7 +2,7 @@
 // runtime-detect.mjs — pick the JS runtime that runs the dev shell
 //
 // The dev shell is plain ESM (.mjs) so it runs identically under bun, node,
-// and deno — the runtime only needs to execute the file. Game code is
+// and deno — the runtime only needs to execute the file. App code is
 // transformed/evaluated by the Vite ModuleRunner inside the process, so the
 // underlying runtime never touches TypeScript on the main thread.
 //
@@ -69,9 +69,9 @@ export function spawnArgsFor(runtime, shellPath, opts = {}) {
   }
 }
 
-/** Find a deno.json import map to pass via --config (game dir, then root). */
-export function findDenoConfig(gameDir, repoRoot) {
-  for (const dir of [gameDir, repoRoot].filter(Boolean)) {
+/** Find a deno.json import map to pass via --config (app dir, then root). */
+export function findDenoConfig(appDir, repoRoot) {
+  for (const dir of [appDir, repoRoot].filter(Boolean)) {
     const p = join(dir, "deno.json");
     if (existsSync(p)) return p;
   }

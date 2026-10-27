@@ -38,7 +38,7 @@ The sim worker supervisor automatically restarts once from a checkpoint. If a se
 1. Check the console output for the crash reason
 2. Try running in debug mode for more verbose logging:
    ```bash
-   cd <game-directory> && draft dev --verbose
+   cd <app-directory> && draft dev --verbose
    ```
 3. If the crash is reproducible, use MCP `checkpoint` tools to save state before the crash point
 
@@ -57,13 +57,13 @@ The sim worker supervisor automatically restarts once from a checkpoint. If a se
 
 **Solutions:**
 
-1. `deno install` does not run npm lifecycle scripts, so `@downdraft/platform-native`'s postinstall (`native/fetch-native.mjs`) never downloads the engine cdylibs. Either also run `bun install`/`npm install` in the game directory (a normal `node_modules` layout is what the packager expects), or fetch them manually:
+1. `deno install` does not run npm lifecycle scripts, so `@downdraft/platform-native`'s postinstall (`native/fetch-native.mjs`) never downloads the engine cdylibs. Either also run `bun install`/`npm install` in the app directory (a normal `node_modules` layout is what the packager expects), or fetch them manually:
 
    ```bash
    node node_modules/@downdraft/platform-native/native/fetch-native.mjs
    ```
 
-2. Direct `deno run` of the game entry is not supported — Deno refuses to strip TypeScript types from files under `node_modules` (upstream limitation; the published `@downdraft/*` packages ship TypeScript sources). Use the dev shell, which transforms the sources through Vite's ModuleRunner before Deno sees them:
+2. Direct `deno run` of the app entry is not supported — Deno refuses to strip TypeScript types from files under `node_modules` (upstream limitation; the published `@downdraft/*` packages ship TypeScript sources). Use the dev shell, which transforms the sources through Vite's ModuleRunner before Deno sees them:
 
    ```bash
    draft dev --runtime=deno
@@ -94,7 +94,7 @@ The sim worker supervisor automatically restarts once from a checkpoint. If a se
 
 ## High CPU Usage in Dev Mode
 
-**Symptom:** CPU usage is high even when the game is idle.
+**Symptom:** CPU usage is high even when the app is idle.
 
 **Solutions:**
 
@@ -106,7 +106,7 @@ draft release --stage=build --mode=prod --out=dist
 
 ## Frame Rate Issues on Multi-Monitor Linux (X11)
 
-**Symptom:** Game runs too fast on multi-monitor X11 setups.
+**Symptom:** App runs too fast on multi-monitor X11 setups.
 
 **Solutions:**
 
@@ -125,4 +125,4 @@ renderer.setFrameRateLimit(60); // or your monitor's refresh rate
 1. Check the terminal output and the devtools overlay console for errors
 2. Ensure WebGPU is available (see above)
 3. Try running in dev mode to see detailed error messages
-4. Check that the correct game is being loaded — run `draft dev` from inside the game directory (the game is inferred from the current directory)
+4. Check that the correct app is being loaded — run `draft dev` from inside the app directory (the app is inferred from the current directory)

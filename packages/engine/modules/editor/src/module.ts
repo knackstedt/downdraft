@@ -5,11 +5,11 @@
 //
 // Registers an `EditorContext` (design world + document + command registry),
 // provides it via `EditorModuleTok`, and stashes it on
-// `globalThis.__downdraftEditor` so a game's `mcp:` hook can surface
+// `globalThis.__downdraftEditor` so an app's `mcp:` hook can surface
 // `editor_*` tools via `editorMcpTools()`.
 //
 // `ui: true` mounts the Blitz shell (toolbar/hierarchy/inspector/journal) —
-// reusing the game's HtmlUiTok when present, else self-hosting an
+// reusing the app's HtmlUiTok when present, else self-hosting an
 // HtmlUiHost — plus the viewport gizmo/picking layer (EditorViewport).
 // ============================================================================
 
@@ -35,7 +35,7 @@ export interface EditorModuleConfig {
   sceneName?: string;
   /** Filesystem implementation — defaults to node:fs via lazy import. */
   fs?: EditorFs | null;
-  /** Game-provided visual bridge (entities ↔ GPU). Required for picking +
+  /** App-provided visual bridge (entities ↔ GPU). Required for picking +
    *  model sync; the shell works without it. */
   adapter?: EditorSceneAdapter;
   /** Open this .ddscene path on register. */
@@ -47,7 +47,7 @@ export interface EditorModuleConfig {
 }
 
 /**
- * Self-hosted HtmlUiContext for games that don't already mount html-ui.
+ * Self-hosted HtmlUiContext for apps that don't already mount html-ui.
  * Owns an HtmlUiHost + input binding + compositor registration.
  */
 function createSelfHostedUi(ctx: RendererModuleContext): HtmlUiContext {

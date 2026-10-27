@@ -1,7 +1,7 @@
 // ============================================================================
 // Scene IO commands — new / open / save / saveAs / getTree / diff.
 //
-// File access goes through `ctx.fs` (node:fs on native hosts; games may
+// File access goes through `ctx.fs` (node:fs on native hosts; apps may
 // inject a bridge-backed implementation). Scene replace commands journal a
 // doc snapshot so undo across open/new restores the prior document.
 // ============================================================================

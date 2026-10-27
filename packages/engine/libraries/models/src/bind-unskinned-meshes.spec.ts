@@ -141,10 +141,10 @@ describe("bindUnskinnedMeshes", () => {
     });
 });
 
-// The real fixture lives in a separate game repo (games/ is gitignored) —
+// The real fixture lives in a separate app repo (apps/ is gitignored) —
 // skip when it isn't on disk.
 const ROBIN_FBX = resolve(SPEC_DIR, "..", "..", "..", "..", "..",
-    "games/andrews-sandbox/src/assets/builtin/Robin/Robin/mesh/Robin.fbx");
+    "apps/andrews-sandbox/src/assets/builtin/Robin/Robin/mesh/Robin.fbx");
 
 describe.skipIf(!existsSync(ROBIN_FBX))("bindUnskinnedMeshes (Robin.fbx real fixture)", () => {
     it("gives every mesh usable skin attributes with sensible bone picks", async () => {

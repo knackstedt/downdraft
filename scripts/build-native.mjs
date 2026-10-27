@@ -19,7 +19,7 @@
 // platform-native additionally stages into native/<platform>-<arch>/ — the
 // fetch-at-install layout already searched by lib-paths.ts. Debug builds go
 // to the -debug sibling dir instead: they never overwrite release artifacts
-// and games only resolve them with DD_NATIVE_PROFILE=debug.
+// and apps only resolve them with DD_NATIVE_PROFILE=debug.
 // ============================================================================
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -238,6 +238,6 @@ for (let _i = 0, _it = targets, _n = _it.length; _i < _n; _i++) {
 }
 
 if (profile === "debug") {
-  console.log(`[build-native] debug profile staged — games load it only with DD_NATIVE_PROFILE=debug (or \`draft dev --native-debug\`).`);
+  console.log(`[build-native] debug profile staged — apps load it only with DD_NATIVE_PROFILE=debug (or \`draft dev --native-debug\`).`);
 }
 console.log("[build-native] done.");

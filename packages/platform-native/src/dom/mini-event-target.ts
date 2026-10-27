@@ -18,7 +18,7 @@ export class MiniEventTarget {
 
   // Capture listeners run before regular listeners. There is no inter-
   // element propagation, but capture ordering lets overlays (UI routers,
-  // debugger) consume input before the game's handlers see it.
+  // debugger) consume input before the app's handlers see it.
   addEventListener(type: string, listener: EventListener, options?: boolean | { capture?: boolean }): void {
     const capture = options === true || (typeof options === "object" && options?.capture === true);
     const map = capture ? this.captureListeners : this.listeners;

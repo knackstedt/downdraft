@@ -97,7 +97,7 @@ export function createNativeHostTools(bridge: HostAPI): ToolRegistration[] {
     {
       def: {
         name: "quit",
-        description: "Request the game window to close.",
+        description: "Request the app window to close.",
         inputSchema: { type: "object", properties: {} },
       },
       handler: async () => {
@@ -110,7 +110,7 @@ export function createNativeHostTools(bridge: HostAPI): ToolRegistration[] {
 
 /**
  * Start the MCP HTTP server bound to loopback. The proxy handler forwards
- * renderer-targeted methods straight into the handler the game's
+ * renderer-targeted methods straight into the handler the app's
  * `createMcpHarness` registered via `downdraft.onMcpRequest` — no IPC.
  */
 export async function startNativeMcpServer(
@@ -122,7 +122,7 @@ export async function startNativeMcpServer(
       | ((req: McpRequest) => Promise<McpResponse>)
       | undefined;
     if (!handler) {
-      throw new Error("No MCP harness registered yet (game's createMcpHarness hasn't run)");
+      throw new Error("No MCP harness registered yet (app's createMcpHarness hasn't run)");
     }
     const res = await handler({ id: Date.now() + Math.random(), method: request.method, params: request.params });
     if (res.error) {

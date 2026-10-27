@@ -1,7 +1,7 @@
 // write-flags.spec.ts — __ddWritten marks at submit time, not encode time
 //
 // The surface context skips presenting an acquired-but-unwritten swapchain
-// texture (frame retention for dirty-tracking games). If the flag were set
+// texture (frame retention for dirty-tracking apps). If the flag were set
 // while recording commands, a buffer that is dropped as invalid, abandoned
 // by a callback exception, or simply never submitted would still present —
 // a blank swapchain image (black frame).

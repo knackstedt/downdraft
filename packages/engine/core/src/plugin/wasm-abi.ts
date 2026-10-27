@@ -4,14 +4,14 @@
 // WASM plugins always run in their own dedicated worker (stability isolation).
 // The ABI uses WebAssembly linear memory for string/data passing:
 //   - The host provides an `env` import module with functions for logging,
-//     state access, event publishing, and game mutation (host calls).
+//     state access, event publishing, and app mutation (host calls).
 //   - The plugin exports `register`, and optionally `tick`, `dispose`,
 //     `on_event`, and `alloc` (for the host to allocate strings in the
 //     plugin's memory).
 //
-// v3 adds host-call imports for game mutation (spawn_prop, remove_prop,
+// v3 adds host-call imports for app mutation (spawn_prop, remove_prop,
 // set_physics, get_physics, apply_impulse, apply_torque, get_asset_ref).
-// These are async on the host side (forwarded to the game's PluginHostCalls);
+// These are async on the host side (forwarded to the app's PluginHostCalls);
 // the host-call imports return a u32 request id, and the host posts the
 // result back via the `on_host_call_result` export (ptr+len for JSON result,
 // or 0 for void / error). v2 imports are unchanged — a v2 plugin works as-is.
@@ -46,7 +46,7 @@ export interface WasmPluginImports {
     event_subscribe: (namePtr: number, nameLen: number) => number;
     /** Events: unsubscribe(sub_id) → void */
     event_unsubscribe: (subId: number) => void;
-    // ── Host-call bridge (v3): game mutation ──
+    // ── Host-call bridge (v3): app mutation ──
     // Each returns a u32 request id. The host calls `on_host_call_result`
     // (export) with the result when the async host call completes.
     /** Spawn a prop: (content_id_ptr, content_id_len, x, y, z, qx, qy, qz, qw, scale) → request_id.

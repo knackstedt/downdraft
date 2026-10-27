@@ -58,7 +58,7 @@ export async function acquireAdapterAndDevice(
 ): Promise<AcquiredGpu | null> {
   const powerPreference = opts.powerPreference ?? "high-performance";
   const describe = opts.describeDevice ?? computeDeviceDescriptor;
-  const plan = planGpuBoot({ appId: opts.appId, gameDir: opts.gameDir });
+  const plan = planGpuBoot({ appId: opts.appId, appDir: opts.appDir });
   const { policy } = plan;
 
   log.info("gpu",

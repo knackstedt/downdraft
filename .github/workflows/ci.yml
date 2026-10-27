@@ -6,8 +6,8 @@ on:
   pull_request:
     branches: [main, master]
 
-# NOTE: games live in separate repos and are gitignored here — engine CI is
-# self-contained and never builds or typechecks game code.
+# NOTE: apps live in separate repos and are gitignored here — engine CI is
+# self-contained and never builds or typechecks app code.
 
 jobs:
   typecheck:

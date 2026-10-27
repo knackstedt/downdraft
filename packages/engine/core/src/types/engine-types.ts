@@ -1,6 +1,6 @@
 // ============================================================================
 // Engine-level shared types — math, identifiers, enums, and message protocols
-// Generic types used across engine core and any game implementation.
+// Generic types used across engine core and any app implementation.
 // ============================================================================
 
 import { CameraMode } from "../render/camera";
@@ -86,17 +86,17 @@ export interface SimToRendererMessage {
 }
 
 export interface RendererToSimMessage {
-  kind: "input_action" | "build_request" | "fish_cast" | "fish_reel" | "trade" | "place_item" | "remove_item" | "sleep" | "respawn" | "customization" | "gamemode" | "save" | "load" | "settings";
+  kind: "input_action" | "build_request" | "fish_cast" | "fish_reel" | "trade" | "place_item" | "remove_item" | "sleep" | "respawn" | "customization" | "appmode" | "save" | "load" | "settings";
   data: any;
 }
 
 export interface MainToSimMessage {
-  kind: "init" | "pause" | "resume" | "save" | "load" | "set_gamemode" | "set_setting" | "add_player" | "remove_player" | "shutdown" | "respawn" | "debug_mode" | "command" | "world_command" | "set_weather" | "set_time_of_day";
+  kind: "init" | "pause" | "resume" | "save" | "load" | "set_appmode" | "set_setting" | "add_player" | "remove_player" | "shutdown" | "respawn" | "debug_mode" | "command" | "world_command" | "set_weather" | "set_time_of_day";
   data: any;
 }
 
-/** Base engine-level event kinds emitted by the sim thread. Games can extend
- *  this with their own kinds — the `string` fallback allows game-specific event
+/** Base engine-level event kinds emitted by the sim thread. Apps can extend
+ *  this with their own kinds — the `string` fallback allows app-specific event
  *  names without modifying core. Use `(string & {})` to preserve IDE autocomplete
  *  for the known base kinds while accepting any string. */
 export type SimToMainKind =

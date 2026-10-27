@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from "bun:test";
 import { PassType } from "./frame-graph";
-import { GameRenderer } from "./game-renderer";
+import { AppRenderer } from "./app-renderer";
 import { pipelinePool } from "./pipeline-pool";
 import { RenderPass } from "./render-pass";
 
@@ -60,7 +60,7 @@ function mockDevice(): CountingDevice {
 }
 
 /** Wire a renderer for renderOnce() without a real device/context. */
-function install(renderer: GameRenderer, cd: CountingDevice): void {
+function install(renderer: AppRenderer, cd: CountingDevice): void {
   const r = renderer as unknown as Record<string, unknown>;
   r.device = cd.device;
   r.context = {
@@ -102,7 +102,7 @@ class NoopPass extends RenderPass {
 describe("performance gates", () => {
   it("flushes exactly one queue.submit per frame — mid-frame pass submits join the batch", () => {
     const cd = mockDevice();
-    const renderer = new GameRenderer(createMockCanvas());
+    const renderer = new AppRenderer(createMockCanvas());
     renderer.setViewportCount(2);
     install(renderer, cd);
 
@@ -123,7 +123,7 @@ describe("performance gates", () => {
 
   it("creates no new textures on repeat frames — depth targets are LRU-cached", () => {
     const cd = mockDevice();
-    const renderer = new GameRenderer(createMockCanvas());
+    const renderer = new AppRenderer(createMockCanvas());
     renderer.setViewportCount(3);
     install(renderer, cd);
     (renderer as any).frameGraph.addPass(new NoopPass("p"));
@@ -142,7 +142,7 @@ describe("performance gates", () => {
 
   it("creates zero pipelines on steady-state frames — pool memoizes per device", () => {
     const cd = mockDevice();
-    const renderer = new GameRenderer(createMockCanvas());
+    const renderer = new AppRenderer(createMockCanvas());
     renderer.setViewportCount(1);
     install(renderer, cd);
 
@@ -169,7 +169,7 @@ describe("performance gates", () => {
 
   it("acquires the surface texture once per frame regardless of viewport count", () => {
     const cd = mockDevice();
-    const renderer = new GameRenderer(createMockCanvas());
+    const renderer = new AppRenderer(createMockCanvas());
     renderer.setViewportCount(4);
     install(renderer, cd);
     (renderer as any).frameGraph.addPass(new NoopPass("p", false));

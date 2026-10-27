@@ -141,7 +141,7 @@ Hard geometry edges resolve to whole pixels. At 1× sampling every diagonal stai
 ## "Everything looks stretched / squashed"
 
 **Technical term:** aspect ratio mismatch
-**Also reported as:** game looks squashed, circles are ellipses, wrong aspect, stretched after window resize
+**Also reported as:** app looks squashed, circles are ellipses, wrong aspect, stretched after window resize
 
 ![Left: a grid of true squares. Right: the same grid stretched into horizontal rectangles by a mismatched aspect ratio](../../../assets/artifacts/aspect-stretch.png)
 

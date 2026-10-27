@@ -4,12 +4,12 @@
 // Owns the CdpBridge + DevtoolsBackend without any UI surface — the frontend
 // is the @downdraft/devtools overlay (in-window) or a remote viewer attached
 // over DevToolsServer (mountDevtools' attachSelfMirror). bootstrap wires one
-// per game when devtools are enabled so providers, collectors, and thread
+// per app when devtools are enabled so providers, collectors, and thread
 // evals exist regardless of which frontend is showing.
 //
 // The backend only collects while a consumer is attached — emit() is a noop
 // until attachRemote() adds a sink, and hasClient() ORs remote attachments,
-// so a game with no viewer pays nothing beyond the pump call.
+// so an app with no viewer pays nothing beyond the pump call.
 // ============================================================================
 
 import { DevtoolsBackend, type EvalFn } from "./backend";
@@ -19,10 +19,10 @@ import { createLogger } from "@downdraft/engine/util/logger";
 const log = createLogger("info");
 
 export interface EmbeddedDevtoolsHostOptions {
-  /** The game renderer — feeds GPU/scene/metrics collectors. */
+  /** The app renderer — feeds GPU/scene/metrics collectors. */
   renderer: unknown;
   /** Optional scene-graph host — feeds the scene tree panel. */
-  gameScene?: unknown;
+  appScene?: unknown;
   /** Optional ProfilingSAB for per-worker performance metrics. */
   profilingSAB?: SharedArrayBuffer | null;
 }
@@ -38,7 +38,7 @@ export class EmbeddedDevtoolsHost {
       hasClient: () => false, // remote attachments OR their own checks in
       cdp: this.cdp,
       renderer: opts.renderer,
-      gameScene: opts.gameScene,
+      appScene: opts.appScene,
       profilingSAB: opts.profilingSAB ?? null,
     });
   }

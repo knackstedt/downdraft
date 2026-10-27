@@ -17,7 +17,7 @@ import { getCommand, renderTopLevelHelp } from "./usage";
 const log = createLogger();
 
 // Detect the log theme once against the real TTY and hand it to every
-// spawned child (dev shell, games, test runner) — their piped stdout can't
+// spawned child (dev shell, apps, test runner) — their piped stdout can't
 // answer the OSC-11 probe, so without this they re-run blocking
 // gsettings/dbus probes per process. An explicit DD_LOG_THEME wins.
 process.env.DD_LOG_THEME ??= getLogTheme();
@@ -82,7 +82,7 @@ async function main() {
         await debug(process.argv.slice(3));
         break;
       case "build":
-      case "build-games":
+      case "build-apps":
       case "dist":
       case "export":
       case "mobile":

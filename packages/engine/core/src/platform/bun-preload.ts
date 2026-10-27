@@ -106,7 +106,7 @@ if (typeof (globalThis as any).Bun !== "undefined" && typeof (globalThis as any)
       // CSS alike — to a real stub file. Bun bakes the resolved specifier into
       // its persistent transpile cache (~/.bun/install/cache/@t@/*.pile), so
       // the result must be a plain path that replays without this plugin
-      // (e.g. `bun dev-shell.mjs` / `bun run` from a game dir, where the root
+      // (e.g. `bun dev-shell.mjs` / `bun run` from an app dir, where the root
       // bunfig.toml preload doesn't apply). A virtual "dd-css:<path>"
       // namespace gets cached as a package-looking specifier: re-resolution
       // wraps it in another "dd-css:<dir>" layer per ancestor walked, looping
@@ -161,11 +161,11 @@ if (typeof (globalThis as any).Bun !== "undefined" && typeof (globalThis as any)
   // polyfill it from a preload script (assigning to this module's import.meta
   // has no effect on callers). Callers that need globbing in native mode must
   // use createGlob(import.meta.dir) from "./glob-polyfill" — see
-  // a game's renderer module for the pattern.
+  // an app's renderer module for the pattern.
 }
 
 // ── Native-host marker ──
-// Games detect the native runtime via globalThis.__nativeHost. Module-eval-time
+// Apps detect the native runtime via globalThis.__nativeHost. Module-eval-time
 // checks (top-level import.meta.glob fallbacks, feature gates) run BEFORE
 // createNativeHost() can install the real host object, so seed a truthy marker
 // here — createNativeHost() replaces it with the actual host instance later.

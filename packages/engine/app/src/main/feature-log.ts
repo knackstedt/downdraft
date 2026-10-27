@@ -13,13 +13,13 @@ import { downdraft } from "./index";
 import type { McpToolRegistration } from "./mcp-harness";
 
 export interface RendererFeatureLogOptions {
-  /** Renderer with getGPUInfo() / getAdapterInfo() (GameRenderer or similar). */
+  /** Renderer with getGPUInfo() / getAdapterInfo() (AppRenderer or similar). */
   renderer: any;
   /** Engine version (defaults to ENGINE_VERSION from @downdraft/engine). */
   engineVersion?: string;
   isDev: boolean;
   deterministic: boolean;
-  /** Optional getter for active plugin names (e.g. () => gameWorld.moduleHost.listModules()). */
+  /** Optional getter for active plugin names (e.g. () => appWorld.moduleHost.listModules()). */
   getActiveModules?: () => string[];
 }
 
@@ -164,7 +164,7 @@ export async function getCombinedFeatureLog(): Promise<CombinedFeatureLog> {
 
 /**
  * MCP tool definition for `get_features`. Returns the combined feature log
- * (both lines + structured payload). Add to a game's MCP harness tools array.
+ * (both lines + structured payload). Add to an app's MCP harness tools array.
  */
 export function createFeatureLogMcpTool(): McpToolRegistration {
   return {

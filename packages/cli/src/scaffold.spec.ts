@@ -7,7 +7,7 @@ import { scaffold, type ScaffoldOptions } from "./scaffold";
 
 const baseOpts: ScaffoldOptions = {
   template: "minimal",
-  name: "test-game",
+  name: "test-app",
   description: "test",
   author: "test",
   version: "0.0.1",
@@ -31,7 +31,7 @@ describe("scaffold path traversal", () => {
   });
 
   it("accepts normal relative target paths", async () => {
-    const target = "my-game";
+    const target = "my-app";
     await scaffold(target, { ...baseOpts, force: true });
     // The scaffold should have created the target directory within the cwd.
     expect(existsSync(join(tempRoot, target))).toBe(true);
@@ -47,14 +47,14 @@ describe("scaffold path traversal", () => {
 
   it("rejects parent directory traversal in template name", async () => {
     await expect(
-      scaffold("my-game", { ...baseOpts, template: "../../etc/passwd" }),
+      scaffold("my-app", { ...baseOpts, template: "../../etc/passwd" }),
     ).rejects.toThrow("escapes base directory");
   });
 });
 
 describe("scaffold path traversal (confinePath direct)", () => {
   it("allows relative paths within base dir", () => {
-    expect(() => confinePath(process.cwd(), "my-game")).not.toThrow();
+    expect(() => confinePath(process.cwd(), "my-app")).not.toThrow();
   });
 
   it("rejects ../../etc/passwd", () => {

@@ -71,16 +71,16 @@ describe("InputContextRouter", () => {
     const state = new InputState();
     const router = new InputContextRouter(state);
 
-    const gameMappings = new Map([["jump", [32]]]); // space
+    const appMappings = new Map([["jump", [32]]]); // space
     const editorMappings = new Map([["delete", [46]]]); // delete
 
-    router.registerContext(InputContext.Game, gameMappings);
+    router.registerContext(InputContext.App, appMappings);
     router.registerContext(InputContext.Editor, editorMappings);
 
     state.keyDown(32); // space
     state.keyDown(46); // delete
 
-    router.setContext(InputContext.Game);
+    router.setContext(InputContext.App);
     expect(router.isActionDown("jump")).toBe(true);
     expect(router.isActionDown("delete")).toBe(false);
 

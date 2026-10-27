@@ -1,6 +1,6 @@
 # Development Setup
 
-How to get the engine repo and a game (e.g. **my-game**) running locally.
+How to get the engine repo and an app (e.g. **my-app**) running locally.
 
 ## Prerequisites
 
@@ -14,7 +14,7 @@ How to get the engine repo and a game (e.g. **my-game**) running locally.
 - **A graphical session** for `draft dev` (it opens a real winit window over
   X11/Wayland). On a headless box use the e2e tests instead, or set
   `DOWNDRAFT_GPU=swiftshader` for CPU rendering.
-- **Rust/cargo** — *optional for running games, required for Rust-side
+- **Rust/cargo** — *optional for running apps, required for Rust-side
   development*. Normal setup uses prebuilt binaries (fetched below); you only
   need the toolchain to modify crates under `native/` dirs or when no prebuilt
   bundle exists for your platform. See "Building the native libraries".
@@ -41,7 +41,7 @@ bun run build:native   # requires cargo — see next section
 ### Building the native libraries (Rust)
 
 The Rust cdylibs (`libdowndraft_platform`, audio, physics, blitz, devtools,
-gamepad, secrets) live in the root Cargo workspace under `packages/*/native*/`.
+controller, secrets) live in the root Cargo workspace under `packages/*/native*/`.
 Install the toolchain and system deps, then build:
 
 ```bash
@@ -67,37 +67,37 @@ immediately on the next launch. Cross-compiles and Android builds need extra
 targets (`rustup target add <triple>`) and, for Android, the NDK — see
 `AGENTS.md`.
 
-## 2. Clone a game into `games/`
+## 2. Clone an app into `apps/`
 
-Games are separate repos that consume `@downdraft/*` packages. By convention
-they're cloned under `games/` in this repo (the whole directory is gitignored).
+Apps are separate repos that consume `@downdraft/*` packages. By convention
+they're cloned under `apps/` in this repo (the whole directory is gitignored).
 
 ```bash
-mkdir -p games
-git clone git@github.com:knackstedt/my-game.git games/my-game
+mkdir -p apps
+git clone git@github.com:knackstedt/my-app.git apps/my-app
 ```
 
-A directory counts as a game when it has `downdraft.config.json` or
+A directory counts as an app when it has `downdraft.config.json` or
 `src/native-entry.ts`.
 
-## 3. Install the game, then link the engine
+## 3. Install the app, then link the engine
 
-Order matters — `bun install` in the game resolves `@downdraft/*` from npm,
-and `link:games` then replaces those with symlinks into this repo:
+Order matters — `bun install` in the app resolves `@downdraft/*` from npm,
+and `link:apps` then replaces those with symlinks into this repo:
 
 ```bash
-cd games/my-game && bun install && cd ../..
-bun run link:games
+cd apps/my-app && bun install && cd ../..
+bun run link:apps
 ```
 
-`link:games` symlinks every `@downdraft/*` workspace package into the game's
+`link:apps` symlinks every `@downdraft/*` workspace package into the app's
 `node_modules` and adds a `node_modules/.bin/draft` shim. Re-run it after any
-`bun install` inside a game (bun will have reverted the links to npm copies).
+`bun install` inside an app (bun will have reverted the links to npm copies).
 
-## 4. Run my-game
+## 4. Run my-app
 
 ```bash
-cd games/my-game
+cd apps/my-app
 draft dev          # native window + tiered HMR (default)
 # or:
 bun run dev        # same thing
@@ -106,28 +106,28 @@ bun run src/native-entry.ts   # direct boot, no dev shell / no HMR
 
 Other runtimes for the dev shell: `draft dev --runtime=node` (tsx + koffi) or
 `--runtime=deno`. Success looks like: `bindings installed (gpu, image, assets,
-dom)` → `first swapchain acquire ok` → `game-renderer initialized` → MCP
+dom)` → `first swapchain acquire ok` → `app-renderer initialized` → MCP
 automation harness registered.
 
 ## 5. Verify / test
 
 ```bash
-bun run draft:test -- --game my-game          # e2e smoke via MCP harness
-DOWNDRAFT_GPU=swiftshader bun test tests/e2e/my-game-smoke.spec.ts  # headless
+bun run draft:test -- --app my-app          # e2e smoke via MCP harness
+DOWNDRAFT_GPU=swiftshader bun test tests/e2e/my-app-smoke.spec.ts  # headless
 bun run tsc        # engine typecheck
 bun run lint       # oxlint
 ```
 
 ## Troubleshooting
 
-- **`draft` not found**: run `bun run link:games` at the repo root (it creates
-  the game's `node_modules/.bin/draft` shim), or invoke the CLI via the root
+- **`draft` not found**: run `bun run link:apps` at the repo root (it creates
+  the app's `node_modules/.bin/draft` shim), or invoke the CLI via the root
   `node_modules/.bin/draft`.
 - **Native lib load errors**: binaries aren't committed — check
   `packages/platform-native/native/<platform>-<arch>/` exists; if not, run
   `bun run fetch:native` or `bun run build:native`.
-- **Game resolves npm `@downdraft/*` instead of the local engine**: you ran
-  `bun install` in the game after linking — re-run `bun run link:games`.
+- **App resolves npm `@downdraft/*` instead of the local engine**: you ran
+  `bun install` in the app after linking — re-run `bun run link:apps`.
 
 For engine internals (module contracts, SAB protocols, packaging, Android),
 see `AGENTS.md`.

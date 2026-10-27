@@ -3,7 +3,7 @@
 // slowly-rotating preview of a character model on a dedicated canvas, using
 // its own GPUDevice + ModelRenderer. Used for character-select screens.
 //
-// Generalized from a game's character preview: the game injects a
+// Generalized from an app's character preview: the app injects a
 // model loader + def lookup + animator factory; the preview owns the WebGPU
 // device, orbit camera, depth buffer, and rAF loop.
 // ============================================================================
@@ -51,8 +51,8 @@ export interface CharacterPreviewOptions {
   /** Per-frame animator drive — returns the flat skin matrices. Defaults to
    *  `animator.advance(dt)` + computeSkinMatrices(), which only runs the
    *  procedural idle: bones driven exclusively by animation clips stay at
-   *  bind pose (props/accessories can render at the wrong spot). Games with
-   *  a locomotion state machine should pass their in-game update fn (e.g.
+   *  bind pose (props/accessories can render at the wrong spot). Apps with
+   *  a locomotion state machine should pass their in-app update fn (e.g.
    *  `(a, dt) => a.update(dt, true, 0, pose, false)`) so the preview plays
    *  the real Idle clip. */
   advanceAnimator?: (animator: CharacterAnimator, dt: number) => Float32Array;
@@ -86,7 +86,7 @@ export class CharacterPreview {
   private lastTime = performance.now();
   private currentModelId: string | null = null;
   private running = false;
-  // Scale + Y-offset to fit the model to a ~1.8m capsule (matches the game's
+  // Scale + Y-offset to fit the model to a ~1.8m capsule (matches the app's
   // playerScale logic — some rigs are authored in cm and span ~200 units).
   private modelScale = 1;
   private modelYOffset = 0;

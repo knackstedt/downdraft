@@ -1,7 +1,7 @@
 // ============================================================================
 // installSimHotReload / restoreHotReloadState — shared dev-mode HMR wiring.
 //
-// Generalized from a game's renderer entrypoint. The vite plugin emits
+// Generalized from an app's renderer entrypoint. The vite plugin emits
 // "sim:hot-reload" / "renderer:hot-reload" custom events when watched sim or
 // renderer files change. These helpers own the standard response:
 //
@@ -63,7 +63,7 @@ export function installSimHotReload(deps: SimHotReloadDeps): void {
   if (session) {
     if (deps.sim?.hotReload && !session.hasSimFor?.(deps.sim)) {
       session.registerSim?.({
-        label: "game-sim",
+        label: "app-sim",
         host: deps.sim,
         hotReload: (preserve: boolean) => deps.sim.hotReload!(getConfig(), preserve),
         save: async () => (await deps.sim.save?.(SLOT))?.stateJson ?? null,
@@ -121,12 +121,12 @@ export function installSimHotReload(deps: SimHotReloadDeps): void {
       try {
         const result = await deps.sim.save?.(SLOT);
         const dd = bridge();
-        if (result?.stateJson && dd?.saveGameState) {
+        if (result?.stateJson && dd?.saveAppState) {
           const components = JSON.parse(result.stateJson);
           if (deps.renderer?.serializeRendererMeta) {
             components.renderer = { v: 1, data: deps.renderer.serializeRendererMeta() };
           }
-          dd.saveGameState(SLOT, JSON.stringify(components));
+          dd.saveAppState(SLOT, JSON.stringify(components));
           sessionStorage.setItem(PENDING_KEY, "1");
           log.info("hmr", "State saved, reloading page...");
         }
@@ -157,9 +157,9 @@ export async function restoreHotReloadState(
   if (!sessionStorage.getItem(PENDING_KEY)) return false;
   sessionStorage.removeItem(PENDING_KEY);
   const dd = deps.downdraft ?? downdraft;
-  if (!dd?.loadGameState) return false;
+  if (!dd?.loadAppState) return false;
   try {
-    const stateJson = await dd.loadGameState(SLOT);
+    const stateJson = await dd.loadAppState(SLOT);
     if (!stateJson) return false;
     await deps.sim.restoreFromState?.(stateJson);
     try {
@@ -169,7 +169,7 @@ export async function restoreHotReloadState(
       }
     } catch { /* ignore */ }
     log.info("hmr", "Restored state after page reload");
-    if (dd.deleteGameState) dd.deleteGameState(SLOT);
+    if (dd.deleteAppState) dd.deleteAppState(SLOT);
     return true;
   } catch (err) {
     log.error("hmr", `Failed to restore hot-reload state: ${err}. Starting fresh.`);

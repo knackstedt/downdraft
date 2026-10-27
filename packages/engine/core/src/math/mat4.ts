@@ -3,7 +3,7 @@
 // ============================================================================
 //
 // Shared implementation used by the engine's skeleton/animation system and
-// by games that need matrix math (e.g. model-viewer's animation helper).
+// by apps that need matrix math (e.g. model-viewer's animation helper).
 // All matrices are Float32Array(16) in column-major layout: m[col*4 + row].
 
 /** Compute A * B in column-major layout, writing into `out` (no allocation). */
@@ -78,7 +78,7 @@ export function perspectiveMat4Into(
 /**
  * Write a look-at view matrix into `out`. Uses left-handed cross products
  * (matches WebGPU's Z ∈ [0,1] clip space); `up` is the world-space up vector
- * for the game's convention (e.g. [0,-1,0] for Y-down worlds).
+ * for the app's convention (e.g. [0,-1,0] for Y-down worlds).
  */
 export function lookAtMat4Into(
   out: Float32Array,

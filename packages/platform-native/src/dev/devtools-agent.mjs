@@ -215,7 +215,7 @@ function wrapNetwork() {
 }
 
 // ── console capture (skip if the devtools mirror already captures — agents
-//    that run under a game with a mirror would double-report; we send with
+//    that run under an app with a mirror would double-report; we send with
 //    thread="agent" so rows are distinguishable/filterable) ──
 
 function wrapConsole() {

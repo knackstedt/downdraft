@@ -1,7 +1,7 @@
 //! Font setup. WASM has no system font collection, so we embed DejaVu Sans
 //! via blitz-dom's `build_single_font_ctx` (decodes WOFF2 and registers it as
 //! the fallback for every generic family), plus blitz-dom's bullet font.
-//! Games can override via `ShellConfig::font`.
+//! Apps can override via `ShellConfig::font`.
 
 use std::sync::Arc;
 

@@ -5,22 +5,22 @@
 // COMPAT LAYER: this file exists to serve canvas-shaped consumers that need
 // a *second* texture-backed webgpu context (e.g. test-bed renderers that
 // composite a dedicated GPUTexture into the main frame). It is NOT the
-// render surface abstraction — the game-facing surface is
+// render surface abstraction — the app-facing surface is
 // `RenderSurface`/`NativeSurface`; 2d-only consumers should use
 // `new OffscreenCanvas(...)` instead.
 //
 // A WebGPU-based library calls `canvas.getContext("webgpu")` and expects a
 // GPUCanvasContext with `configure()`, `getCurrentTexture()`, and
 // `unconfigure()`. In the browser the context is backed by the swapchain.
-// In native mode the game already owns the one swapchain (NativeSurface), so
-// a second renderer must render into a *dedicated* GPUTexture that the game
+// In native mode the app already owns the one swapchain (NativeSurface), so
+// a second renderer must render into a *dedicated* GPUTexture that the app
 // then samples in a compositing blit pass.
 //
 // VirtualCanvasContext owns that dedicated texture on the shared wgpu-native
 // device. `getCurrentTexture()` returns the same persistent texture each
 // frame (recreated only on resize); renderers typically clear it via
 // loadOp:"clear" every frame, so there is no accumulation. Because the
-// texture lives on the same device/queue as the game, the game can sample it
+// texture lives on the same device/queue as the app, the app can sample it
 // directly — zero copy.
 //
 // VirtualCanvas is the HTMLCanvasElement-shaped object the consumer holds:
@@ -45,7 +45,7 @@ export interface VirtualCanvasConfig {
 
 /**
  * A GPUCanvasContext backed by a persistent GPUTexture (not a swapchain).
- * Lets a second renderer draw into a texture the game composites.
+ * Lets a second renderer draw into a texture the app composites.
  */
 export class VirtualCanvasContext {
   private device: WgpuDevice | null = null;
@@ -106,7 +106,7 @@ export class VirtualCanvasContext {
     return this.ensureTexture();
   }
 
-  /** The texture the game samples in its compositing blit pass. */
+  /** The texture the app samples in its compositing blit pass. */
   getUiTexture(): WgpuTexture | null {
     return this.texture;
   }

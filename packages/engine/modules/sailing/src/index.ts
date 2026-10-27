@@ -37,15 +37,15 @@ export function createSailingModule(config: SailingConfig = {}): Module {
     provides: [SailingStateTok, WindStateTok],
     register(ctx: ModuleContext) {
       // Inject the water writer (validated by `requires`).
-      // The water writer is used by the game's sailing system to sample
+      // The water writer is used by the app's sailing system to sample
       // wave heights for buoyancy. The plugin validates the dependency
-      // exists; the game's system reads it from the DI graph.
+      // exists; the app's system reads it from the DI graph.
       ctx.injectOptional(WaterWriterTok);
       ctx.provide(SailingStateTok, cfg);
       ctx.provide(WindStateTok, { speed: cfg.baseWindSpeed, direction: cfg.baseWindDirection });
       // The actual sailing system (force calculation, rudder integration,
-      // hull drag) is game-specific and registered as an ECS system by
-      // the game. This plugin provides config + wind state via DI.
+      // hull drag) is app-specific and registered as an ECS system by
+      // the app. This plugin provides config + wind state via DI.
     },
   };
 }

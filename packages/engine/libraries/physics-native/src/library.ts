@@ -1,11 +1,11 @@
 // ============================================================================
 // PhysicsNativeLib — declarative engine library descriptor for @downdraft/engine/libraries/physics-native
 //
-// Games declare `libraries: [PhysicsNativeLib]` (or with config override)
-// in their GameModule. The host creates the NativePhysicsBackend (sim-side
+// Apps declare `libraries: [PhysicsNativeLib]` (or with config override)
+// in their AppModule. The host creates the NativePhysicsBackend (sim-side
 // only — physics has no renderer component).
 //
-// Games that need full control can still import NativePhysicsBackend directly
+// Apps that need full control can still import NativePhysicsBackend directly
 // (escape hatch).
 // ============================================================================
 
@@ -43,7 +43,7 @@ export const PhysicsNativeLib: EngineLibrary<PhysicsNativeLibConfig> = {
     create(config, ctx) {
       const backend = new NativePhysicsBackend();
       // Create a default realm with the configured gravity.
-      // Games can create additional realms via backend.createRealm().
+      // Apps can create additional realms via backend.createRealm().
       backend.createRealm({
         id: 0,
         name: "default",
@@ -63,8 +63,8 @@ export const PhysicsNativeLib: EngineLibrary<PhysicsNativeLibConfig> = {
     dispose(backend) {
       (backend as NativePhysicsBackend).destroy();
     },
-    // tick is game-specific (calls backend.step() with entity data, reads back
-    // transforms, etc.) — games wire this via onReady or a sim system.
+    // tick is app-specific (calls backend.step() with entity data, reads back
+    // transforms, etc.) — apps wire this via onReady or a sim system.
   },
 
   tickPhase: "physics",

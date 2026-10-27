@@ -87,7 +87,7 @@ export function createGlob(callerDir: string): (pattern: string, options?: any) 
 
 // ── globAssets — the canonical asset-glob call ──
 //
-// Games used to hand-roll the same shim at every call site:
+// Apps used to hand-roll the same shim at every call site:
 //
 //   const _glob = (import.meta as any).glob ?? ((pattern) => {
 //     const { createGlob } = require("@downdraft/engine/platform/glob-polyfill");

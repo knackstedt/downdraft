@@ -1,6 +1,6 @@
 // ============================================================================
 // Sandjongg — smoke test via MCP automation harness.
-// Launches the game under SwiftShader, verifies it boots without console
+// Launches the app under SwiftShader, verifies it boots without console
 // errors, captures a screenshot, and drives a full level clear using the
 // match_tiles + request_hint tools.
 // ============================================================================
@@ -8,22 +8,22 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
     captureAndSaveScreenshot,
-    gameAvailable,
-    launchGame,
+    appAvailable,
+    launchApp,
     parseJsonContent,
     sleep,
-    type GameProcess,
+    type AppProcess,
     type McpToolResult
 } from "./harness";
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
 
-describe.skipIf(!gameAvailable("sandjongg"))("sandjongg MCP automation smoke", () => {
-  let game: GameProcess | null = null;
+describe.skipIf(!appAvailable("sandjongg"))("sandjongg MCP automation smoke", () => {
+  let app: AppProcess | null = null;
 
   beforeAll(async () => {
-    game = await launchGame({
-      game: "sandjongg",
+    app = await launchApp({
+      app: "sandjongg",
       mcpPort: MCP_PORT,
       gpu: (process.env.DOWNDRAFT_GPU as "swiftshader" | undefined) ?? "swiftshader",
       deterministic: true,
@@ -31,30 +31,30 @@ describe.skipIf(!gameAvailable("sandjongg"))("sandjongg MCP automation smoke", (
   }, 180000);
 
   afterAll(async () => {
-    await game?.kill();
+    await app?.kill();
   }, 30000);
 
   it("exposes the automation tool set", async () => {
-    const tools = await game!.mcpClient.listTools();
+    const tools = await app!.mcpClient.listTools();
     const names = new Set(tools.map((t) => t.name));
     expect(names.has("capture_screenshot")).toBe(true);
     expect(names.has("match_tiles")).toBe(true);
-    expect(names.has("get_game_state")).toBe(true);
+    expect(names.has("get_app_state")).toBe(true);
     expect(names.has("request_hint")).toBe(true);
-    expect(names.has("new_game")).toBe(true);
+    expect(names.has("new_app")).toBe(true);
   });
 
   it("captures a non-empty screenshot", async () => {
     await sleep(2000);
 
-    const meta = await captureAndSaveScreenshot(game!, "sandjongg-smoke.png", true);
+    const meta = await captureAndSaveScreenshot(app!, "sandjongg-smoke.png", true);
 
     expect(meta.width).toBeGreaterThan(0);
     expect(meta.height).toBeGreaterThan(0);
   }, 30000);
 
-  it("reports game state with tiles on the board", async () => {
-    const result = (await game!.mcpClient.callTool("get_game_state", {})) as McpToolResult;
+  it("reports app state with tiles on the board", async () => {
+    const result = (await app!.mcpClient.callTool("get_app_state", {})) as McpToolResult;
     const state = parseJsonContent(result) as {
       score: number;
       level: number;
@@ -74,7 +74,7 @@ describe.skipIf(!gameAvailable("sandjongg"))("sandjongg MCP automation smoke", (
   }, 30000);
 
   it("can request a hint and get a valid pair", async () => {
-    const result = (await game!.mcpClient.callTool("request_hint", {})) as McpToolResult;
+    const result = (await app!.mcpClient.callTool("request_hint", {})) as McpToolResult;
     const data = parseJsonContent(result) as {
       hint: { a: { col: number; row: number; layer: number }; b: { col: number; row: number; layer: number }; element: number } | null;
     };
@@ -86,18 +86,18 @@ describe.skipIf(!gameAvailable("sandjongg"))("sandjongg MCP automation smoke", (
   it("can match a hinted pair and score increases", async () => {
     // First get the current score.
     const stateBefore = parseJsonContent(
-      (await game!.mcpClient.callTool("get_game_state", {})) as McpToolResult,
+      (await app!.mcpClient.callTool("get_app_state", {})) as McpToolResult,
     ) as { score: number };
 
     // Get a hint.
-    const hintResult = (await game!.mcpClient.callTool("request_hint", {})) as McpToolResult;
+    const hintResult = (await app!.mcpClient.callTool("request_hint", {})) as McpToolResult;
     const hintData = parseJsonContent(hintResult) as {
       hint: { a: { col: number; row: number; layer: number }; b: { col: number; row: number; layer: number } } | null;
     };
     expect(hintData.hint).not.toBeNull();
 
     // Match the hinted pair (include layer info).
-    const matchResult = (await game!.mcpClient.callTool("match_tiles", {
+    const matchResult = (await app!.mcpClient.callTool("match_tiles", {
       aCol: hintData.hint!.a.col,
       aRow: hintData.hint!.a.row,
       aLayer: hintData.hint!.a.layer ?? 0,
@@ -113,7 +113,7 @@ describe.skipIf(!gameAvailable("sandjongg"))("sandjongg MCP automation smoke", (
 
   it("reports no console errors during boot", async () => {
     await sleep(500);
-    const errors = game!.getConsoleErrors();
+    const errors = app!.getConsoleErrors();
     if (errors.length > 0) {
       console.error("Console errors detected:", errors);
     }

@@ -12,11 +12,11 @@ export interface WorldResources {
   camera?: Camera;
   time: number;
   dt: number;
-  /** Interpolation alpha (0.0–1.0) set by GameLoop for render interpolation. */
+  /** Interpolation alpha (0.0–1.0) set by UpdateLoop for render interpolation. */
   alpha: number;
 }
 
-export class GameWorld {
+export class AppWorld {
   scene: Scene;
   sceneManager: SceneManager;
   world: World;

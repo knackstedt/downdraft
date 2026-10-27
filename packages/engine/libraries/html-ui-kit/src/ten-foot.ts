@@ -7,7 +7,7 @@
 // declares a focus scope (pushZone traps pad input inside blades/modals,
 // popZone returns to the remembered focus).
 //
-// Pair with tvCss() for distance legibility; then a game only mounts a
+// Pair with tvCss() for distance legibility; then an app only mounts a
 // panel — pad nav, OSK, and scroll-into-view come free.
 // ============================================================================
 

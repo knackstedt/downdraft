@@ -9,11 +9,11 @@
         "instanceLimit": 2
       },
       "options": {
-        "cwd": "${workspaceFolder}/games/to-the-ocean"
+        "cwd": "${workspaceFolder}/apps/to-the-ocean"
       },
       "isBackground": true,
       "problemMatcher": [],
-      "filePattern": "games/to-the-ocean/**"
+      "filePattern": "apps/to-the-ocean/**"
     },
     {
       "label": "Dev: Model Viewer",
@@ -23,11 +23,11 @@
         "instanceLimit": 2
       },
       "options": {
-        "cwd": "${workspaceFolder}/games/downdraft-model-viewer"
+        "cwd": "${workspaceFolder}/apps/downdraft-model-viewer"
       },
       "isBackground": true,
       "problemMatcher": [],
-      "filePattern": "games/downdraft-model-viewer/**"
+      "filePattern": "apps/downdraft-model-viewer/**"
     },
     {
       "label": "Dev: Sand",
@@ -37,11 +37,11 @@
         "instanceLimit": 2
       },
       "options": {
-        "cwd": "${workspaceFolder}/games/falling-sand"
+        "cwd": "${workspaceFolder}/apps/falling-sand"
       },
       "isBackground": true,
       "problemMatcher": [],
-      "filePattern": "games/falling-sand/**"
+      "filePattern": "apps/falling-sand/**"
     },
     {
       "label": "Dev: Mining RPG",
@@ -51,11 +51,11 @@
         "instanceLimit": 2
       },
       "options": {
-        "cwd": "${workspaceFolder}/games/mining-rpg"
+        "cwd": "${workspaceFolder}/apps/mining-rpg"
       },
       "isBackground": true,
       "problemMatcher": [],
-      "filePattern": "games/mining-rpg/**"
+      "filePattern": "apps/mining-rpg/**"
     },
     {
       "label": "Dev: Overburden",
@@ -65,11 +65,11 @@
         "instanceLimit": 2
       },
       "options": {
-        "cwd": "${workspaceFolder}/games/overburden"
+        "cwd": "${workspaceFolder}/apps/overburden"
       },
       "isBackground": true,
       "problemMatcher": [],
-      "filePattern": "games/overburden/**"
+      "filePattern": "apps/overburden/**"
     },
     {
       "label": "Dev: Sandjongg",
@@ -79,11 +79,11 @@
         "instanceLimit": 2
       },
       "options": {
-        "cwd": "${workspaceFolder}/games/sandjongg"
+        "cwd": "${workspaceFolder}/apps/sandjongg"
       },
       "isBackground": true,
       "problemMatcher": [],
-      "filePattern": "games/sandjongg/**"
+      "filePattern": "apps/sandjongg/**"
     },
     {
       "label": "Dev: Andrew's Sandbox",
@@ -93,14 +93,14 @@
         "instanceLimit": 2
       },
       "options": {
-        "cwd": "${workspaceFolder}/games/andrews-sandbox",
+        "cwd": "${workspaceFolder}/apps/andrews-sandbox",
         "env": {
           "DOWNDRAFT_MULTI_INSTANCE": "1"
         }
       },
       "isBackground": true,
       "problemMatcher": [],
-      "filePattern": "games/andrews-sandbox/**"
+      "filePattern": "apps/andrews-sandbox/**"
     },
     {
       "label": "Dev: Visual Tests",
@@ -110,11 +110,11 @@
         "instanceLimit": 2
       },
       "options": {
-        "cwd": "${workspaceFolder}/games/downdraft-gpu-bench"
+        "cwd": "${workspaceFolder}/apps/downdraft-gpu-bench"
       },
       "isBackground": true,
       "problemMatcher": [],
-      "filePattern": "games/downdraft-gpu-bench/**"
+      "filePattern": "apps/downdraft-gpu-bench/**"
     },
     {
       "label": "Dev: Archery",
@@ -124,17 +124,17 @@
         "instanceLimit": 2
       },
       "options": {
-        "cwd": "${workspaceFolder}/games/archery-game"
+        "cwd": "${workspaceFolder}/apps/archery-app"
       },
       "isBackground": true,
       "problemMatcher": [],
-      "filePattern": "games/archery-game/**"
+      "filePattern": "apps/archery-app/**"
     },
     {
-      "label": "Build: Game(s)",
-      "detail": "Pick game(s) + target platform(s), then build + package each (native compile via draft release)",
+      "label": "Build: App(s)",
+      "detail": "Pick app(s) + target platform(s), then build + package each (native compile via draft release)",
       "type": "shell",
-      "command": "bun run packages/cli/src/index.ts release --games=\"${input:game}\" --target=\"${input:platforms}\"",
+      "command": "bun run packages/cli/src/index.ts release --apps=\"${input:app}\" --target=\"${input:platforms}\"",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -146,7 +146,7 @@
         "showReuseMessage": false
       },
       "problemMatcher": [],
-      "filePattern": "games/**"
+      "filePattern": "apps/**"
     }
   ],
   "inputs": [
@@ -163,16 +163,16 @@
       }
     },
     {
-      "id": "game",
+      "id": "app",
       "type": "command",
       "command": "shellCommand.execute",
       "args": {
-        "command": "node -e \"const fs=require('fs');for(const d of fs.readdirSync('games')){const c='games/'+d+'/src/native-entry.ts',j='games/'+d+'/package.json';if(!fs.existsSync(c))continue;let pn=d;try{pn=JSON.parse(fs.readFileSync(j,'utf8')).productName||d}catch{};console.log(d+'|'+pn+'|Build '+pn)}\"",
+        "command": "node -e \"const fs=require('fs');for(const d of fs.readdirSync('apps')){const c='apps/'+d+'/src/native-entry.ts',j='apps/'+d+'/package.json';if(!fs.existsSync(c))continue;let pn=d;try{pn=JSON.parse(fs.readFileSync(j,'utf8')).productName||d}catch{};console.log(d+'|'+pn+'|Build '+pn)}\"",
         "cwd": "${workspaceFolder}",
         "fieldSeparator": "|",
         "multiselect": true,
         "multiselectSeparator": ",",
-        "description": "Select game(s) to build \u2014 pick multiple to build several at once"
+        "description": "Select app(s) to build \u2014 pick multiple to build several at once"
       }
     }
   ]

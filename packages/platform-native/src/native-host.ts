@@ -9,7 +9,7 @@
 //   - requestAnimationFrame (vsync-driven)
 //   - Screenshot capture
 //
-// This is the entry point for native game execution. DOM/browser polyfills
+// This is the entry point for native app execution. DOM/browser polyfills
 // live in dom/dom-polyfills.ts.
 // ============================================================================
 
@@ -21,7 +21,7 @@ import { installAssetGlob } from "./assets/native-assets";
 import { createNativeBridge } from "./bridge/native-bridge";
 import { resolveNativeUserDataDir } from "./bridge/user-data-dir";
 import { installDOMPolyfills } from "./dom/dom-polyfills";
-import { initNativeGamepad, startGamepadEnrichment } from "./gamepad/index";
+import { initNativeController, startControllerEnrichment } from "./controller/index";
 import { acquireAdapterAndDevice, type AcquiredGpu } from "./gpu/adapter-boot";
 import type { GpuBootPlan } from "./gpu/adapter-policy";
 import { installGPU } from "./gpu/install";
@@ -55,10 +55,10 @@ declare const __DD_MCP_STRIP__: boolean | undefined;
 
 export interface NativeHostConfig {
   window: NativeWindowConfig;
-  /** Per-game application identifier (e.g. "my-game"). When set, the
+  /** Per-app application identifier (e.g. "my-app"). When set, the
    *  host installs `globalThis.downdraft` — the HostAPI impl that
-   *  makes `startGame()`, saves, MCP, and the standard automation tools work
-   *  with zero per-game wiring. Omit only for bespoke debug harnesses. */
+   *  makes `startApp()`, saves, MCP, and the standard automation tools work
+   *  with zero per-app wiring. Omit only for bespoke debug harnesses. */
   appId?: string;
   /** Engine version stamped into save files / feature log. */
   engineVersion?: string;
@@ -73,7 +73,7 @@ export interface NativeHostConfig {
   services?: "inline" | "worker";
   screenshotPath?: string;
   screenshotAfterFrames?: number;
-  /** Boot splash — an animated spinner pass on the surface until the game's
+  /** Boot splash — an animated spinner pass on the surface until the app's
    *  render loop registers its first rAF. Default on; force-disabled in
    *  deterministic mode and for screenshot harnesses (a splash frame must
    *  never land in a captured image). */
@@ -218,7 +218,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
 
   // Process-restart recovery hook — the native equivalent of
   // window.location.reload() for unrecoverable GPU/renderer failures.
-  // GameRenderer's device-loss fallback, location.reload(), and bespoke
+  // AppRenderer's device-loss fallback, location.reload(), and bespoke
   // render loops all route through __ddRequestRestart. Under the HMR dev
   // shell the "reload" is a session restart (in-process) — much cheaper than
   // a detached respawn and it preserves the window.
@@ -280,9 +280,9 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     : Promise.resolve(null);
 
   // 3. Get adapter + device — THE single wgpu device for this process.
-  //    The renderer (GameRenderer) borrows it via getNativeHost(); it does
+  //    The renderer (AppRenderer) borrows it via getNativeHost(); it does
   //    not request a second device or reconfigure the surface. The limits/
-  //    features below are the UNION of what the host and GameRenderer
+  //    features below are the UNION of what the host and AppRenderer
   //    request (clamped to what the adapter supports).
   const acquired = await acquiredPromise;
   mark("adapter+device");
@@ -327,7 +327,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   // 4b. Surface pixel readback — invoked from the context's pre-present hook
   // (see NativeSurface.captureNextFrame), the only point where the swapchain
   // texture is guaranteed valid for a copy. There is exactly one device in
-  // the process — GameRenderer borrows it, it does not reconfigure.
+  // the process — AppRenderer borrows it, it does not reconfigure.
   surface.setReadbackHook(() => {
     const tex = ctx.getCurrentTexture();
     if (!tex) { log.error("native-host", "readback hook: no surface texture"); return null; }
@@ -341,7 +341,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
 
   // 4c. Boot splash — attach as soon as the surface is configured so the
   //     first presented frame lands immediately (the event loop is already
-  //     running). Runs until the game's render loop registers its first rAF.
+  //     running). Runs until the app's render loop registers its first rAF.
   if (config.splash !== false && !deterministic && !config.screenshotPath && config.screenshotAfterFrames === undefined) {
     try { window.attachSplash(new SplashScreen(window, surface)); }
     catch (e) { log.warn("platform-native", `splash unavailable: ${e}`); }
@@ -356,24 +356,24 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
 
   // 6c. Install the `downdraft` bridge — the single-process HostAPI
   // implementation. The lazy accessor in app/main picks it up whenever
-  // `startGame()` (or game code) first touches `downdraft.*`.
+  // `startApp()` (or app code) first touches `downdraft.*`.
   // Services worker owns FileSaveStore + the SQLite import cache so save
   // serialization and sync sqlite calls stay off the frame thread. Same
   // process shape the plugin sandbox will use. Spawned in step 2e — its
   // init overlapped the adapter/device wait.
   const services = await servicesPromise;
   mark("services");
-  // 6c-2. Gamepad backend — optional downdraft_gamepad cdylib (gilrs).
-  //   Owns the 'gamepad-devices' SAB channel; GamepadLib picks the buffer
-  //   up via globalThis.__ddGamepad. Absent library / gilrs failure → null,
-  //   gamepad support just isn't available. Disabled via DOWNDRAFT_NO_GAMEPAD.
-  let gamepadDestroyFn: (() => void) | null = null;
-  const gamepad = process.env.DOWNDRAFT_NO_GAMEPAD !== "1" ? initNativeGamepad() : null;
-  if (gamepad) {
-    (globalThis as any).__ddGamepad = gamepad;
+  // 6c-2. Controller backend — optional downdraft_controller cdylib (gilrs).
+  //   Owns the 'controller-devices' SAB channel; ControllerLib picks the buffer
+  //   up via globalThis.__ddController. Absent library / gilrs failure → null,
+  //   controller support just isn't available. Disabled via DOWNDRAFT_NO_CONTROLLER.
+  let controllerDestroyFn: (() => void) | null = null;
+  const controller = process.env.DOWNDRAFT_NO_CONTROLLER !== "1" ? initNativeController() : null;
+  if (controller) {
+    (globalThis as any).__ddController = controller;
     let stopEnrich: (() => void) | null = null;
-    void startGamepadEnrichment(gamepad.sab).then((stop) => { stopEnrich = stop; });
-    gamepadDestroyFn = () => { stopEnrich?.(); gamepad.destroy(); };
+    void startControllerEnrichment(controller.sab).then((stop) => { stopEnrich = stop; });
+    controllerDestroyFn = () => { stopEnrich?.(); controller.destroy(); };
   }
 
   // 6c-3. OS keychain — optional downdraft_secrets cdylib (keyring). Exposed
@@ -381,7 +381,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   //   importing platform-native; null when no credential backend exists.
   const secrets = process.env.DOWNDRAFT_NO_SECRETS !== "1" ? initNativeSecrets() : null;
   if (secrets) (globalThis as any).__ddSecrets = secrets;
-  mark("gamepad+secrets");
+  mark("controller+secrets");
 
   const bridge = config.appId && services
     ? createNativeBridge({
@@ -396,7 +396,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     : null;
   if (bridge) {
     (globalThis as any).downdraft = bridge;
-    // Game code reads `globalThis.downdraft` too (e.g. renderer factories that
+    // App code reads `globalThis.downdraft` too (e.g. renderer factories that
     // check `globalThis.downdraft?.deterministic`) — mirror it on the polyfill.
     const win = (globalThis as any).window;
     if (win) win.downdraft = bridge;
@@ -472,7 +472,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
     captureScreenshot: screenshotFn,
     destroyed: false,
     destroy: () => {
-      // Re-entrant: the game entry's finally and the dev supervisor both call
+      // Re-entrant: the app entry's finally and the dev supervisor both call
       // this on window close — a second pass would double-release the boxed
       // instance/device handles (use-after-free in the shim).
       if (host.destroyed) return;
@@ -488,8 +488,8 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
       void gpuShare.retire();
       markAllSharedDevicesDead();
       void mcp?.stop();
-      gamepadDestroyFn?.();
-      delete (globalThis as any).__ddGamepad;
+      controllerDestroyFn?.();
+      delete (globalThis as any).__ddController;
       delete (globalThis as any).__ddSecrets;
       bridge?.dispose();
       window.destroy();

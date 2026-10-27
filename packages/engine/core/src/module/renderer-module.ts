@@ -22,7 +22,7 @@ import type {
     OffscreenMode,
     RAFSource,
     RenderTargetProvider
-} from "../render/game-renderer";
+} from "../render/app-renderer";
 
 // ── Input bus ──
 
@@ -74,13 +74,13 @@ export interface RendererInputBus {
   onDrag(handler: DragHandler, priority?: number): () => void;
   /** True when the most recent pointerdown was consumed (stopPropagation)
    *  by a subscriber — lets the pointer-lock layer tell UI clicks from
-   *  game-canvas clicks. */
+   *  app-canvas clicks. */
   wasPointerDownConsumed(): boolean;
   /** True when the most recent wheel event was consumed by a subscriber —
-   *  lets game wheel handlers (camera zoom etc.) skip scrolls over UI. */
+   *  lets app wheel handlers (camera zoom etc.) skip scrolls over UI. */
   wasWheelConsumed(): boolean;
   /** True when the most recent keydown was consumed by a subscriber — lets
-   *  game key handlers skip keys claimed by a focused UI editor. */
+   *  app key handlers skip keys claimed by a focused UI editor. */
   wasKeyDownConsumed(): boolean;
   /** Destroy the bus and remove all DOM listeners. */
   destroy(): void;
@@ -91,7 +91,7 @@ export interface RendererInputBus {
 /**
  * Contract for anything that can serve as the active camera provider for the
  * renderer. The `RendererModuleHost` holds at most one active controller at a
- * time; `GameRenderer` falls back to it when a viewport's `onViewport`
+ * time; `AppRenderer` falls back to it when a viewport's `onViewport`
  * callback returns null.
  */
 export interface CameraControllerLike {
@@ -126,7 +126,7 @@ export type FrameHook = (dt: number, elapsedTime: number) => void;
 export type ResizeHook = (cssWidth: number, cssHeight: number, dpr: number) => void;
 
 /**
- * Draws UI textures into the surface pass during GameRenderer's end-of-frame
+ * Draws UI textures into the surface pass during AppRenderer's end-of-frame
  * UI block (after afterFrame callbacks).
  * Registered by the html-ui module; kept in core so host and module share it.
  */
@@ -136,7 +136,7 @@ export interface ScreenUiCompositor {
   /** When false for all compositors, no UI pass is opened. */
   hasContent(): boolean;
   /**
-   * Damage signal for damage-gated renderers (`GameRendererConfig.damageOnly`):
+   * Damage signal for damage-gated renderers (`AppRendererConfig.damageOnly`):
    * return true when this compositor's output changed since the last presented
    * frame — new pixels uploaded, a quad moved, a panel added/removed. Polled
    * once per render tick and self-clearing ("take"). Compositors that omit it
@@ -144,7 +144,7 @@ export interface ScreenUiCompositor {
    */
   takeDirty?(): boolean;
   /** Draw order — higher renders later (on top). Default 0; the devtools
-   *  dock uses a large value so it overlays fullscreen game UI panels. */
+   *  dock uses a large value so it overlays fullscreen app UI panels. */
   order?: number;
 }
 
@@ -180,14 +180,14 @@ export interface RendererModuleContext {
   getUIInputRouter(): UIInputRouter | null;
 
   /**
-   * Register a screen-space UI compositor drawn in GameRenderer's
+   * Register a screen-space UI compositor drawn in AppRenderer's
    * end-of-frame UI pass. Returns an unregister function.
    */
   registerUiCompositor?(c: ScreenUiCompositor): () => void;
 
   /**
    * Mark the next frame damaged — forces a present under
-   * `GameRendererConfig.damageOnly`. Use when a module changes
+   * `AppRendererConfig.damageOnly`. Use when a module changes
    * GPU-visible state outside compositor reporting (offscreen targets,
    * ad-hoc uploads) and needs the change on screen.
    */
@@ -217,10 +217,10 @@ export interface RendererModuleContext {
 
   /**
    * Install a viewport camera provider that takes priority over both the
-   * game's `onViewport` callback and the camera controller. When set,
-   * `GameRenderer` calls it first for each viewport; if it returns a
+   * app's `onViewport` callback and the camera controller. When set,
+   * `AppRenderer` calls it first for each viewport; if it returns a
    * `CameraViewportInfo`, that camera is used. Used by XR to provide per-eye
-   * stereo cameras that override the game's desktop camera.
+   * stereo cameras that override the app's desktop camera.
    *
    * The provider receives the viewport index, frame dt, and elapsed time
    * (same signature as `FrameCallbacks.onViewport`).
@@ -235,7 +235,7 @@ export interface RendererModuleContext {
    */
   setViewportCount(count: number): void;
 
-  // ── Offscreen / XR hooks (mirror GameRenderer setters) ──
+  // ── Offscreen / XR hooks (mirror AppRenderer setters) ──
   setOffscreenMode(mode: OffscreenMode | null): void;
   setRenderTargetProvider(provider: RenderTargetProvider | null): void;
   setRAFSource(src: RAFSource | null, cancel: CancelRAF | null): void;

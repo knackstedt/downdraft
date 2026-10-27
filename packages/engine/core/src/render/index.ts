@@ -35,8 +35,8 @@ export type { AABB, CullableItem, FrustumPlane } from "./frustum";
 export { FULLSCREEN_VS } from "./fullscreen-vs";
 export { G_BUFFER_FORMATS, GBuffer } from "./g-buffer";
 export type { GBufferTextures, GBufferViews } from "./g-buffer";
-export { GameRenderer } from "./game-renderer";
-export type { CameraViewportInfo, CancelRAF, FrameCallbacks, GameRendererConfig, GameRendererLike, OffscreenMode, RAFSource, RenderTargetProvider } from "./game-renderer";
+export { AppRenderer } from "./app-renderer";
+export type { CameraViewportInfo, CancelRAF, FrameCallbacks, AppRendererConfig, AppRendererLike, OffscreenMode, RAFSource, RenderTargetProvider } from "./app-renderer";
 export {
     createBlackTextureView, createDefaultTextureView, createDepthTexture, createStorageBuffer, createUniformBuffer
 } from "./gpu-utils";

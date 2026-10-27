@@ -37,12 +37,12 @@ describe("MultiInputChannel", () => {
     expect(p0.isMouseDown(0)).toBe(true);
     expect(p0.mouseX).toBe(100);
     expect(p0.mouseY).toBe(200);
-    expect(p0.gamepadAxes[0]).toBeCloseTo(0.5);
+    expect(p0.controllerAxes[0]).toBeCloseTo(0.5);
 
     expect(p1.isKeyDown(87)).toBe(true);
     expect(p1.isMouseDown(1)).toBe(true);
     expect(p1.mouseX).toBe(300);
-    expect(p1.gamepadAxes[1]).toBeCloseTo(0.3);
+    expect(p1.controllerAxes[1]).toBeCloseTo(0.3);
 
     expect(p2.isKeyDown(65)).toBe(false);
     expect(p2.isKeyDown(87)).toBe(false);
@@ -88,27 +88,27 @@ describe("MultiInputChannel", () => {
     expect(state.getPlayerState(0).isKeyDown(65)).toBe(false);
   });
 
-  it("should handle gamepad button state", () => {
+  it("should handle controller button state", () => {
     const ch = createMultiInputChannel({ maxPlayers: 2 });
     const sab = ch.allocate();
     const writer = new MultiInputSABWriter(sab, ch);
     const state = new MultiInputState(2);
     const bridge = new MultiInputSABBridge(sab, state, ch);
 
-    // gamepadButtons is a [lo, hi] u32 bitmask pair (W3C standard order):
+    // controllerButtons is a [lo, hi] u32 bitmask pair (W3C standard order):
     // bits 0 (south), 1 (east), 9 (start) set in lo; bit 32 in hi.
     writer.writePlayerInput(0, [], 0, 0, 0, 0, [0, 0, 0], 0, [(1 | 2 | (1 << 9)) >>> 0, 1], [0, 0, 0, 0, 0.5, 0, -1, 1]);
     bridge.poll();
 
     const gp = state.getPlayerState(0);
-    expect(gp.gamepadButtons.has(0)).toBe(true);
-    expect(gp.gamepadButtons.has(1)).toBe(true);
-    expect(gp.gamepadButtons.has(9)).toBe(true);
-    expect(gp.gamepadButtons.has(32)).toBe(true);
-    expect(gp.gamepadButtons.has(2)).toBe(false);
-    expect(gp.gamepadAxes[4]).toBeCloseTo(0.5);
-    expect(gp.gamepadAxes[6]).toBeCloseTo(-1);
-    expect(gp.gamepadAxes[7]).toBeCloseTo(1);
+    expect(gp.controllerButtons.has(0)).toBe(true);
+    expect(gp.controllerButtons.has(1)).toBe(true);
+    expect(gp.controllerButtons.has(9)).toBe(true);
+    expect(gp.controllerButtons.has(32)).toBe(true);
+    expect(gp.controllerButtons.has(2)).toBe(false);
+    expect(gp.controllerAxes[4]).toBeCloseTo(0.5);
+    expect(gp.controllerAxes[6]).toBeCloseTo(-1);
+    expect(gp.controllerAxes[7]).toBeCloseTo(1);
   });
 
   it("should use default MultiInputChannel constant", () => {

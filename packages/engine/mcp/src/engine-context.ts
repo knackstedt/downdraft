@@ -7,7 +7,7 @@ import type {
     Camera,
     CheckpointManager,
     DebugDrawQueue,
-    GameWorld,
+    AppWorld,
     Hierarchy,
     Light,
     LODConfig,
@@ -17,7 +17,7 @@ import type {
     MeshData,
     PhysicsRealm,
     RaycastQuery,
-    SaveSystem,
+    WorldSaveSystem,
     Scene,
     ScriptingSystem,
     TelemetryCollector,
@@ -39,7 +39,7 @@ import {
     CullMode,
     DebugDrawQueue as DebugDrawQueueClass,
     entityEqual,
-    GameWorld as GameWorldClass,
+    AppWorld as AppWorldClass,
     getComponentId,
     getComponentName,
     isAlive,
@@ -50,7 +50,7 @@ import {
     MaterialLibrary as MaterialLibraryClass,
     MeshBuilder as MeshBuilderClass,
     ROOT_ENTITY,
-    SaveSystem as SaveSystemClass,
+    WorldSaveSystem as SaveSystemClass,
     Scene as SceneClass,
     ScriptingSystem as ScriptingSystemClass,
     TelemetryCollector as TelemetryCollectorClass,
@@ -65,16 +65,16 @@ export interface EngineContextOptions {
   enableTelemetry?: boolean;
 }
 
-export interface EngineContextFromGameOptions {
+export interface EngineContextFromAppOptions {
   ecsWorld: World;
   scene: Scene;
-  gameWorld: GameWorld;
+  appWorld: AppWorld;
   camera: Camera;
   enableTelemetry?: boolean;
 }
 
 export class EngineContext {
-  world: GameWorld;
+  world: AppWorld;
   ecsWorld: World;
   scene: Scene;
   camera: Camera;
@@ -86,7 +86,7 @@ export class EngineContext {
   telemetryReporter: TelemetryReporter;
   debugDraw: DebugDrawQueue;
   scriptingSystem: ScriptingSystem;
-  saveSystem: SaveSystem;
+  saveSystem: WorldSaveSystem;
   lights: Light[] = [];
   meshes: Map<string, MeshData> = new Map();
   entityMeshes: Map<string, string> = new Map();
@@ -108,7 +108,7 @@ export class EngineContext {
     const ecsWorld = new WorldClass();
     this.ecsWorld = ecsWorld;
     this.scene = new SceneClass(opts.sceneName ?? "main", ecsWorld);
-    this.world = new GameWorldClass(this.scene);
+    this.world = new AppWorldClass(this.scene);
     this.camera = new CameraClass();
     this.hierarchy = this.world.hierarchy;
     this.assetManager = new AssetManagerClass();
@@ -123,16 +123,16 @@ export class EngineContext {
     this.lodGenerator = new LODGeneratorClass();
   }
 
-  static fromGame(opts: EngineContextFromGameOptions): EngineContext {
+  static fromApp(opts: EngineContextFromAppOptions): EngineContext {
     const ctx = new EngineContext({
       sceneName: opts.scene.name,
       enableTelemetry: opts.enableTelemetry,
     });
     ctx.ecsWorld = opts.ecsWorld;
     ctx.scene = opts.scene;
-    ctx.world = opts.gameWorld;
+    ctx.world = opts.appWorld;
     ctx.camera = opts.camera;
-    ctx.hierarchy = opts.gameWorld.hierarchy;
+    ctx.hierarchy = opts.appWorld.hierarchy;
     return ctx;
   }
 

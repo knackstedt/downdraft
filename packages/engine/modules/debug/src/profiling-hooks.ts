@@ -1,7 +1,7 @@
 // ============================================================================
 // wireProfilingBridge — shared profiling wiring.
 //
-// Generalized from early games' renderer-entry profiling hooks.
+// Generalized from early apps' renderer-entry profiling hooks.
 //
 // wireProfilingBridge() connects the ProfilingBridge (created by
 // initDevTools({ profiling: true }) and exposed via
@@ -44,7 +44,7 @@ export interface ProfilingWireHost {
 }
 
 export interface WireProfilingBridgeOptions {
-  /** The game renderer (beforeFrame/afterFrame get wrapped). */
+  /** The app renderer (beforeFrame/afterFrame get wrapped). */
   renderer: ProfilingWireRenderer;
   /**
    * Worker hosts to share the ProfilingSAB with. Entries may be a bare host
@@ -70,8 +70,8 @@ export function wireProfilingBridge(opts: WireProfilingBridgeOptions): Profiling
   if (!bridge) return null;
 
   const { renderer } = opts;
-  // Guard against double-wiring: bootstrapGame auto-wires the bridge when
-  // `devtools.profiling` is enabled, but older games call this themselves —
+  // Guard against double-wiring: bootstrapApp auto-wires the bridge when
+  // `devtools.profiling` is enabled, but older apps call this themselves —
   // a second wrap would tick/endFrame twice per frame. Worker attach below
   // still runs every call (the worker-side attach is idempotent).
   const marker = "__ddProfilingWired";

@@ -86,15 +86,15 @@ export class SandWorld {
   // Additional flag bits (in the flags byte, bits 16-23) that consumers want
   // preserved across the per-frame FLAG_UPDATED clear in buildActiveListAndClearFlags.
   // The physics engine only uses bits 0-3 and 5 (shade 0-1, FLAG_UPDATED 2,
-  // FLAG_SPARK 3, FLAG_POPPED 5); bits 4, 6-7 are available for game-specific
-  // flags (e.g. a game's FLAG_DETACHED at bit 4).
+  // FLAG_SPARK 3, FLAG_POPPED 5); bits 4, 6-7 are available for app-specific
+  // flags (e.g. an app's FLAG_DETACHED at bit 4).
   // Set this mask so those bits survive the clear. Defaults to 0 (no extra bits).
   preserveFlagsMask = 0;
   // Flag bits OR'd into the flags of cells disturbed by disturbAdjacent()
   // (Stone→LooseStone conversions when gravel flows out from under them).
   // Disturbed cells also get FLAG_UPDATED, but applyAging clears FLAG_UPDATED
   // before the chunk-world's expireWakeTicks() can detect them in frozen
-  // chunks. Setting a persistent flag here (e.g. a game's FLAG_DETACHED)
+  // chunks. Setting a persistent flag here (e.g. an app's FLAG_DETACHED)
   // ensures expireWakeTicks can re-activate frozen chunks that contain
   // disturbed cells. Defaults to 0 (no extra flags). Must be a subset of
   // preserveFlagsMask so the flag survives the per-frame clear.
@@ -154,7 +154,7 @@ export class SandWorld {
   // Optional per-cell skip mask (length = W*H). When set, cells whose skipMask
   // entry is non-zero are excluded from the active-cell list and the movement
   // pass — they are "frozen" and do not participate in the simulation this
-  // frame. Used by the game's chunk world to skip inactive (frozen) chunks.
+  // frame. Used by the app's chunk world to skip inactive (frozen) chunks.
   // null = no skipping (backward compatible with the original single-grid sim).
   skipMask: Uint8Array | null = null;
   // Per-column active cell count — SAB-backed when multi-threaded.
@@ -1261,7 +1261,7 @@ export class SandWorld {
     // Set disturbedFlags (in addition to FLAG_UPDATED) so the chunk-world's
     // expireWakeTicks can detect disturbed cells in frozen chunks even after
     // applyAging clears FLAG_UPDATED. disturbedFlags is persistent (included
-    // in preserveFlagsMask by the game).
+    // in preserveFlagsMask by the app).
     const extra = this.disturbedFlags | FLAG_UPDATED;
     for (let i = 0; i < 4; i++) {
       const nx = x + DIR_DX[i];
@@ -2041,9 +2041,9 @@ export class SandWorld {
       // --- Rubber: bouncy (handled in tryMove) ---
 
       // ===============================================================
-      // Game-specific reactions
+      // App-specific reactions
       // Minimal physical reactions; most "mixing" is analyzer-driven
-      // effect-vector math in the game, not cell transforms here.
+      // effect-vector math in the app, not cell transforms here.
       // ===============================================================
 
       // --- Ether + Fire → EtherealVapor (glowing gas byproduct) ---

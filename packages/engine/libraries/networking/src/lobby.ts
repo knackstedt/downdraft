@@ -49,7 +49,7 @@ export class LobbyManager {
     this.setState("closed");
   }
 
-  startGame(): void {
+  startApp(): void {
     if (this.state === "waiting" || this.state === "active") {
       this.setState("active");
     }

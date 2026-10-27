@@ -142,7 +142,7 @@ describe("LibraryHostImpl", () => {
     it("warns (not throws) on requires no library provides in strict mode", () => {
       setStrict(true);
       // Library requires may legitimately be satisfied by external providers
-      // (game modules, the host DI graph) — the open graph means the host can
+      // (app modules, the host DI graph) — the open graph means the host can
       // only warn; a truly missing provider still throws at inject() time.
       const calls: string[] = [];
       const unbindSink = addLogSink((e) => { if (e.level === "warn") calls.push(String(e.message)); });

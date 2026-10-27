@@ -7,7 +7,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-// WebGPU flag globals exist in the game runtime, not under bun test.
+// WebGPU flag globals exist in the app runtime, not under bun test.
 (globalThis as Record<string, unknown>).GPUTextureUsage ??= { TEXTURE_BINDING: 1, COPY_DST: 8 };
 
 import { TextAtlas } from "../src/text/atlas";

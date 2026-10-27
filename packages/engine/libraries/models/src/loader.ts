@@ -55,7 +55,7 @@ export interface ModelLoaderOptions {
   /**
    * Whether to normalize the model after parsing (up-axis conversion, unit
    * scaling, node-transform baking, bounds computation). Default: true.
-   * Set to false for games that handle their own transforms.
+   * Set to false for apps that handle their own transforms.
    */
   normalize?: boolean;
   /**

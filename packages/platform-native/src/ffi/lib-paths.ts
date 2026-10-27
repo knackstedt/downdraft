@@ -60,7 +60,7 @@ export const PLATFORM_DIR = `${process.platform}-${process.arch}`;
  * artifacts — debug dirs are never searched, so a stray `cargo build` or
  * `build-native.mjs --debug` can never silently downgrade the runtime.
  * Debug builds stage to `<plat>-<arch>-debug/` siblings and load only when
- * the game is started with DD_NATIVE_PROFILE=debug (or `draft dev
+ * the app is started with DD_NATIVE_PROFILE=debug (or `draft dev
  * --native-debug`, which sets this env for the spawned shell).
  */
 export const NATIVE_PROFILE: "release" | "debug" =

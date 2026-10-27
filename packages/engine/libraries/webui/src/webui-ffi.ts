@@ -61,7 +61,7 @@ export function findWebUiLibrary(backend: WebUiBackend): string | null {
 //   2. DD_WEBUI_BACKEND env ("cef" | "wpe" | "none" | "auto")
 //   3. downdraft.config.json webui.backend — the dev/release shell reads
 //      the config and re-exports it as DD_WEBUI_BACKEND, so by the time a
-//      game boots only env remains
+//      app boots only env remains
 //   4. --webui= CLI flag — same mechanism (forwarded into env)
 //   5. platform default: cef on desktop, wpe on android
 // "none" → null (the module stays a no-op instead of crashing).

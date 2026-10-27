@@ -39,11 +39,11 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "release",
     usage: "draft release [options]",
-    summary: "Native build + package pipeline — compiles the game to a standalone binary via scripts/package-native.mjs",
+    summary: "Native build + package pipeline — compiles the app to a standalone binary via scripts/package-native.mjs",
     schema: {
       flags: [
-        { name: "game", alias: "g", type: "string", description: "Game to release (games/<game>). For multiple games, use --games. If omitted, infers from the current directory, or defaults to the only game in games/." },
-        { name: "games", type: "string", description: "Comma-separated game names (e.g. game-a,game-b)" },
+        { name: "app", alias: "g", type: "string", description: "App to release (apps/<app>). For multiple apps, use --apps. If omitted, infers from the current directory, or defaults to the only app in apps/." },
+        { name: "apps", type: "string", description: "Comma-separated app names (e.g. app-a,app-b)" },
         { name: "target", alias: "t", type: "string", default: "all", enum: [...RELEASE_TARGETS], description: "Target platform(s): win, linux, mac, android, or all (android can't mix with desktop targets)" },
         { name: "format", type: "string", description: "Package format(s), comma-separated: dir, deb, appimage, flatpak, rpm (linux only; default: build.linux.target in package.json, else dir)" },
         { name: "runtime", type: "string", enum: ["bun", "node", "deno", "all"], description: "JS runtime embedded in the package: bun (compiled binary), node, deno, or all (default: build.runtime in package.json, \"runtime\" in downdraft.config.json, else bun). node/deno are linux-only today" },
@@ -67,11 +67,11 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "new",
     usage: "draft new [path] [options]",
-    summary: "Scaffold a new game project",
+    summary: "Scaffold a new app project",
     schema: {
       positionals: [{ name: "path", description: "Target directory (default: current dir)" }],
       flags: [
-        { name: "template", type: "string", default: "minimal", description: "Project template (minimal | physics | full | gamemodule)" },
+        { name: "template", type: "string", default: "minimal", description: "Project template (minimal | physics | full | appmodule)" },
         { name: "name", type: "string", description: "Project name (defaults to directory basename)" },
         { name: "description", type: "string", description: "Project description" },
         { name: "author", type: "string", description: "Author name (written as { name } in package.json)" },
@@ -85,10 +85,10 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "dev",
     usage: "draft dev [options]",
-    summary: "Start the game on the native runtime (winit + wgpu; Bun, Node, or Deno host — see --runtime). Run from a game directory (cwd inference).",
+    summary: "Start the app on the native runtime (winit + wgpu; Bun, Node, or Deno host — see --runtime). Run from an app directory (cwd inference).",
     schema: {
       flags: [
-        { name: "entry", type: "string", description: "Game entrypoint file (defaults to src/native-entry.ts)" },
+        { name: "entry", type: "string", description: "App entrypoint file (defaults to src/native-entry.ts)" },
         { name: "port", type: "number", description: "MCP HTTP port (default: auto-assign)" },
         { name: "runtime", type: "string", enum: ["bun", "node", "deno"], description: "JS runtime hosting the dev shell (default: DD_RUNTIME env, \"runtime\" in downdraft.config.json, else bun → node → deno auto-detect)" },
         { name: "watch", type: "boolean", description: "Back-compat no-op — the HMR dev shell always watches" },
@@ -148,14 +148,14 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "mcp",
     usage: "draft mcp <action> [args] [options]",
-    summary: "Call MCP automation tools on a running game (instances | tools | call | screenshot | stdio | run)",
+    summary: "Call MCP automation tools on a running app (instances | tools | call | screenshot | stdio | run)",
     schema: {
       positionals: [
         { name: "action", required: true, description: "instances | tools | call | screenshot | stdio | run" },
         { name: "args", variadic: true, description: "Action args: <tool> [json] | <file.png> | <script> [script-args]" },
       ],
       flags: [
-        { name: "app", type: "string", description: "Select instance by appId" },
+        { name: "app-id", type: "string", description: "Select instance by appId" },
         { name: "pid", type: "number", description: "Select instance by PID" },
         { name: "url", type: "string", description: "Explicit MCP HTTP URL (skips PID-file discovery)" },
         { name: "token", type: "string", description: "Bearer token (auto-read from <pid>.token otherwise)" },
@@ -164,9 +164,9 @@ export const COMMANDS: CommandEntry[] = [
         { name: "out", type: "string", description: "Write image/binary result blocks to file(s)" },
         { name: "max-bytes", type: "number", description: "Cap printed output in bytes (default 262144)" },
         { name: "schema", type: "string", description: "tools action: print one tool's inputSchema JSON" },
-        { name: "game", alias: "g", type: "string", description: "run action: game name (games/<name>)" },
+        { name: "app", alias: "g", type: "string", description: "run action: app name (apps/<name>)" },
         { name: "entry", type: "string", description: "run action: explicit native entry file" },
-        { name: "headed", type: "boolean", description: "run action: show the game window" },
+        { name: "headed", type: "boolean", description: "run action: show the app window" },
         { name: "gpu", type: "string", enum: ["auto", "hardware", "swiftshader"], description: "run action: WebGPU backend (default: swiftshader)" },
         { name: "deterministic", type: "boolean", description: "run action: DOWNDRAFT_DETERMINISTIC=1 (fixed seed, paused render loop)" },
         { name: "port", alias: "p", type: "number", description: "run action: pin the MCP port (default: auto)" },
@@ -178,11 +178,11 @@ export const COMMANDS: CommandEntry[] = [
   {
     name: "test",
     usage: "draft test [options]",
-    summary: "Run e2e tests via bun:test (SwiftShader + deterministic by default; default specs use the in-game MCP RPC harness)",
+    summary: "Run e2e tests via bun:test (SwiftShader + deterministic by default; default specs use the in-app MCP RPC harness)",
     schema: {
       flags: [
-        { name: "game", alias: "g", type: "string", required: true, description: "Game to test (games/<game>)" },
-        { name: "spec", alias: "s", type: "string", description: "Spec file to run (default: tests/e2e/<game>-smoke.spec.ts)" },
+        { name: "app", alias: "g", type: "string", required: true, description: "App to test (apps/<app>)" },
+        { name: "spec", alias: "s", type: "string", description: "Spec file to run (default: tests/e2e/<app>-smoke.spec.ts)" },
         { name: "port", alias: "p", type: "number", default: 0, description: "MCP port (0 = auto-assign a free port)" },
         { name: "renderer", alias: "r", type: "string", default: "cpu", enum: [...RENDERER_TARGETS], description: "WebGPU backend: cpu=SwiftShader, gpu=hardware" },
         { name: "no-deterministic", type: "boolean", description: "Disable fixed seed / render loop pause" },

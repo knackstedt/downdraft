@@ -23,7 +23,7 @@ import {
 import type { RapierPhysicsBackend } from "./backend";
 
 /**
- * Universal Physics API — the single public interface games use.
+ * Universal Physics API — the single public interface apps use.
  *
  * All inputs are validated (NaN/Inf, physical validity) via the SafetyLayer
  * before reaching the backend. All body references are opaque `PhysicsBody`
@@ -82,7 +82,7 @@ export class UniversalPhysicsAPI {
 
     // Propagate step optimization flags to the backend (if it supports them).
     // RapierPhysicsBackend uses these to skip contact extraction and transform
-    // readback in step() — major wins for games that don't use contacts.
+    // readback in step() — major wins for apps that don't use contacts.
     const rb = backend as RapierPhysicsBackend;
     if (typeof rb.extractContacts === "boolean") {
       rb.extractContacts = config.extractContacts ?? true;
@@ -359,11 +359,11 @@ export class UniversalPhysicsAPI {
     return nearRealm.raycastMulti(origin, dir, maxDist, filter);
   }
 
-  // --- Direct stepping (for games that manage their own tick loop) ---
+  // --- Direct stepping (for apps that manage their own tick loop) ---
 
   /**
-   * Step the near realm directly. Games that manage their own tick loop
-   * (a game with a fixed-step driver) can call this instead of using the accumulator +
+   * Step the near realm directly. Apps that manage their own tick loop
+   * (an app with a fixed-step driver) can call this instead of using the accumulator +
    * realm manager step. This bypasses LOD/realm membership updates.
    */
   stepNearRealm(dt: number): void {
@@ -373,7 +373,7 @@ export class UniversalPhysicsAPI {
 
   /**
    * Sync transforms from ECS into the near realm's transform buffer.
-   * Games that use the bulk transform sync can call this before stepping.
+   * Apps that use the bulk transform sync can call this before stepping.
    */
   syncTransforms(buffer: Float32Array, entityCount: number): void {
     const nearRealm = this.realmManager.getRealm(RealmTier.Near);

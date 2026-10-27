@@ -1,11 +1,11 @@
 //! Bridge between the JS host and the Rust UI.
 //!
 //! - `BRIDGE` is the thread_local the wasm exports mutate: pending snapshots
-//!   (raw JSON — deserialization is the game crate's job, see
+//!   (raw JSON — deserialization is the app crate's job, see
 //!   `ShellConfig::apply_snapshot`), pending input events, the action
 //!   callback, and a shared handle to the document for synchronous queries
 //!   like `ui_hit_test` / `ui_dump`.
-//! - `GameBridge` is the cloneable context injected into the VirtualDom so
+//! - `AppBridge` is the cloneable context injected into the VirtualDom so
 //!   RSX event handlers can dispatch actions back to JS.
 
 use std::cell::RefCell;
@@ -21,7 +21,7 @@ use crate::input::PendingInput;
 pub struct BridgeQueues {
     pub doc: Option<Rc<RefCell<BaseDocument>>>,
     pub pending_events: VecDeque<PendingInput>,
-    /// Raw snapshot JSON, latest-wins. The game's `apply_snapshot` callback
+    /// Raw snapshot JSON, latest-wins. The app's `apply_snapshot` callback
     /// deserializes it into its own snapshot type inside `Shell::tick`.
     pub pending_snapshot: Option<String>,
     pub shutdown: bool,
@@ -89,9 +89,9 @@ pub fn dispatch_action(action: &str, payload_json: &str) {
 /// Context provided to the VirtualDom root so components can dispatch
 /// actions without touching the thread_local directly.
 #[derive(Clone, Copy)]
-pub struct GameBridge;
+pub struct AppBridge;
 
-impl GameBridge {
+impl AppBridge {
     pub fn dispatch(&self, action: &str) {
         dispatch_action(action, "{}");
     }

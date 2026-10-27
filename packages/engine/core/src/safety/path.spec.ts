@@ -3,56 +3,56 @@ import { confinePath, isPathSafe, sanitizeUri } from "./path";
 describe("safety/path", () => {
   describe("confinePath", () => {
     it("allows relative paths within base dir", () => {
-      const result = confinePath("/game/root", "scripts/foo.ts");
-      expect(result).toBe("/game/root/scripts/foo.ts");
+      const result = confinePath("/app/root", "scripts/foo.ts");
+      expect(result).toBe("/app/root/scripts/foo.ts");
     });
 
     it("allows nested relative paths", () => {
-      const result = confinePath("/game/root", "assets/textures/skin.png");
-      expect(result).toBe("/game/root/assets/textures/skin.png");
+      const result = confinePath("/app/root", "assets/textures/skin.png");
+      expect(result).toBe("/app/root/assets/textures/skin.png");
     });
 
     it("rejects parent directory traversal", () => {
-      expect(() => confinePath("/game/root", "../../etc/passwd")).toThrow("escapes base directory");
-      expect(() => confinePath("/game/root", "../sibling")).toThrow("escapes base directory");
+      expect(() => confinePath("/app/root", "../../etc/passwd")).toThrow("escapes base directory");
+      expect(() => confinePath("/app/root", "../sibling")).toThrow("escapes base directory");
     });
 
     it("rejects absolute paths outside base", () => {
-      expect(() => confinePath("/game/root", "/etc/passwd")).toThrow("escapes base directory");
-      expect(() => confinePath("/game/root", "/home/other")).toThrow("escapes base directory");
+      expect(() => confinePath("/app/root", "/etc/passwd")).toThrow("escapes base directory");
+      expect(() => confinePath("/app/root", "/home/other")).toThrow("escapes base directory");
     });
 
     it("allows absolute paths equal to base", () => {
-      const result = confinePath("/game/root", "/game/root");
-      expect(result).toBe("/game/root");
+      const result = confinePath("/app/root", "/app/root");
+      expect(result).toBe("/app/root");
     });
 
     it("allows absolute paths within base", () => {
-      const result = confinePath("/game/root", "/game/root/scripts/foo.ts");
-      expect(result).toBe("/game/root/scripts/foo.ts");
+      const result = confinePath("/app/root", "/app/root/scripts/foo.ts");
+      expect(result).toBe("/app/root/scripts/foo.ts");
     });
 
     it("rejects traversal via intermediate ..", () => {
-      expect(() => confinePath("/game/root", "scripts/../../etc")).toThrow("escapes base directory");
+      expect(() => confinePath("/app/root", "scripts/../../etc")).toThrow("escapes base directory");
     });
 
     it("handles trailing slashes in base dir", () => {
-      const result = confinePath("/game/root/", "scripts/foo.ts");
-      expect(result).toBe("/game/root/scripts/foo.ts");
+      const result = confinePath("/app/root/", "scripts/foo.ts");
+      expect(result).toBe("/app/root/scripts/foo.ts");
     });
   });
 
   describe("isPathSafe", () => {
     it("returns true for safe paths", () => {
-      expect(isPathSafe("/game/root", "scripts/foo.ts")).toBe(true);
+      expect(isPathSafe("/app/root", "scripts/foo.ts")).toBe(true);
     });
 
     it("returns false for traversal paths", () => {
-      expect(isPathSafe("/game/root", "../../etc/passwd")).toBe(false);
+      expect(isPathSafe("/app/root", "../../etc/passwd")).toBe(false);
     });
 
     it("returns false for absolute paths outside base", () => {
-      expect(isPathSafe("/game/root", "/etc/passwd")).toBe(false);
+      expect(isPathSafe("/app/root", "/etc/passwd")).toBe(false);
     });
   });
 
@@ -88,10 +88,10 @@ describe("safety/path", () => {
     });
 
     it("validates against baseDir when provided", () => {
-      expect(sanitizeUri("textures/skin.png", { baseDir: "/game/root" })).toBe(
-        "/game/root/textures/skin.png",
+      expect(sanitizeUri("textures/skin.png", { baseDir: "/app/root" })).toBe(
+        "/app/root/textures/skin.png",
       );
-      expect(() => sanitizeUri("../escape", { baseDir: "/game/root" })).toThrow("Path traversal");
+      expect(() => sanitizeUri("../escape", { baseDir: "/app/root" })).toThrow("Path traversal");
     });
   });
 });

@@ -1,19 +1,19 @@
 // ============================================================================
-// SandGridPass — shared render pass for sand-grid games.
+// SandGridPass — shared render pass for sand-grid apps.
 //
-// Generalized from the per-game copies across early games
-// other grid games). Renders one or more r32uint grid textures to the canvas using
+// Generalized from the per-app copies across early apps
+// other grid apps). Renders one or more r32uint grid textures to the canvas using
 // the material palette + props textures.
 //
 // Configurable features:
 //   - numLayers > 1: per-layer grid textures + offscreen reflection targets
 //     (layer i's offscreen target sampled by layer i+1)
 //   - camera: adds a camera uniform (offset/zoom/canvas/depth) at binding 5
-//     (tile-based games)
+//     (tile-based apps)
 //   - extraTextures: extra float textures bound after the camera binding
 //     (light accumulation / volumetric variants)
 //
-// The fragment shader is game-provided — each game's sand-render.wgsl
+// The fragment shader is app-provided — each app's sand-render.wgsl
 // declares the bindings it uses.
 // ============================================================================
 

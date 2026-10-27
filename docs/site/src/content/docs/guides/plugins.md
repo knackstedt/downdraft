@@ -3,7 +3,7 @@ title: Plugins
 description: User-authored runtime plugins and mods — formats, capability tiers, permissions
 ---
 
-DownDraft has a runtime plugin system for user-authored extensions and mods, distinct from the compile-time [module system](/guides/modules/). Plugins are discovered under `<game>/plugins/*/`, described by a `plugin.json` or `mod.json` manifest, and loaded by a per-thread `PluginHost` (`core/src/plugin`).
+DownDraft has a runtime plugin system for user-authored extensions and mods, distinct from the compile-time [module system](/guides/modules/). Plugins are discovered under `<app>/plugins/*/`, described by a `plugin.json` or `mod.json` manifest, and loaded by a per-thread `PluginHost` (`core/src/plugin`).
 
 ## Formats
 
@@ -27,16 +27,16 @@ Only install plugins you trust — the isolation tiers differ substantially:
   manifest permissions, but plugin code can still `import` runtime builtins
   (`node:fs`, FFI, network) unless the host runtime itself is launched with
   restrictions (e.g. Deno `--deny-*` flags). Treat `worker-js` plugins like
-  any other dependency: they run with the privileges of the game process.
+  any other dependency: they run with the privileges of the app process.
 - **Remote workshop packs** fetched via `BlobStore` are content pulled over
   the network — pin trusted stores and treat untrusted remote packs as a
   supply-chain risk, especially when they carry `worker-js` logic.
 
 ## Capability tiers and threads
 
-Each manifest declares a capability **tier** (`data` / `script` / `native`) and a target **thread** (`sim` / `renderer` / `own-worker`). The tier bounds which permissions a plugin may request — `ecs`, `gpu`, `physics`, `assets`, and similar — and the host intersects the request against the tier's allowlist and the game's allowlist before loading. WASM plugins are always forced to `own-worker`.
+Each manifest declares a capability **tier** (`data` / `script` / `native`) and a target **thread** (`sim` / `renderer` / `own-worker`). The tier bounds which permissions a plugin may request — `ecs`, `gpu`, `physics`, `assets`, and similar — and the host intersects the request against the tier's allowlist and the app's allowlist before loading. WASM plugins are always forced to `own-worker`.
 
-- **sim** — inside the game's sim worker (ECS system/component registration)
+- **sim** — inside the app's sim worker (ECS system/component registration)
 - **renderer** — in-process on the main thread (render passes, UI)
 - **own-worker** — a dedicated Web Worker spawned per plugin
 
@@ -45,7 +45,7 @@ Each manifest declares a capability **tier** (`data` / `script` / `native`) and 
 ## Manifest
 
 ```jsonc
-// <game>/plugins/my-plugin/plugin.json
+// <app>/plugins/my-plugin/plugin.json
 {
   "name": "My Plugin",
   "version": "1.0.0",
@@ -54,7 +54,7 @@ Each manifest declares a capability **tier** (`data` / `script` / `native`) and 
   "thread": "sim",
   "entry": "index.js",
   "permissions": ["ecs"],
-  "requires": ["game:weather/state"],
+  "requires": ["app:weather/state"],
   "dependencies": ["other-plugin@^1.0"]
 }
 ```
@@ -64,10 +64,10 @@ The `PluginHost` validates the manifest, resolves permissions, computes a topolo
 ## CLI
 
 ```bash
-draft plugin list                                    # discovered plugins/mods in games/*/plugins/
-draft plugin new my-plugin --game=my-game            # scaffold plugin.json (default: worker-js)
-draft plugin new my-plugin --game=my-game --format=wasm
-draft mod new my-mod --game=my-game                  # scaffold mod.json (default: asset)
+draft plugin list                                    # discovered plugins/mods in apps/*/plugins/
+draft plugin new my-plugin --app=my-app            # scaffold plugin.json (default: worker-js)
+draft plugin new my-plugin --app=my-app --format=wasm
+draft mod new my-mod --app=my-app                  # scaffold mod.json (default: asset)
 ```
 
 See the [CLI reference](/reference/cli/) for the full flag list.

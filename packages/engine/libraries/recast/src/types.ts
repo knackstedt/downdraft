@@ -79,7 +79,7 @@ export interface RecastAgentData {
    * - `stuck`    — has a target but has made no appreciable progress for
    *                `stuckTimeout` seconds (e.g. target snapped to an
    *                unreachable navmesh island, or the agent is wedged against
-   *                geometry). Games should react by clearing / reassigning.
+   *                geometry). Apps should react by clearing / reassigning.
    */
   state: "idle" | "seeking" | "arrived" | "stuck";
   velocity: Vec3;

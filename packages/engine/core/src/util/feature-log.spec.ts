@@ -101,7 +101,7 @@ describe("decodeFeatureLogLine", () => {
 
   it("returns null for non-feature-log lines", () => {
     expect(decodeFeatureLogLine("hello world")).toBeNull();
-    expect(decodeFeatureLogLine("[GameRenderer] GPU timer pool supported")).toBeNull();
+    expect(decodeFeatureLogLine("[AppRenderer] GPU timer pool supported")).toBeNull();
   });
 
   it("ignores unknown trailing keys (forward-compatible)", () => {

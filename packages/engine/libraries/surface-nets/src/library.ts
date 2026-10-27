@@ -3,10 +3,10 @@
 //
 // Surface-nets is an alternative mesh extraction algorithm to marching cubes.
 // This library provides the extraction functions + chunked voxel field storage.
-// Games declare `libraries: [SurfaceNetsLib]` to get the streaming config and
+// Apps declare `libraries: [SurfaceNetsLib]` to get the streaming config and
 // mesh extraction utilities wired into the DI graph.
 //
-// Games that need full control can still import extractMeshFromField and
+// Apps that need full control can still import extractMeshFromField and
 // createChunkedVoxelField directly (escape hatch).
 // ============================================================================
 
@@ -32,7 +32,7 @@ export const SurfaceNetsLib: EngineLibrary<SurfaceNetsLibConfig> = {
   version: "1.0.0",
 
   // No SAB channels — surface-nets uses the same RPC/deformation model as
-  // marching-cubes. Games can add a SAB channel if they want zero-copy terrain.
+  // marching-cubes. Apps can add a SAB channel if they want zero-copy terrain.
   sabChannels: [],
 
   provides: [SurfaceNetsStreamingConfigTok],
@@ -46,13 +46,13 @@ export const SurfaceNetsLib: EngineLibrary<SurfaceNetsLibConfig> = {
     dispose(_system) {
       // The system is a plain config object — no resources to free.
     },
-    // tick is game-specific (calls lodManager.updateLOD(), mesh extraction, etc.)
-    // — games wire this via onReady.
+    // tick is app-specific (calls lodManager.updateLOD(), mesh extraction, etc.)
+    // — apps wire this via onReady.
   },
 
   tickPhase: "terrain",
 
-  // No renderer setup — terrain mesh generation is handled by the game's
+  // No renderer setup — terrain mesh generation is handled by the app's
   // mesh worker pool, not by the library descriptor.
 
   defaultConfig: {},

@@ -10,7 +10,7 @@
 //     ...encode the pass...
 //     postPass(cb.finish(), "preSubmit");
 //
-//   owner (GameRenderer does this — or drain manually):
+//   owner (AppRenderer does this — or drain manually):
 //     mailbox.watch(worker);                      // once, after spawn
 //     const cbs = mailbox.drain("preSubmit");     // → push into queue.submit batch
 //
@@ -27,7 +27,7 @@ import {
 } from "./shared-device";
 import type { WgpuCommandBuffer } from "./wgpu-resources";
 
-/** Well-known slots the GameRenderer drains into its submit batches. */
+/** Well-known slots the AppRenderer drains into its submit batches. */
 export const GPU_PASS_PRE_SUBMIT = "preSubmit" as const;
 export const GPU_PASS_PRE_UI = "preUi" as const;
 

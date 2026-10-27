@@ -19,7 +19,7 @@ Every export entry carries three conditions:
 
 **Rules for engine/platform-native code that resolves filesystem paths relative to itself** (crate dirs, staged assets, package metadata): never hardcode `".."` segment counts off `import.meta.url`/`import.meta.dir` — dist nests modules one level deeper than src and the math escapes into `dist/`. Anchor at the package root instead: `findPackageRoot(dir)` walks up to the nearest `package.json` (`@downdraft/engine/platform/pkg-root` for engine code; `packageRoot`/`findPackageRoot` exported from `platform-native/src/ffi/lib-paths.ts`), then append the package-relative path explicitly.
 
-Publishing (`scripts/publish-packages.mjs`, `publish.yml`) runs the dist build before `npm publish`; `files` includes `dist`. `link:games` links dist targets when present.
+Publishing (`scripts/publish-packages.mjs`, `publish.yml`) runs the dist build before `npm publish`; `files` includes `dist`. `link:apps` links dist targets when present.
 
 
 ## RenderSurface and overlay layering
@@ -28,32 +28,32 @@ On the native runtime there is no DOM or HTML document. The single render target
 
 ### How it works
 
-- `GameModule.renderer: (surface: RenderSurface) => IRenderer` — the surface is injected by `bootstrapGame()`; never query `document` for a canvas.
-- `ctx.surface` / `GameRenderer.getSurface()` are the canonical accessors. There is no DOM compositor on native (`hasDom()` is `false`) — never query `document` for the render target.
-- Game UI uses `modules/html-ui` (Blitz — see the shared-APIs table above); there is no DOM-overlay mount hook.
+- `AppModule.renderer: (surface: RenderSurface) => IRenderer` — the surface is injected by `bootstrapApp()`; never query `document` for a canvas.
+- `ctx.surface` / `AppRenderer.getSurface()` are the canonical accessors. There is no DOM compositor on native (`hasDom()` is `false`) — never query `document` for the render target.
+- App UI uses `modules/html-ui` (Blitz — see the shared-APIs table above); there is no DOM-overlay mount hook.
 - Multiple render areas (minimap, picture-in-picture) are implemented as additional OSR surfaces or viewport regions, not stacked canvases.
 
-## Per-game storage isolation
+## Per-app storage isolation
 
-Each game MUST pass a unique `appId` (`downdraft-<game>`) so the native host resolves a per-game `userData` directory (e.g. `~/.config/downdraft-my-game/`). Save files, SQLite import cache, debug artifacts, and the singleton lock all live under it — sharing one between games would corrupt save state and collide on the lock.
+Each app MUST pass a unique `appId` (`downdraft-<app>`) so the native host resolves a per-app `userData` directory (e.g. `~/.config/downdraft-my-app/`). Save files, SQLite import cache, debug artifacts, and the singleton lock all live under it — sharing one between apps would corrupt save state and collide on the lock.
 
-When `appId` is set, `createNativeHost()` (via `runNativeGameModule`) also:
-1. Acquires a singleton lock (`<userData>/singleton.lock`, PID-owned) — prevents two instances of the same game from running concurrently (which would corrupt storage). **Skipped in deterministic/test mode** (`DOWNDRAFT_DETERMINISTIC=1`): the test harness controls process lifecycle itself (dynamic MCP ports + process-group kills). `DOWNDRAFT_MULTI_INSTANCE=1` opts out of the lock in any mode.
+When `appId` is set, `createNativeHost()` (via `runNativeAppModule`) also:
+1. Acquires a singleton lock (`<userData>/singleton.lock`, PID-owned) — prevents two instances of the same app from running concurrently (which would corrupt storage). **Skipped in deterministic/test mode** (`DOWNDRAFT_DETERMINISTIC=1`): the test harness controls process lifecycle itself (dynamic MCP ports + process-group kills). `DOWNDRAFT_MULTI_INSTANCE=1` opts out of the lock in any mode.
 2. Cleans up stale lock artifacts from a previous run that crashed or was killed. In non-deterministic mode this is safe because the single-instance lock guarantees no live process is using the directory; in deterministic mode the test harness guarantees no concurrent instance.
-3. Sets the window's desktop identity — `appId` is forwarded into `NativeWindowConfig.appId`, which becomes the Wayland `app_id` and both X11 `WM_CLASS` parts (via `dd_window_set_app_name` before window create). Without it every dev-run window maps with no identity and the WM groups all games under one taskbar entry. The dev shell's early boot (`early-host.ts`) applies `native.appId` from `downdraft.config.json` the same way — keep the config's `appId` in sync with the entry's, since the identity is baked at window create and an adopted early window can't be re-identified.
+3. Sets the window's desktop identity — `appId` is forwarded into `NativeWindowConfig.appId`, which becomes the Wayland `app_id` and both X11 `WM_CLASS` parts (via `dd_window_set_app_name` before window create). Without it every dev-run window maps with no identity and the WM groups all apps under one taskbar entry. The dev shell's early boot (`early-host.ts`) applies `native.appId` from `downdraft.config.json` the same way — keep the config's `appId` in sync with the entry's, since the identity is baked at window create and an adopted early window can't be re-identified.
 
 ### Files
 
-- `packages/platform-native/src/bridge/user-data-dir.ts` — `resolveNativeUserDataDir()` (builds the per-game path).
+- `packages/platform-native/src/bridge/user-data-dir.ts` — `resolveNativeUserDataDir()` (builds the per-app path).
 - `packages/platform-native/src/host-lifecycle.ts` — singleton lock acquisition + stale-lock cleanup in `createNativeHost()`.
 
-### Adding a new game
+### Adding a new app
 
-`draft new <dir> --template <minimal|physics|full> --name <name>` scaffolds a game project (a separate repo, per the layout above). Always set `appId` in the game's `src/native-entry.ts`:
+`draft new <dir> --template <minimal|physics|full> --name <name>` scaffolds an app project (a separate repo, per the layout above). Always set `appId` in the app's `src/native-entry.ts`:
 ```ts
-await runNativeGameModule(gameModule, {
-  appId: "downdraft-my-game",  // → ~/.config/downdraft-my-game/
-  title: "My Game",
+await runNativeAppModule(appModule, {
+  appId: "downdraft-my-app",  // → ~/.config/downdraft-my-app/
+  title: "My App",
 });
 ```
 
@@ -72,8 +72,8 @@ The DevTools system has a single registration surface (`devtools` singleton from
 - **`exposeDevToolsApi()`** (`packages/engine/modules/debug/src/worker-expose.ts`) — wraps a worker's `expose()` API with `__devtoolsGetManifest`, `__devtoolsCallCommand`, `__devtoolsGetSAB` RPC methods.
 - **`syncWorkerManifests()`** (`packages/engine/modules/debug/src/worker-sync.ts`) — renderer-side: fetches manifest from workers, wires SAB data feed readers, wires command forwarders.
 - **`createDevToolsRendererAdapter()`** (`packages/engine/modules/debug/src/renderer-adapter.ts`) — feature-detects renderer capabilities (gpuProfiler, telemetryCollector, gpuResourceTracker, gcController) and builds an `IDevToolsDataRenderer`.
-- **`createSimStatsProvider()`** (`packages/engine/modules/debug/src/sim-stats-provider.ts`) — reusable `ISimStatsProvider` factory with 10Hz polling + pause/resume/step/speed/clear delegation. Eliminates duplicated boilerplate across sim games.
-- **`initDevTools()`** (`packages/engine/modules/debug/src/init.ts`) — one-line wiring per game. Creates bridge, wires providers, merges global feed/command registrations, syncs worker manifests, exposes on `window.__downdraftDevtools`.
+- **`createSimStatsProvider()`** (`packages/engine/modules/debug/src/sim-stats-provider.ts`) — reusable `ISimStatsProvider` factory with 10Hz polling + pause/resume/step/speed/clear delegation. Eliminates duplicated boilerplate across sim apps.
+- **`initDevTools()`** (`packages/engine/modules/debug/src/init.ts`) — one-line wiring per app. Creates bridge, wires providers, merges global feed/command registrations, syncs worker manifests, exposes on `window.__downdraftDevtools`.
 
 ### Module integration
 
@@ -96,7 +96,7 @@ The host injects the `devtools` singleton via `ModuleHost.setDevToolsAPI()` / `R
 
 ### Deterministic mode
 
-`DOWNDRAFT_DETERMINISTIC=1` exposes `downdraft.deterministic` on the bridge; bootstrap reads it for autosave/render-loop behavior. Devtools is unaffected by default — `autoShow` is already opt-in (default false) and F12 still toggles. Games that want the dock fully off in tests can set `devtools.ui: "none"` or `toggleKey: null` when `ctx.deterministic` is true.
+`DOWNDRAFT_DETERMINISTIC=1` exposes `downdraft.deterministic` on the bridge; bootstrap reads it for autosave/render-loop behavior. Devtools is unaffected by default — `autoShow` is already opt-in (default false) and F12 still toggles. Apps that want the dock fully off in tests can set `devtools.ui: "none"` or `toggleKey: null` when `ctx.deterministic` is true.
 
 ## Unified Material System
 
@@ -118,19 +118,19 @@ The material system is unified around the **shader graph as the single source of
 
 ### Material adapter (`libraries/models`)
 
-`materialDataToMaterial()` (`packages/engine/libraries/models/src/material-adapter.ts`) bridges serialized `MaterialData` (glTF/obj format) to the core `Material` surface. Maps baseColor/metallic/roughness/emissive to uniforms, sets `inlineShaderSource` from the physical fallback .wgsl. `materialDataArrayToMaterials()` batch-converts. The game's `RendererAccessors.uploadModel()` calls this to register materials in a `MaterialLibrary`.
+`materialDataToMaterial()` (`packages/engine/libraries/models/src/material-adapter.ts`) bridges serialized `MaterialData` (glTF/obj format) to the core `Material` surface. Maps baseColor/metallic/roughness/emissive to uniforms, sets `inlineShaderSource` from the physical fallback .wgsl. `materialDataArrayToMaterials()` batch-converts. The app's `RendererAccessors.uploadModel()` calls this to register materials in a `MaterialLibrary`.
 
 ## Model Import Normalization Pipeline
 
-The engine has a unified model import normalization pipeline that corrects common anomalies (incorrect scaling, rotation, up-axis) at load time. This replaces ad-hoc hardcoded fixes in individual games.
+The engine has a unified model import normalization pipeline that corrects common anomalies (incorrect scaling, rotation, up-axis) at load time. This replaces ad-hoc hardcoded fixes in individual apps.
 
 ### Architecture
 
 - **`ImportSettings`** (`packages/engine/core/src/assets/import-settings.ts`) — per-model normalization config: `upAxis`, `units`, `scale`, `rotation`, `centerToOrigin`, `autoFit`, `nodeTransforms`. Resolved from sidecar files or parser-detected defaults.
 - **`model-normalizer.ts`** (`packages/engine/core/src/assets/model-normalizer.ts`) — pure transform math: `applyUpAxisConversion` (Z-up→Y-up), `applyUnitScale` (source units→meters), `applyRootScale`, `applyRootRotation` (quaternion), `computeBounds`, `centerToOrigin`, `autoFit`, `isExtremeScale`. Operates on interleaved [pos(3)+normal(3)] mesh vertices (6 floats/vertex).
-- **`bake-node-transforms.ts`** (`packages/engine/libraries/models/src/bake-node-transforms.ts`) — bakes glTF/FBX node hierarchy transforms (translation, rotation, scale) into mesh vertices. Promoted from downdraft-model-viewer to the engine so all games benefit.
+- **`bake-node-transforms.ts`** (`packages/engine/libraries/models/src/bake-node-transforms.ts`) — bakes glTF/FBX node hierarchy transforms (translation, rotation, scale) into mesh vertices. Promoted from downdraft-model-viewer to the engine so all apps benefit.
 - **`normalize.ts`** (`packages/engine/libraries/models/src/normalize.ts`) — orchestrates the full pipeline: up-axis → unit scale → node-transform baking → root rotation → user scale → bounds → center → auto-fit. `normalizeModel()` applies settings; `normalizeModelWithResolution()` resolves sidecars then normalizes.
-- **`loadModel()`** (`packages/engine/libraries/models/src/loader.ts`) — now normalizes by default after parsing. Pass `normalize: false` to skip (e.g. for games that handle their own transforms). Pass `sidecarResolver` for custom sidecar resolution.
+- **`loadModel()`** (`packages/engine/libraries/models/src/loader.ts`) — now normalizes by default after parsing. Pass `normalize: false` to skip (e.g. for apps that handle their own transforms). Pass `sidecarResolver` for custom sidecar resolution.
 
 ### Sidecar System
 
@@ -148,17 +148,17 @@ FBX parser reads `GlobalSettings` for `UpAxis` (0/1=Y-up, 2=Z-up) and `UnitScale
 
 ### Import Cache
 
-`ImportCache` (`packages/engine/core/src/assets/import-cache.ts`) caches resolved `ImportSettings` keyed by model path. `MemoryImportCache` is the in-memory fallback. On native, `createHostImportCache()` wraps `downdraft.importCache*` — the host keeps a SQLite-backed cache beside saves/ in the game's userData dir, and the wrapper warms an in-memory mirror asynchronously so `get()` stays synchronous.
+`ImportCache` (`packages/engine/core/src/assets/import-cache.ts`) caches resolved `ImportSettings` keyed by model path. `MemoryImportCache` is the in-memory fallback. On native, `createHostImportCache()` wraps `downdraft.importCache*` — the host keeps a SQLite-backed cache beside saves/ in the app's userData dir, and the wrapper warms an in-memory mirror asynchronously so `get()` stays synchronous.
 
 ## Save system / storage backends
 
-`ISaveStore` (`packages/engine/core/src/save/persist-types.ts`) is the storage interface for versioned game saves: `save`/`load` (blobs, thumbnails, properties, generation control via `SaveOptions`/`LoadOptions`), `listSaves`/`listGenerations`/`deleteSave`/`deleteGeneration`, `setThumbnail`/`getThumbnail`, `setProperties`/`getProperties`, `onWarning`. Saves are a zstd-compressed JSON body of per-component sections (each with its own schema version) plus a header (engine version, timestamp, entity/player counts, XXH128 hash). `MigrationRegistry` runs per-component `fromVersion→toVersion` migrations on load; forward-incompatible saves are refused. Implementations live in `packages/engine/libraries/persistence/`:
+`ISaveStore` (`packages/engine/core/src/save/persist-types.ts`) is the storage interface for versioned app saves: `save`/`load` (blobs, thumbnails, properties, generation control via `SaveOptions`/`LoadOptions`), `listSaves`/`listGenerations`/`deleteSave`/`deleteGeneration`, `setThumbnail`/`getThumbnail`, `setProperties`/`getProperties`, `onWarning`. Saves are a zstd-compressed JSON body of per-component sections (each with its own schema version) plus a header (engine version, timestamp, entity/player counts, XXH128 hash). `MigrationRegistry` runs per-component `fromVersion→toVersion` migrations on load; forward-incompatible saves are refused. Implementations live in `packages/engine/libraries/persistence/`:
 
 - **`FileSaveStore`** (`file-save-store.ts`) — filesystem backend, **the store that runs on the native host** (host mode). One `.ddsave` file per slot (header + zstd body), rotated to `.bak` each save (load fallback on corruption); blobs in `<slot>.blobs/`, thumbnail in `<slot>.thumb`, properties in `<slot>.props.json`. Node-only (`node:fs`).
 - **`DirectorySaveStore`** (`directory-save-store.ts`) — directory-handle store: `navigator.storage.getDirectory()` (OPFS) in browsers, a `node:fs`-backed File System Access handle on native (Bun/Node/Deno). Generation history, blobs, thumbnails, properties; `meta.json` written last as the commit point.
 - **`HostSaveStore`/`BridgeJsonSaveStore`** — plumbing for the `"host"`/`"auto"` modes (typed bridge store, or legacy JSON-serialized bridge fallback).
 
-**Save modes** (game selects via `GameSaveConfig.mode`): `"host"` (main thread writes through the host's typed `ISaveStore` → `FileSaveStore` — the native default), `"worker"` (the sim worker owns a `DirectorySaveStore`), `"auto"` (default: typed host store if the bridge provides one, else `BridgeJsonSaveStore`). `createSaveStore()` (`app/src/main/save-store-factory.ts`) picks; `SimBridgeDeps.saveMode` tells the sim bridge which path is active.
+**Save modes** (app selects via `SaveConfig.mode`): `"host"` (main thread writes through the host's typed `ISaveStore` → `FileSaveStore` — the native default), `"worker"` (the sim worker owns a `DirectorySaveStore`), `"auto"` (default: typed host store if the bridge provides one, else `BridgeJsonSaveStore`). `createSaveStore()` (`app/src/main/save-store-factory.ts`) picks; `SimBridgeDeps.saveMode` tells the sim bridge which path is active.
 
 ### Devtools Auto-Fit
 
@@ -213,11 +213,11 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 
 ### Device limits
 
-`device.ts`, `game-renderer.ts`, and `native-host.ts` request `maxTextureArrayLayers` up to `512` (clamped to what the adapter reports) in `requiredLimits`. `GPUDeviceManager.requestDevice` checks for the limit before requesting.
+`device.ts`, `app-renderer.ts`, and `native-host.ts` request `maxTextureArrayLayers` up to `512` (clamped to what the adapter reports) in `requiredLimits`. `GPUDeviceManager.requestDevice` checks for the limit before requesting.
 
 ### Bindless consumers
 
-`ModelRenderer` (`libraries/entities`, via `setBindlessDeps()`/`setBindlessBindGroup()`), `OpaquePass` PBR path (`materialIndex` uniform at `@group(0) binding(3)`), `DecalPass`, `PBR_TEXTURED_PROFILE`/`PBR_SKINNED_PROFILE` shader-graph profiles, and `bridgeMaterial()` (registers textures when given a registry). Games' own renderers (e.g. my-game's `PlayerMeshRenderer`) wire it the same way.
+`ModelRenderer` (`libraries/entities`, via `setBindlessDeps()`/`setBindlessBindGroup()`), `OpaquePass` PBR path (`materialIndex` uniform at `@group(0) binding(3)`), `DecalPass`, `PBR_TEXTURED_PROFILE`/`PBR_SKINNED_PROFILE` shader-graph profiles, and `bridgeMaterial()` (registers textures when given a registry). Apps' own renderers (e.g. my-app's `PlayerMeshRenderer`) wire it the same way.
 
 ### WebGPU + Rapier gotchas
 
@@ -225,7 +225,7 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 - `GPUSupportedLimits` → `Record<string, number>` conversion requires `any` cast.
 - `@dimforge/rapier3d-compat` does not export `RawRigidBodySet`/`RawColliderSet` — `rapier-physics-system.ts` uses `any` for raw body/collider refs.
 - **WASM borrow aliasing:** Rapier returns `RawVector`/`RawRotation`/`RawColliderShape` objects from methods like `body.translation()`, `controller.computedMovement()`, and `ColliderDesc.trimesh()`. These hold WASM borrows that must be explicitly `.free()`d before `world.step()`. The `rapier-backend.ts` `addCollider` frees `cd.shape` after `world.createCollider()` (the collider set clones the `SharedShape` Arc). Same for `getColliderPosition`, `getBodyTransform`, `characterMove`, and the raw fast-path fallbacks. Failure to free causes "recursive use of an object detected which would lead to unsafe aliasing in rust" panics during `world.step()`.
-- **Raw fast-path handle mapping:** The `*Raw` methods in `rapier-backend.ts` receive `bodyId` (the game's `PhysicsBody.id`, sequential: 1, 2, 3...) but must pass the **Rapier rigid-body handle** (`body.handle`, starts at 0) to WASM functions like `rbSetTranslation`. The raw fast paths look up the `RigidBody` from `bodyMaps` to get `body.handle`. Passing `bodyId` directly causes out-of-bounds WASM access that corrupts internal state and triggers the aliasing panic.
+- **Raw fast-path handle mapping:** The `*Raw` methods in `rapier-backend.ts` receive `bodyId` (the app's `PhysicsBody.id`, sequential: 1, 2, 3...) but must pass the **Rapier rigid-body handle** (`body.handle`, starts at 0) to WASM functions like `rbSetTranslation`. The raw fast paths look up the `RigidBody` from `bodyMaps` to get `body.handle`. Passing `bodyId` directly causes out-of-bounds WASM access that corrupts internal state and triggers the aliasing panic.
 - **`swapColliderShapeRaw` shape type:** `ColliderDesc.trimesh()` returns a `SharedShape` (Eg) which stores vertices/indices but does NOT hold a `RawColliderShape`. `coSetShape` expects a `RawShape` (OA). Call `shape.intoRaw()` to get the `RawColliderShape`, pass it to `coSetShape`, then `.free()` it.
 
 ## Universal Physics Module (physics-rapier 0.2.0)
@@ -235,28 +235,28 @@ The engine uses a bindless material binding model to eliminate per-draw bind-gro
 - `UniversalPhysicsAPI` (`@downdraft/engine/libraries/physics-rapier`) is the single public surface: body lifecycle, validated state access, realm queries, interpolation, raycast, snapshots, hooks.
 - Subsystems: `PhysicsAccumulator` (fixed timestep), `InterpolationBuffer` (double-buffered), `LoadShedder` (island-aware freeze), `SafetyLayer` (NaN/Inf + hard-lock), `CCDHeuristic` (per-body), `SnapshotManager` (multiplayer), `RealmWorkerPool` (nested-worker parallelism, `workerCount:0` = single-threaded).
 - `PhysicsSystem` (ECS, `Stage.Physics`) wires all subsystems together; created via `createPhysicsSystem(resources)`.
-- **Raw fast paths** (`*Raw` methods on `UniversalPhysicsAPI`/`PhysicsBackend`): scalar transform sync/readback, `isSleepingRaw`, `swapColliderShapeRaw` (in-place trimesh shape swap, avoids broadphase re-insertion), `reserveMemory`, `setIntegrationDt`. These bypass safety validation and avoid JS object allocation — callers must validate inputs. Use in hot loops (e.g. `my-game`'s per-entity sync runs every tick).
+- **Raw fast paths** (`*Raw` methods on `UniversalPhysicsAPI`/`PhysicsBackend`): scalar transform sync/readback, `isSleepingRaw`, `swapColliderShapeRaw` (in-place trimesh shape swap, avoids broadphase re-insertion), `reserveMemory`, `setIntegrationDt`. These bypass safety validation and avoid JS object allocation — callers must validate inputs. Use in hot loops (e.g. `my-app`'s per-entity sync runs every tick).
 
 ## Host SDK (`@downdraft/engine/app` — runtime-agnostic host layer)
 
-The native host (`packages/platform-native`) owns the process: it creates the winit window, the wgpu device/surface, installs the `globalThis.downdraft` `HostAPI` bridge in-process (no IPC, no preload), and runs the MCP server. A game boots from `src/native-entry.ts` → `runNativeGameModule()` / `startNativeGame()` / `createNativeHost()`.
+The native host (`packages/platform-native`) owns the process: it creates the winit window, the wgpu device/surface, installs the `globalThis.downdraft` `HostAPI` bridge in-process (no IPC, no preload), and runs the MCP server. An app boots from `src/native-entry.ts` → `runNativeAppModule()` / `startNativeApp()` / `createNativeHost()`.
 
 ### Subpath exports
 
-- `@downdraft/engine/app/main` — `startGame()`/`bootstrapGame()` (run on the native main thread), typed `downdraft` HostAPI accessor (stubs to no-op when absent), save-store factory, standard MCP automation tools.
+- `@downdraft/engine/app/main` — `startApp()`/`bootstrapApp()` (run on the native main thread), typed `downdraft` HostAPI accessor (stubs to no-op when absent), save-store factory, standard MCP automation tools.
 - `@downdraft/engine/app/shared` — the `HostAPI` contract types (`packages/engine/app/src/shared/types.ts`).
 
 ### Process model
 
-Single process: the game module, renderer, host services, sim-worker host, and MCP server all live in the one JS-runtime process; the simulation runs in a dedicated worker thread (SAB channels, unchanged). Recovery is restart-based — `downdraft.requestRestart(reason)` respawns the process (see `packages/platform-native/src/native-restart.ts`); `window.location.reload()` is not a recovery path on native. Devtools + OSR are in-process WebGPU overlays (`modules/native-osr`), not embedded web panels.
+Single process: the app module, renderer, host services, sim-worker host, and MCP server all live in the one JS-runtime process; the simulation runs in a dedicated worker thread (SAB channels, unchanged). Recovery is restart-based — `downdraft.requestRestart(reason)` respawns the process (see `packages/platform-native/src/native-restart.ts`); `window.location.reload()` is not a recovery path on native. Devtools + OSR are in-process WebGPU overlays (`modules/native-osr`), not embedded web panels.
 
 
 ## UI typography: minimum font size
 
-All UI text rendered by the engine and games MUST use a font size of **at least 12px**. This applies to in-game HUDs, menus, tooltips, DevTools panels, and any UI document content generated by the framework.
+All UI text rendered by the engine and apps MUST use a font size of **at least 12px**. This applies to in-app HUDs, menus, tooltips, DevTools panels, and any UI document content generated by the framework.
 
 - Do not set `font-size` below `12px` (e.g. no `10px`, `11px`, or `0.7rem`-style values that resolve below 12px) in CSS, inline styles, or stylesheet theme overrides.
 - When adapting third-party component styles or copying reference markup, bump any sub-12px font sizes up to 12px.
-- The base stylesheet (`packages/engine/app/src/main/downdraft-base.css`) should not introduce a root font size below 12px; game theme overrides layered on top of it must also respect this floor.
+- The base stylesheet (`packages/engine/app/src/main/downdraft-base.css`) should not introduce a root font size below 12px; app theme overrides layered on top of it must also respect this floor.
 - This is a readability/accessibility floor, not a target — larger sizes are fine where appropriate.
 

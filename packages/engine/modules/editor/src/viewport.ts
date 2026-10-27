@@ -4,7 +4,7 @@
 //
 // Input priority: pointer handlers run at 45 — after Blitz UI panels (-10,
 // which stopPropagation on panel hits) and the gizmo's own drags, but
-// before the game camera (~100). Hotkeys run at 90 so focused panel inputs
+// before the app camera (~100). Hotkeys run at 90 so focused panel inputs
 // (which stopPropagation while editing) keep their keys.
 //
 // Gizmo drags dispatch `transform.set` per update inside a journal

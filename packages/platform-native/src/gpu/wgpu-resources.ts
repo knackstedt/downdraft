@@ -152,7 +152,7 @@ export class WgpuTexture {
    *  ops mark via WgpuCommandBuffer.writeTargets at submit). Surface
    *  contexts use it to skip presenting acquired-but-untouched swapchain
    *  textures — presenting an unwritten texture shows a blank frame instead
-   *  of retaining the last one, which breaks games with dirty-tracking. */
+   *  of retaining the last one, which breaks apps with dirty-tracking. */
   __ddWritten = false;
   /** Set by WgpuDevice.createTexture on GLES devices — view-format
    *  reinterpretation is unavailable (no VIEW_FORMATS downlevel flag), so

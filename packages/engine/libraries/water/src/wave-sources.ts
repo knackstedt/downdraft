@@ -1,5 +1,5 @@
 // ============================================================================
-// Wave Sources — wake and shore source collection from game entities
+// Wave Sources — wake and shore source collection from app entities
 // Wave/shore source system
 // ============================================================================
 

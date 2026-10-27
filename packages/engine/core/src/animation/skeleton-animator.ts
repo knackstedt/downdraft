@@ -1,6 +1,6 @@
 // ============================================================================
 // Skeleton Animator — skeletal animation with crossfade blending, retargeting,
-// procedural idle, and foot IK. Generic, game-agnostic.
+// procedural idle, and foot IK. Generic, app-agnostic.
 // Uses AnimationPlayer internally for blending (bone masks, additive, root motion).
 // ============================================================================
 

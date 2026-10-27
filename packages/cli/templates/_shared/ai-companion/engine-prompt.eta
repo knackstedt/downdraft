@@ -2,11 +2,11 @@
 
 ## Architecture
 
-DownDraft is a TypeScript-first game engine built on winit + wgpu (a single native process, hosted under Bun, Node, or Deno — Bun is the default) + WebGPU, with an MCP server enabling AI agents to design, build, debug, and manage games via natural language.
+DownDraft is a TypeScript-first app engine built on winit + wgpu (a single native process, hosted under Bun, Node, or Deno — Bun is the default) + WebGPU, with an MCP server enabling AI agents to design, build, debug, and manage apps via natural language.
 
 **Execution contexts:**
-1. **Native host (main thread)** — Game module, renderer, render loop, engine orchestrator, MCP server, asset manager
-2. **Sim worker** — ECS world, game systems, physics, AI, modules (SharedArrayBuffer channels for frame sync)
+1. **Native host (main thread)** — App module, renderer, render loop, engine orchestrator, MCP server, asset manager
+2. **Sim worker** — ECS world, app systems, physics, AI, modules (SharedArrayBuffer channels for frame sync)
 3. **DB worker** — Persistence layer with schema versioning
 
 ## ECS (Entity Component System)
@@ -111,14 +111,14 @@ world.registerModule(myModule);
 - `@downdraft/engine/modules/mcp` — MCP automation server
 - `@downdraft/engine/modules/xr` — WebXR support
 
-### Game Modules (to-the-ocean example: `@to-the-ocean/module-*`)
+### App Modules (to-the-ocean example: `@to-the-ocean/module-*`)
 - `@to-the-ocean/module-crafting` — Crafting recipes and system
 - `@to-the-ocean/module-inventory` — Inventory system
 - `@to-the-ocean/module-wildlife` — Wildlife AI (fish, sharks, eels, etc.)
 - `@to-the-ocean/module-buoyancy` — Water buoyancy physics
 - `@to-the-ocean/module-collision` — Entity collision detection
 
-### Game Libraries (to-the-ocean example: `@to-the-ocean/library-*`)
+### App Libraries (to-the-ocean example: `@to-the-ocean/library-*`)
 - `@to-the-ocean/library-items` — Item definitions and management
 - `@to-the-ocean/library-fishing` — Fishing mechanics
 - `@to-the-ocean/library-economy` — Market/trading system
@@ -136,7 +136,7 @@ world.registerModule(myModule);
 ## CLI Commands
 
 ```
-draft new [path] [options]      Scaffold a new game project
+draft new [path] [options]      Scaffold a new app project
 draft dev [options]             Start dev server with HMR
 draft debug [options]           Run engine in debug mode
 draft release [options]         Unified build + package + sign pipeline

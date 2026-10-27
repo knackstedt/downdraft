@@ -1,9 +1,9 @@
 // ============================================================================
 // ui-blit-pass.ts — screen-space WebGPU pass that composites a UI texture
-// over the game frame.
+// over the app frame.
 //
 // Each frame, after the UI system (Blitz/html-ui worker, Blitz devtools) has
-// rendered into its GPUTexture (on the shared device/queue), the game calls
+// rendered into its GPUTexture (on the shared device/queue), the app calls
 // `execute(commandEncoder, targetView)` with the swapchain texture view. This
 // begins a render pass on `targetView` with loadOp:"load" (preserving the 3D
 // frame), binds the UI texture + a linear sampler, and draws a fullscreen
@@ -92,7 +92,7 @@ export class UiBlitPass {
   /**
    * Draw the UI texture into an already-open render pass (fullscreen
    * triangle, premultiplied-alpha blend). Used by `ScreenUiCompositor`
-   * integrations where `GameRenderer` owns the surface pass.
+   * integrations where `AppRenderer` owns the surface pass.
    */
   renderInto(pass: GPURenderPassEncoder, uiTextureView: GPUTextureView): void {
     if (this.disposed || !uiTextureView) return;

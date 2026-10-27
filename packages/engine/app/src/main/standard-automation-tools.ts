@@ -1,27 +1,27 @@
 // ============================================================================
 // createStandardAutomationTools — the standard MCP automation tool set.
 //
-// Games previously hand-rolled ~10 identical tools in their mcp/setup.ts
-// (shared across games): capture_screenshot, inject_input,
+// Apps previously hand-rolled ~10 identical tools in their mcp/setup.ts
+// (shared across apps): capture_screenshot, inject_input,
 // clear_injected_input, dispatch_key, dispatch_click, wait_for_condition,
 // set_test_state, get_player_state, get_world_state, get_ui_state, plus the
 // DOM-inspection trio (get_element_bounds, inspect_dom, get_element_style).
 //
-// This factory centralizes them. Everything game-specific is injected via
+// This factory centralizes them. Everything app-specific is injected via
 // the context object — state providers, input injector, render hooks.
 //
 // Usage:
 //
 //   createMcpHarness({
-//     serverName: "downdraft-mygame-automation",
+//     serverName: "downdraft-myapp-automation",
 //     tools: createStandardAutomationTools({
 //       canvas: () => renderer.getCanvas(),
 //       renderOnce: () => renderer.renderOnce(),
 //       input: () => renderer.getInputHandler(),   // { injectInput, clearInjectedInput }
 //       getPlayerState: (i) => readPlayer(i),
 //       getWorldState: () => readWorld(),
-//       getUiState: () => useGameStore.getState(),
-//       extraTools: [...gameSpecificTools],
+//       getUiState: () => useAppStore.getState(),
+//       extraTools: [...appSpecificTools],
 //     }),
 //   });
 // ============================================================================
@@ -42,7 +42,7 @@ const log = createLogger("info");
 
 // ── Types ──
 
-/** Standard injected-input frame shape (matches the per-game handlers'). */
+/** Standard injected-input frame shape (matches the per-app handlers'). */
 export interface InjectedInputFrame {
   keys: Set<number>;
   leftMouse: boolean;
@@ -105,20 +105,20 @@ function domKeyCodeFor(key: string): number {
 }
 
 export interface StandardAutomationContext {
-  /** The game render surface (layer 0). Used by capture_screenshot + dispatch_click. */
+  /** The app render surface (layer 0). Used by capture_screenshot + dispatch_click. */
   surface: RenderSurface | (() => RenderSurface | null);
 
   /**
    * Render one frame when the render loop is paused (deterministic mode), so
    * screenshots reflect current state. Called by capture_screenshot when the
-   * game reports not-running. Omit if the canvas is always live.
+   * app reports not-running. Omit if the canvas is always live.
    */
   renderOnce?: () => void;
   /** Whether the render loop is running. Default: true (always live). */
   isRunning?: () => boolean;
   /**
    * Default value of the `fullPage` param in capture_screenshot when the
-   * caller omits it. Default: true (composite game canvas + DOM overlay).
+   * caller omits it. Default: true (composite app canvas + DOM overlay).
    */
   fullPageDefault?: boolean;
 
@@ -138,7 +138,7 @@ export interface StandardAutomationContext {
    */
   /**
    * The playerIndex param is `undefined` when the caller omits it, so
-   * providers can apply a game-specific default (e.g. the active player).
+   * providers can apply an app-specific default (e.g. the active player).
    */
   getPlayerState?: (playerIndex: number | undefined) => unknown;
   getWorldState?: () => unknown | Promise<unknown>;
@@ -146,9 +146,9 @@ export interface StandardAutomationContext {
 
   /**
    * InspectableRegistry for the inspectable_list/get/set tools — schema'd
-   * read/write nodes over game state (player customization, settings, …) so
+   * read/write nodes over app state (player customization, settings, …) so
    * agents mutate semantics directly instead of synthesizing input. Nodes'
-   * set() callbacks route through the game's normal apply pipeline.
+   * set() callbacks route through the app's normal apply pipeline.
    */
   inspectables?: InspectableRegistry;
 
@@ -159,7 +159,7 @@ export interface StandardAutomationContext {
   conditionVars?: Record<string, () => unknown>;
 
   /**
-   * Game-specific test-state handler for set_test_state — receives the raw
+   * App-specific test-state handler for set_test_state — receives the raw
    * params (minus the built-in keys handled here: pauseRendering,
    * resumeRendering, targetFPS). Omit to exclude the built-in tool.
    */
@@ -171,7 +171,7 @@ export interface StandardAutomationContext {
   /** Set a target FPS cap (set_test_state targetFPS). */
   setTargetFPS?: (fps: number) => void;
 
-  /** Game-specific tools appended to the standard set. */
+  /** App-specific tools appended to the standard set. */
   extraTools?: McpToolRegistration[];
   /** Restrict to a subset of standard tools. Default: all applicable. */
   include?: StandardToolName[];
@@ -221,14 +221,14 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
       def: {
         name: "capture_screenshot",
         description:
-          "Capture the current frame as a PNG image. By default composites the game canvas with the UI overlay (HUD, menus, etc.). Set fullPage=false to capture only the game canvas. Returns the image inline as base64.",
+          "Capture the current frame as a PNG image. By default composites the app canvas with the UI overlay (HUD, menus, etc.). Set fullPage=false to capture only the app canvas. Returns the image inline as base64.",
         inputSchema: {
           type: "object",
           properties: {
             fullPage: {
               type: "boolean",
               default: true,
-              description: "If true, composite the game canvas + extra layers + DOM overlay. If false, capture only the game canvas.",
+              description: "If true, composite the app canvas + extra layers + DOM overlay. If false, capture only the app canvas.",
             },
           },
         },
@@ -246,7 +246,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
 
         if (fullPage) {
           // Host capture: captureFrame() returns the fully composited
-          // swapchain (game + all overlay layers) — no DOM composite
+          // swapchain (app + all overlay layers) — no DOM composite
           // needed.
           if (typeof downdraft?.captureFrame === "function") {
             try {
@@ -298,7 +298,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
     tools.push({
       def: {
         name: "inject_input",
-        description: "Inject keyboard/mouse input for a number of frames. Useful for automation tests when no real user is interacting with the game.",
+        description: "Inject keyboard/mouse input for a number of frames. Useful for automation tests when no real user is interacting with the app.",
         inputSchema: {
           type: "object",
           properties: {
@@ -358,7 +358,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
     tools.push({
       def: {
         name: "dispatch_key",
-        description: "Dispatch a real DOM keyboard event on the main thread (keydown or keyup). This tests the full input pipeline: DOM event → game handler.",
+        description: "Dispatch a real DOM keyboard event on the main thread (keydown or keyup). This tests the full input pipeline: DOM event → app handler.",
         inputSchema: {
           type: "object",
           properties: {
@@ -498,7 +498,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
     tools.push({
       def: {
         name: "wait_for_condition",
-        description: "Poll until a condition on game state is met or a timeout occurs. Conditions are JS predicate expressions evaluated against named state variables (e.g. 'player.position[1] < -2').",
+        description: "Poll until a condition on app state is met or a timeout occurs. Conditions are JS predicate expressions evaluated against named state variables (e.g. 'player.position[1] < -2').",
         inputSchema: {
           type: "object",
           properties: {
@@ -555,7 +555,7 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
     tools.push({
       def: {
         name: "set_test_state",
-        description: "Set deterministic game state for tests. Built-in keys: pauseRendering, resumeRendering, targetFPS. Additional keys are forwarded to the game's setTestState handler.",
+        description: "Set deterministic app state for tests. Built-in keys: pauseRendering, resumeRendering, targetFPS. Additional keys are forwarded to the app's setTestState handler.",
         inputSchema: {
           type: "object",
           properties: {
@@ -633,10 +633,10 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
       def: {
         name: "inspectable_list",
         description:
-          "List the game's inspectable state nodes — schema'd read/write points over game state " +
+          "List the app's inspectable state nodes — schema'd read/write points over app state " +
           "(player customization, settings, etc.). Returns each node's path, type, valid " +
           "range/options, readOnly flag, and current value. Mutate them with inspectable_set " +
-          "instead of synthesizing input — writes run through the game's normal apply pipeline.",
+          "instead of synthesizing input — writes run through the app's normal apply pipeline.",
         inputSchema: {
           type: "object",
           properties: {
@@ -692,8 +692,8 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
         name: "inspectable_set",
         description:
           "Write a value to an inspectable node (see inspectable_list for paths, types, and valid " +
-          "options/ranges). The write is validated then routed through the game's apply function — " +
-          "engine side-effects (mesh re-resolution, sim dispatch, saves) happen as if the game's " +
+          "options/ranges). The write is validated then routed through the app's apply function — " +
+          "engine side-effects (mesh re-resolution, sim dispatch, saves) happen as if the app's " +
           "own UI had made the change. Returns the post-write value.",
         inputSchema: {
           type: "object",
@@ -718,31 +718,31 @@ export function createStandardAutomationTools(ctx: StandardAutomationContext): M
   return [...tools, ...(ctx.extraTools ?? [])];
 }
 
-// ── createGameMcp — one-liner harness setup ──
+// ── createAppMcp — one-liner harness setup ──
 //
-// Every game ended the same way: wrap createStandardAutomationTools() in
+// Every app ended the same way: wrap createStandardAutomationTools() in
 // createMcpHarness() inside a try/catch, deriving serverName from the host
 // appId. This folds that ceremony into one call:
 //
-//   createGameMcp({
-//     appId: "downdraft-mygame",           // → serverName "<appId>-automation"
+//   createAppMcp({
+//     appId: "downdraft-myapp",           // → serverName "<appId>-automation"
 //     surface: () => renderer.getSurface(),
 //     getUiState: () => store.getState(),
-//     tools: [...gameSpecificTools],
+//     tools: [...appSpecificTools],
 //   });
 //
 // Non-fatal by design — logs a warning and returns when the host bridge or
-// tool construction fails (matches the per-game try/catch it replaces).
-export interface GameMcpOptions extends StandardAutomationContext {
-  /** Host appId (e.g. "downdraft-my-game") — serverName becomes `<appId>-automation`. */
+// tool construction fails (matches the per-app try/catch it replaces).
+export interface AppMcpOptions extends StandardAutomationContext {
+  /** Host appId (e.g. "downdraft-my-app") — serverName becomes `<appId>-automation`. */
   appId: string;
-  /** Game-specific tools appended after the standard set (alias of extraTools). */
+  /** App-specific tools appended after the standard set (alias of extraTools). */
   tools?: McpToolRegistration[];
   /** MCP server version. Default "0.1.0". */
   serverVersion?: string;
 }
 
-export function createGameMcp(opts: GameMcpOptions): void {
+export function createAppMcp(opts: AppMcpOptions): void {
   const { appId, tools, serverVersion, ...ctx } = opts;
   try {
     createMcpHarness({

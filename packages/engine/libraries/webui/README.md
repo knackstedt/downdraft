@@ -1,10 +1,10 @@
 # `@downdraft/engine/libraries/webui` — heavyweight browser-backed UI tier
 
-A real web engine behind the shared `dd_webui_*` C ABI, for game UI that
+A real web engine behind the shared `dd_webui_*` C ABI, for app UI that
 needs a full DOM, JavaScript, modern web APIs, and complex pages Blitz
 can't render yet. **Blitz (`modules/html-ui`) remains the canonical
 lightweight UI** — this tier is opt-in per view and ships as optional
-native dependencies so games that don't use it pay nothing.
+native dependencies so apps that don't use it pay nothing.
 
 ## Backends
 
@@ -167,7 +167,7 @@ createWebUi({
 ```
 
 Panels composite screen-space via `PanelBlitPass` (same as Blitz
-panels) at UI input priority. `isPointerOverUI()` tells the game when a
+panels) at UI input priority. `isPointerOverUI()` tells the app when a
 pointer is over an interactive view.
 
 ## Verification

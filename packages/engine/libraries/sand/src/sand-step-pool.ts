@@ -34,11 +34,11 @@ export interface SandStepPoolOptions {
   skipMaskOffset?: number;
   deferredMaskOffset?: number;
   histogramOffset?: number;
-  // Game-specific config forwarded to each worker's SandWorld.
+  // App-specific config forwarded to each worker's SandWorld.
   preserveFlagsMask?: number;
   disturbedFlags?: number;
   // Gravity overrides for materials that are static by default (gravityDir=0)
-  // but need to fall in the game's context. Patched in each sand-step worker.
+  // but need to fall in the app's context. Patched in each sand-step worker.
   gravityOverrides?: { mat: number; gravityDir: number; gravity: number }[];
   // Worker script URL (the sand-step-worker.ts compiled output).
   // If not provided, workers are created via the inline

@@ -393,7 +393,7 @@ describe.skipIf(!haveLib)("svg object-fit — perf battery", () => {
     // frame() correctly returns null for a clean document.
     const widths = [1400, 1600, 1920, 1600, 1400, 1280];
     const t0 = performance.now();
-    for (const w of widths) {
+    for (let _i = 0, _it = widths, _n = _it.length; _i < _n; _i++) { const w = _it[_i];
       doc.resize(w, H, 1);
       expect(doc.frame()).not.toBeNull();
     }

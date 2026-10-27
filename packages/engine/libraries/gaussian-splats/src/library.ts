@@ -1,11 +1,11 @@
 // ============================================================================
 // GaussianSplatsLib — declarative engine library descriptor for @downdraft/engine/libraries/gaussian-splats
 //
-// Games declare `libraries: [GaussianSplatsLib]` (or with config override) in
-// their GameModule. The host creates the GaussianSplatRenderer (renderer-side)
+// Apps declare `libraries: [GaussianSplatsLib]` (or with config override) in
+// their AppModule. The host creates the GaussianSplatRenderer (renderer-side)
 // and exposes it via a typed token.
 //
-// Games that need full control can still import GaussianSplatRenderer directly
+// Apps that need full control can still import GaussianSplatRenderer directly
 // (escape hatch).
 // ============================================================================
 

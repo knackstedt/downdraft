@@ -132,7 +132,7 @@ fn write_line(line: &[u8]) {
     unsafe { __android_log_write(LOG_INFO, TAG.as_ptr(), text.as_ptr()) };
 }
 
-/// JS thread: extract the bundled engine+game assets, then hand control to
+/// JS thread: extract the bundled engine+app assets, then hand control to
 /// libnode for the process lifetime.
 fn js_thread(app: AndroidApp) {
     let root = match prepare_bundle(&app) {

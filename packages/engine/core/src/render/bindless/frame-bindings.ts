@@ -14,7 +14,7 @@
 // "slots" keyed by format, so all pipelines can share one bind group layout:
 //   slot 0: rgba8unorm color textures (albedo, normal, MR, AO, emissive)
 //   slot 1: rgba16float HDR textures (if used)
-// Additional slots can be added by the host if a game needs more formats.
+// Additional slots can be added by the host if an app needs more formats.
 // ============================================================================
 
 import { createLogger } from "../../util/logger";

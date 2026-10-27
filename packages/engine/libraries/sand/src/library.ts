@@ -1,11 +1,11 @@
 // ============================================================================
 // SandLib — declarative engine library descriptor for @downdraft/engine/libraries/sand
 //
-// Games declare `libraries: [SandLib]` (or with config override) in their
-// GameModule. The host allocates the sand grid SAB, creates the SandWorld
+// Apps declare `libraries: [SandLib]` (or with config override) in their
+// AppModule. The host allocates the sand grid SAB, creates the SandWorld
 // (sim-side), and exposes it via a typed token.
 //
-// Games that need full control can still import SandWorld directly
+// Apps that need full control can still import SandWorld directly
 // (escape hatch).
 // ============================================================================
 
@@ -75,13 +75,13 @@ export const SandLib: EngineLibrary<SandLibConfig> = {
       // SandWorld holds SAB views — no GPU resources to free.
       // The SAB itself is managed by the host.
     },
-    // tick is game-specific (calls world.step() with material rules, etc.)
-    // — games wire this via onReady or a sim system.
+    // tick is app-specific (calls world.step() with material rules, etc.)
+    // — apps wire this via onReady or a sim system.
   },
 
   tickPhase: "post-physics",
 
-  // No renderer setup — sand rendering is game-specific (the game creates
+  // No renderer setup — sand rendering is app-specific (the app creates
   // a sand render pass that reads the grid SAB).
 
   defaultConfig: {

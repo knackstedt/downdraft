@@ -2,7 +2,7 @@
 // ws-server.ts — minimal tri-runtime WebSocket server for host-authoritative
 // LAN/WAN sessions. The networking library ships client transports
 // (WebSocketTransport, WebRTCTransport) but had no listener — this fills the
-// host side so a game instance can accept direct connections without any
+// host side so an app instance can accept direct connections without any
 // external service.
 //
 // Runtime selection is capability-based (see platform/runtime.ts):

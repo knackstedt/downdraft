@@ -9,7 +9,7 @@ Before installing DownDraft Engine, ensure you have the following tools installe
 
 ### Bun
 
-DownDraft uses [Bun](https://bun.sh) as its package manager and **default** JS runtime — games execute against the native platform library via runtime-adapted FFI (`bun:ffi` under Bun). Node+tsx (`koffi`) and Deno (`Deno.dlopen`) are also supported hosts via `draft dev --runtime=node|deno` and as packaged runtimes via `draft release --runtime=node|deno` (linux), but Bun is required regardless for dependency installation (`bun.lock`), `bun test`, and as the packager's own host.
+DownDraft uses [Bun](https://bun.sh) as its package manager and **default** JS runtime — apps execute against the native platform library via runtime-adapted FFI (`bun:ffi` under Bun). Node+tsx (`koffi`) and Deno (`Deno.dlopen`) are also supported hosts via `draft dev --runtime=node|deno` and as packaged runtimes via `draft release --runtime=node|deno` (linux), but Bun is required regardless for dependency installation (`bun.lock`), `bun test`, and as the packager's own host.
 
 ```bash
 curl -fsSL https://bun.sh/install | bash
@@ -36,24 +36,24 @@ cd downdraft
 bun install
 ```
 
-This installs all workspace dependencies via Bun workspaces. Games are separate repos — if you develop a game alongside the engine under `games/`, run `bun run link:games` to link `@downdraft/*` packages into each game's `node_modules`.
+This installs all workspace dependencies via Bun workspaces. Apps are separate repos — if you develop an app alongside the engine under `apps/`, run `bun run link:apps` to link `@downdraft/*` packages into each app's `node_modules`.
 
 ## Verify Installation
 
-Scaffold a game and run it to verify everything works:
+Scaffold an app and run it to verify everything works:
 
 ```bash
-draft new my-game
-cd my-game
+draft new my-app
+cd my-app
 draft dev
 ```
 
-This launches the game on the native runtime via its `src/native-entry.ts` entrypoint. You should see a native window with the WebGPU-rendered scene and devtools overlay.
+This launches the app on the native runtime via its `src/native-entry.ts` entrypoint. You should see a native window with the WebGPU-rendered scene and devtools overlay.
 
-## Running an Existing Game
+## Running an Existing App
 
 ```bash
-cd <game-directory> && draft dev
+cd <app-directory> && draft dev
 ```
 
 ## Next Steps

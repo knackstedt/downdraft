@@ -25,10 +25,10 @@ const realm = new PhysicsRealm(backend, {
 ## Using the Rapier Library
 
 ```typescript
-import { startGame } from "@downdraft/engine/app/main";
+import { startApp } from "@downdraft/engine/app/main";
 import { PhysicsRapierLib, PhysicsAPITok } from "@downdraft/engine/libraries/physics-rapier";
 
-startGame({
+startApp({
   libraries: [PhysicsRapierLib],
   // inject the typed token in onReady:
   onReady: (ctx) => {
@@ -37,7 +37,7 @@ startGame({
 });
 ```
 
-Bare class exports (`RapierPhysicsBackend`, `createRapierBackend`, `UniversalPhysicsAPI`) remain available for games that wire physics manually.
+Bare class exports (`RapierPhysicsBackend`, `createRapierBackend`, `UniversalPhysicsAPI`) remain available for apps that wire physics manually.
 
 ## Components
 

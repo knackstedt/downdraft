@@ -50,7 +50,7 @@ const BRIDGE_METHODS = new Set([
   "events.subscribe",
   "state.save",
   "state.load",
-  // Host-call bridge (game mutation) — only present on native-tier contexts;
+  // Host-call bridge (app mutation) — only present on native-tier contexts;
   // each method is additionally permission-gated inside the context.
   "spawnProp",
   "removeProp",

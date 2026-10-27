@@ -4,7 +4,7 @@
 // resource registration, and the JSX→markup runtime.
 //
 // GPU-facing pieces (HtmlUiHost texture/pipeline management) need a real
-// device and are verified via the native bakeoff + game smoke tests instead.
+// device and are verified via the native bakeoff + app smoke tests instead.
 // ============================================================================
 
 import { loadOsrLib } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";

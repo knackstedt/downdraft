@@ -52,8 +52,8 @@ export { InputSABChannel } from "./sab/input";
 export { createMultiInputChannel, DEFAULT_KEY_BITFIELD_COUNT, DEFAULT_MAX_PLAYERS, MultiInputChannel } from "./sab/multi-input-channel";
 export type { MultiInputChannelInstance, MultiInputChannelOptions } from "./sab/multi-input-channel";
 
-// Game Input SAB Channel
-export { INP, INP_FLAG, INP_HDR, INPUT_MAGIC, INPUT_VERSION, InputBufferReader, InputBufferWriter, InputChannel, KEY, MAX_INPUT_PLAYERS } from "./sab/game-input";
+// App Input SAB Channel
+export { INP, INP_FLAG, INP_HDR, INPUT_MAGIC, INPUT_VERSION, InputBufferReader, InputBufferWriter, InputChannel, KEY, MAX_INPUT_PLAYERS } from "./sab/app-input";
 
 // Sim SAB Channel
 export { allocateInputBuffer, allocateSimBuffer, ENT, MAX_ENTITIES, MAX_PLAYERS, PLR, PLR_FLAG, PREV, SIM_ENTITY_SLOT_SIZE, SIM_HDR, SIM_MAGIC, SIM_PLAYER_SLOT_SIZE, SIM_VERSION, SimBufferReader, SimBufferWriter, SimChannel } from "./sab/sim-channel";
@@ -173,7 +173,7 @@ export { GPUTimerPool } from "./telemetry/gpu-timer-pool";
 export { TelemetryReporter } from "./telemetry/reporter";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Profiling (in-game declarative profiling system)
+// Profiling (in-app declarative profiling system)
 //
 // The full profiling API is available via the `@downdraft/engine/profiling`
 // subpath. Here we re-export the most commonly used items for convenience.
@@ -216,7 +216,7 @@ export type { ScriptContext, ScriptHandle, ScriptModule } from "./scripting/scri
 // ─────────────────────────────────────────────────────────────────────────────
 // Save (legacy ECS serializer)
 // ─────────────────────────────────────────────────────────────────────────────
-export { SaveSystem } from "./save/migrate";
+export { WorldSaveSystem } from "./save/migrate";
 export { CURRENT_SCHEMA_VERSION, SchemaRegistry } from "./save/schema";
 export { Serializer } from "./save/serializer";
 export type { SaveData } from "./save/serializer";
@@ -251,10 +251,10 @@ export type {
 } from "./save/persist-types";
 
 // Grid save system factory — eliminates duplicated save-system boilerplate
-export { createGameSaveSystem } from "./save/game-save-system";
-export type { GameSaveSystem, GameSaveSystemOptions } from "./save/game-save-system";
 export { createGridSaveSystem } from "./save/grid-save-system";
 export type { GridSaveSystem, GridSaveSystemOptions, SaveListEntry } from "./save/grid-save-system";
+export { createSaveSystem } from "./save/save-system";
+export type { SaveSystem, SaveSystemOptions } from "./save/save-system";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Animation
@@ -316,8 +316,8 @@ export { fbm2D, hash2, smoothstep, valueNoise2D } from "./math/value-noise";
 // ─────────────────────────────────────────────────────────────────────────────
 // Stores
 // ─────────────────────────────────────────────────────────────────────────────
-export { createBaseGameStoreState } from "./stores/game-store";
-export type { BaseGameStoreState } from "./stores/game-store";
+export { createBaseAppStoreState } from "./stores/app-store";
+export type { BaseAppStoreState } from "./stores/app-store";
 export { useHotReloadStore } from "./stores/hot-reload-store";
 export type { ReloadEntry } from "./stores/hot-reload-store";
 

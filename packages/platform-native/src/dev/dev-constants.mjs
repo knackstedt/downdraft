@@ -14,7 +14,7 @@ export const CONFIG_KEY = "__ddDevConfig";
 /** globalThis key for the supervisor object the runtime calls back into. */
 export const SUPERVISOR_KEY = "__ddSupervisor";
 
-/** globalThis key for the game-facing HMR control surface. */
+/** globalThis key for the app-facing HMR control surface. */
 export const HMR_KEY = "__ddHmr";
 
 /** globalThis flag guarding one-time registration of the runtime's
@@ -84,7 +84,7 @@ export const DEFAULT_HOST_RESTART_PATTERNS = [
 
 /** Default sim/worker path classification (substring match, normalized
  *  POSIX-style). Shared dirs + engine module/library dirs can feed the sim
- *  worker graph. Games override via downdraft.config.json → hmr.simPaths. */
+ *  worker graph. Apps override via downdraft.config.json → hmr.simPaths. */
 export const DEFAULT_SIM_PATTERNS = [
   "/src/simulation/",
   "/src/sim/",

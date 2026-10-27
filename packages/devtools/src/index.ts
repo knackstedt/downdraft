@@ -2,13 +2,13 @@
 // @downdraft/devtools — public surface.
 //
 //   Standalone viewer:  `draft devtools` (runs src/native-entry.ts), or
-//                       `runNativeGameModule(gameModule)` from an app entry.
+//                       `runNativeAppModule(appModule)` from an app entry.
 //   Embedded overlay:   mountDevtools(ctx, { overlay: true }) inside
-//                       a game's GameModule.ui hook — F12 toggles.
+//                       an app's AppModule.ui hook — F12 toggles.
 // ============================================================================
 
 export { mountDevtools, type DevtoolsMount, type DevtoolsMountOptions } from "./mount";
-export { gameModule } from "./standalone";
+export { appModule } from "./standalone";
 export { mountMcpTools } from "./mcp/tools";
 export { sessions, startTargetRuntime, stopTargetRuntime } from "./targets/runtime";
 export {

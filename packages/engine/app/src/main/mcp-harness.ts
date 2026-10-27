@@ -1,13 +1,13 @@
 // ============================================================================
 // createMcpHarness() — factory for renderer-side MCP automation harnesses.
 //
-// Centralizes the MCP request-handling boilerplate shared by games
+// Centralizes the MCP request-handling boilerplate shared by apps
 // that have MCP automation:
 //   - initialize / tools/list / tools/call / shutdown method dispatch
 //   - downdraft.onMcpRequest wiring
 //   - Error handling + logging
 //
-// Games provide only their tool definitions + handlers.
+// Apps provide only their tool definitions + handlers.
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
@@ -50,7 +50,7 @@ export interface McpHarnessOptions {
  *
  * @example
  * createMcpHarness({
- *   serverName: "downdraft-mygame-automation",
+ *   serverName: "downdraft-myapp-automation",
  *   tools: [
  *     {
  *       def: { name: "capture_screenshot", description: "...", inputSchema: {...} },
@@ -116,8 +116,8 @@ export function createMcpHarness(opts: McpHarnessOptions): void {
 }
 
 // ── Shared MCP tool helpers ──────────────────────────────────────────────────
-// These utilities are used by multiple games' MCP automation harnesses.
-// Games import them instead of duplicating the implementation.
+// These utilities are used by multiple apps' MCP automation harnesses.
+// Apps import them instead of duplicating the implementation.
 
 /** Convert a Blob to a base64 string (without the data: prefix). */
 export async function blobToBase64(blob: Blob): Promise<string> {

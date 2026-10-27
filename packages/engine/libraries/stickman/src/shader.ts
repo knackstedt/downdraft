@@ -1,11 +1,11 @@
 // Shared thick-line + SDF-circle stickman WGSL shader.
 //
-// Both games use this single shader. The per-game coordinate transform is
+// Both apps use this single shader. The per-app coordinate transform is
 // baked into a uniform affine `u.transform` (cell coords -> NDC):
 //
 //   ndc.xy = worldPos.xy * transform.xy + transform.zw
 //
-// 2D grid games: transform = (2/gridW, -2/gridH, -1, +1)
+// 2D grid apps: transform = (2/gridW, -2/gridH, -1, +1)
 //
 // Two segment types (detected via endpointB.z > 0):
 //   Line:  extrudes a thick stroke perpendicular to the segment.
@@ -13,7 +13,7 @@
 //     to draw a perfect anti-aliased circle ring.
 //
 // Light/volumetric textures are sampled at the player's world position
-// (half-res, matching the game's light-accum pass). 2D grid games may bind
+// (half-res, matching the app's light-accum pass). 2D grid apps may bind
 // 1x1 white dummy textures so lighting is identity.
 
 import type { WgslStruct } from "@downdraft/engine/shader-graph";
@@ -101,7 +101,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
   if (in.circleRadius > 0.0) {
     // Filled head disc with a soft anti-aliased rim (a thin ring read as a
-    // floating block at game zooms).
+    // floating block at app zooms).
     let dist = distance(in.worldPos, in.circleCenter);
     let aa = 0.5;
     let alpha = 1.0 - smoothstep(in.circleRadius - aa, in.circleRadius, dist);

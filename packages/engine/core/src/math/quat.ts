@@ -3,7 +3,7 @@
 // ============================================================================
 //
 // Quaternions use the engine's `Quat` type ({x, y, z, w}). Used by
-// animation/skeleton systems and games that compose rotations.
+// animation/skeleton systems and apps that compose rotations.
 
 import type { Quat } from "../sim/types";
 

@@ -1,8 +1,8 @@
 // ============================================================================
-// GridSimBuffer — generic SharedArrayBuffer layout for grid-based games
+// GridSimBuffer — generic SharedArrayBuffer layout for grid-based apps
 // ============================================================================
 //
-// Provides a configurable SAB layout for cellular automata / sand games that
+// Provides a configurable SAB layout for cellular automata / sand apps that
 // need to transfer grid + field data between a sim worker and the renderer.
 //
 // Layout:
@@ -10,9 +10,9 @@
 //   [extra grid layers (e.g. background)]
 //   [input region] [stats region] [player region] [extra regions...]
 //
-// Games configure the layout via GridSimBufferLayout, then use GridSimBufferReader
-// and GridSimBufferWriter to access the SAB. Game-specific field offset constants
-// (INPUT, STATS, PLAYER) stay in the game — only the storage boilerplate is shared.
+// Apps configure the layout via GridSimBufferLayout, then use GridSimBufferReader
+// and GridSimBufferWriter to access the SAB. App-specific field offset constants
+// (INPUT, STATS, PLAYER) stay in the app — only the storage boilerplate is shared.
 
 export interface GridSimBufferLayout {
   /** Number of grid layers (each has a grid + field grid). Default: 1 */

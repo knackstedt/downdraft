@@ -29,7 +29,7 @@ function enginePkgRoot(fromFile) {
 /**
  * @param {string[]} argv raw flag list (process.argv.slice(2))
  * @param {string} fromFile file to anchor @downdraft/engine resolution at
- *   (typically the game entry — covers workspace links and standalone repos)
+ *   (typically the app entry — covers workspace links and standalone repos)
  * @returns {string[] | undefined} Bun.build `conditions` override
  */
 export function engineConditions(argv, fromFile) {

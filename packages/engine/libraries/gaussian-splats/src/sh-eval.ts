@@ -46,7 +46,7 @@ const SH_C3: readonly number[] = [
 
 /**
  * Pack SH "rest" coefficients from parsed data, truncated to `maxDegree`.
- * If the parsed data has degree 3 but the game configures `maxDegree: 1`,
+ * If the parsed data has degree 3 but the app configures `maxDegree: 1`,
  * only 9 coeffs/splat (3 per channel) are packed — saving GPU memory.
  *
  * Returns an empty Float32Array if `maxDegree === 0` or the data has no SH.

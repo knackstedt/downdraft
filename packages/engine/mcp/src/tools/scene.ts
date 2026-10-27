@@ -5,7 +5,7 @@ import { errorResult, jsonResult, textResult } from "../types";
 import type { UndoRedoManager } from "../undo-redo";
 
 /** Base directory used for path confinement. Falls back to cwd. */
-const GAME_ROOT = process.cwd();
+const APP_ROOT = process.cwd();
 
 export function createSceneTools(ctx: EngineContext, undoRedo: UndoRedoManager): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -75,7 +75,7 @@ export function createSceneTools(ctx: EngineContext, undoRedo: UndoRedoManager):
         if (!path) return errorResult("path is required");
 
         try {
-          const safePath = confinePath(GAME_ROOT, path);
+          const safePath = confinePath(APP_ROOT, path);
           await ctx.saveSystem.loadFromFile(safePath, ctx.ecsWorld);
           return jsonResult({ loaded: true, path: safePath, entityCount: ctx.ecsWorld.entityCount() });
         } catch (e) {
@@ -101,7 +101,7 @@ export function createSceneTools(ctx: EngineContext, undoRedo: UndoRedoManager):
         if (!path) return errorResult("path is required");
 
         try {
-          const safePath = confinePath(GAME_ROOT, path);
+          const safePath = confinePath(APP_ROOT, path);
           await ctx.saveSystem.saveToFile(ctx.ecsWorld, ctx.scene.name, safePath);
           return jsonResult({ saved: true, path: safePath, scene: ctx.scene.name });
         } catch (e) {

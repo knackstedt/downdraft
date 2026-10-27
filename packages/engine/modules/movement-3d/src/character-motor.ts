@@ -1,9 +1,9 @@
 // ============================================================================
 // CharacterMotor3D — shared 3D character movement kernel
 //
-// Generalized from early games' moveLoop and character
+// Generalized from early apps' moveLoop and character
 // player-manager. Computes desired per-tick movement deltas; collision
-// resolution is left to the game's physics backend (e.g. a Rapier character
+// resolution is left to the app's physics backend (e.g. a Rapier character
 // controller) or a grid/terrain query.
 //
 // Conventions: yaw is radians, 0 faces -Z (matches getMoveForward below).
@@ -64,7 +64,7 @@ export interface CharacterMotor3DConfig {
      *  climbed out of). Default 0 = vaulting disabled. */
     vaultForce?: number;
     /** How far below waterHeight the feet can be for a vault to trigger.
-     *  Must exceed the game's wet-probe depth or the env's inWater flag drops
+     *  Must exceed the app's wet-probe depth or the env's inWater flag drops
      *  before the vault window opens. Default: 0.55. */
     vaultDepth?: number;
     /** Min seconds between vaults — stops held keys from re-launching the
@@ -94,7 +94,7 @@ export interface Motor3DInput {
 export interface Motor3DState {
   /** Vertical velocity — persisted between ticks. */
   vy: number;
-  /** Set by the game's collision resolver each tick. */
+  /** Set by the app's collision resolver each tick. */
   grounded: boolean;
   /** Model yaw — eased toward the movement direction. */
   facing: number;
@@ -123,10 +123,10 @@ export interface Motor3DEnv {
   swimVertMul?: number;
   /** Scales swim.vaultForce; 0 = can't vault out of this liquid. Default: 1. */
   swimVaultMul?: number;
-  /** Game-computed: close enough to the liquid body's edge to climb over the
+  /** App-computed: close enough to the liquid body's edge to climb over the
    *  rim. Suppresses mid-pool vaults. Default: true. */
   swimNearEdge?: boolean;
-  /** Game-computed: unit XZ direction toward the nearest climbable edge. When
+  /** App-computed: unit XZ direction toward the nearest climbable edge. When
    *  set, a vault only fires if the player's move input points at the edge
    *  (dot > 0.35) — pressing away from the rim just bobs. When unset, any
    *  horizontal input satisfies the check. */

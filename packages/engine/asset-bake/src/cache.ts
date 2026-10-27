@@ -2,7 +2,7 @@
 // BakeCache — content-hash cache for baked assets.
 // ============================================================================
 //
-// Stores baked output in `<gameDir>/.downdraft/bake/` keyed by a hash of the
+// Stores baked output in `<appDir>/.downdraft/bake/` keyed by a hash of the
 // source file contents + the bake config version. A `manifest.json` maps
 // source-relative-path → cache entry so we can detect hits without re-hashing
 // on every build (we still verify the source hash to catch content changes).
@@ -16,7 +16,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { BAKE_CONFIG_VERSION, type ResolvedBakeOptions } from "./config";
 
 export interface BakeCacheEntry {
-  /** Source file path relative to the game root. */
+  /** Source file path relative to the app root. */
   sourceRel: string;
   /** xxh64 of source file contents (hex string). */
   sourceHash: string;
@@ -56,9 +56,9 @@ export class BakeCache {
   private manifest: BakeCacheManifest;
   private loaded = false;
 
-  constructor(gameRoot: string) {
-    this.root = gameRoot;
-    this.dir = resolve(gameRoot, ".downdraft", "bake");
+  constructor(appRoot: string) {
+    this.root = appRoot;
+    this.dir = resolve(appRoot, ".downdraft", "bake");
     this.manifestPath = join(this.dir, "manifest.json");
     this.manifest = { version: BAKE_CONFIG_VERSION, entries: {} };
   }

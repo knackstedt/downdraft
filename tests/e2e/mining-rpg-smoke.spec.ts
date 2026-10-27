@@ -1,22 +1,22 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
     captureAndSaveScreenshot,
-    gameAvailable,
-    launchGame,
+    appAvailable,
+    launchApp,
     parseJsonContent,
     sleep,
-    type GameProcess,
+    type AppProcess,
     type McpToolResult
 } from "./harness";
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
 
-describe.skipIf(!gameAvailable("mining-rpg"))("mining-rpg MCP automation smoke", () => {
-  let game: GameProcess | null = null;
+describe.skipIf(!appAvailable("mining-rpg"))("mining-rpg MCP automation smoke", () => {
+  let app: AppProcess | null = null;
 
   beforeAll(async () => {
-    game = await launchGame({
-      game: "mining-rpg",
+    app = await launchApp({
+      app: "mining-rpg",
       mcpPort: MCP_PORT,
       gpu: (process.env.DOWNDRAFT_GPU as "swiftshader" | undefined) ?? "swiftshader",
       deterministic: true,
@@ -30,18 +30,18 @@ describe.skipIf(!gameAvailable("mining-rpg"))("mining-rpg MCP automation smoke",
   }, 180000);
 
   afterAll(async () => {
-    await game?.kill();
+    await app?.kill();
   }, 30000);
 
   it("exposes the automation tool set", async () => {
-    const tools = await game!.mcpClient.listTools();
+    const tools = await app!.mcpClient.listTools();
     const names = new Set(tools.map((t) => t.name));
     ["capture_screenshot", "get_ui_state", "dispatch_key", "wait_for_condition"].forEach((name) => {
       expect(names.has(name)).toBe(true);
     });
   });
 
-  it("reports game state via get_ui_state", async () => {
+  it("reports app state via get_ui_state", async () => {
     type UiState = {
       paused: boolean;
       gameOver: boolean;
@@ -54,7 +54,7 @@ describe.skipIf(!gameAvailable("mining-rpg"))("mining-rpg MCP automation smoke",
     // poll rather than asserting on a fixed sleep (native boots slower).
     let state: UiState | null = null;
     for (let i = 0; i < 100 && !(state && state.health > 0); i++) {
-      const result = (await game!.mcpClient.callTool("get_ui_state", {})) as McpToolResult;
+      const result = (await app!.mcpClient.callTool("get_ui_state", {})) as McpToolResult;
       state = parseJsonContent(result) as UiState;
       if (state.health > 0) break;
       await sleep(100);
@@ -68,13 +68,13 @@ describe.skipIf(!gameAvailable("mining-rpg"))("mining-rpg MCP automation smoke",
 
   it("captures a non-empty screenshot", async () => {
     await sleep(2000);
-    const meta = await captureAndSaveScreenshot(game!, "mining-rpg-smoke.png", true);
+    const meta = await captureAndSaveScreenshot(app!, "mining-rpg-smoke.png", true);
     expect(meta.width).toBeGreaterThan(0);
     expect(meta.height).toBeGreaterThan(0);
   }, 30000);
 
   it("reports no console errors during boot", () => {
-    const errors = game!.getConsoleErrors();
+    const errors = app!.getConsoleErrors();
     expect(errors).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 // ============================================================================
 // inspectable.ts (character) tests — characterCustomizationNodes emits
-// schema'd nodes that write through the game's apply callback.
+// schema'd nodes that write through the app's apply callback.
 //
 // Run: bun test packages/engine/libraries/character/src/inspectable.spec.ts
 // ============================================================================

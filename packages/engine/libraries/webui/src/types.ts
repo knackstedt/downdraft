@@ -23,7 +23,7 @@ export interface WebUiViewConfig {
   html?: string;
   /** Forward input to the page. Default true. */
   interactive?: boolean;
-  /** Transparent background (no opaque page color). Default true — game UI
+  /** Transparent background (no opaque page color). Default true — app UI
    *  panels composite over the scene, so pages see-through by default. */
   transparent?: boolean;
   /** Repaint-rate hint in Hz. Default 60. */

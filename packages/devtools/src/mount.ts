@@ -6,17 +6,17 @@
 //   standalone — the viewer app (src/standalone.ts → `draft devtools` or
 //     `draft dev` in apps/devtools). Fullscreen, always visible.
 //
-//   overlay — inside a host game's ui() hook. Fullscreen overlay drawn above
-//     the game (high compositor order + html-ui z), toggled by F12, zero GPU
+//   overlay — inside a host app's ui() hook. Fullscreen overlay drawn above
+//     the app (high compositor order + html-ui z), toggled by F12, zero GPU
 //     cost and zero input capture while hidden.
 //
 // Both modes run the target runtime (discovery + feed + sessions), so an
-// embedded surface can attach to the host game itself (self-agent), other
+// embedded surface can attach to the host app itself (self-agent), other
 // running targets, or flaky/crashing targets — exactly like the standalone
 // viewer.
 // ============================================================================
 
-import type { GameContext } from "@downdraft/engine/app/main";
+import type { AppContext } from "@downdraft/engine/app/main";
 import type { DevtoolsBackend } from "@downdraft/engine/libraries/devtools";
 import type { RendererModule } from "@downdraft/engine/module/renderer-module";
 import { createHtmlUi, HtmlUiTok, type HtmlUiContext } from "@downdraft/engine/modules/html-ui";
@@ -39,7 +39,7 @@ let rejectionGuardInstalled = false;
 /** The engine's native-error-handlers treat unhandledRejection as fatal
  *  (crash report + dialog + exit). A devtools host watches flaky targets —
  *  routine async channel failures shouldn't kill the viewer (or the host
- *  game it's embedded in). Swap exit for a loud log; synchronous
+ *  app it's embedded in). Swap exit for a loud log; synchronous
  *  uncaughtException keeps engine fatal semantics. */
 function installRejectionGuard(): void {
   if (rejectionGuardInstalled) return;
@@ -53,12 +53,12 @@ function installRejectionGuard(): void {
 
 export interface DevtoolsMountOptions {
   /** Embedded mode: overlay hidden until toggled; compositors/docs drawn
-   *  above game UI; layout prefs not persisted to the standalone viewer's
+   *  above app UI; layout prefs not persisted to the standalone viewer's
    *  file. Default false (standalone viewer). */
   overlay?: boolean;
-  /** The host game's HtmlUiContext — pass `ui` from inside the game's own
+  /** The host app's HtmlUiContext — pass `ui` from inside the app's own
    *  `createHtmlUi({ build(ui) { ... } })` so the devtools docs share the
-   *  game's html-ui host (one worker, unified input routing/z-order). If
+   *  app's html-ui host (one worker, unified input routing/z-order). If
    *  omitted: reuses a `HtmlUiTok` provider when one is already registered;
    *  otherwise mounts a private non-providing host. */
   ui?: HtmlUiContext;
@@ -70,22 +70,22 @@ export interface DevtoolsMountOptions {
   /** html-ui z-order for the shell docs. Default 10 standalone / 1000 overlay. */
   chromeZ?: number;
   /** ScreenUiCompositor order for the GPU panel pass — must outrank the host
-   *  game's own compositors for the overlay to draw on top. Default 0 / 1000. */
+   *  app's own compositors for the overlay to draw on top. Default 0 / 1000. */
   surfaceOrder?: number;
   /** Inject the bundled devtools agent into this process so the viewer can
    *  self-attach. "auto" = only when embedded AND DOWNDRAFT_DEV=1 (i.e. under
    *  `draft dev`); true = always; false = never. Default "auto". */
   selfAgent?: "auto" | boolean;
-  /** Embedded only: expose the host game's devtools backend (the Blitz
+  /** Embedded only: expose the host app's devtools backend (the Blitz
    *  dock's in-process DevtoolsBackend) over a loopback mirror WS, so this
    *  overlay — and any external viewer — can pull provider data (GPU, sim,
-   *  render-graph…) from the game itself. No-op when the game already runs
+   *  render-graph…) from the app itself. No-op when the app already runs
    *  devtools.ui:"web" (mirror exists) or "none" (no backend). Default true. */
   selfMirror?: boolean;
   /** Target runtime + selection mode. `false` disables discovery/feed/
    *  sessions entirely. `"self"` pins the host process as the active target
    *  and hides the targets sidebar — embedded default: the overlay inspects
-   *  the game it's mounted in. `"all"` shows the full target list —
+   *  the app it's mounted in. `"all"` shows the full target list —
    *  standalone default, also valid embedded for multi-target inspection. */
   targets?: boolean | "self" | "all";
   /** Persist dock/sidebar/zoom prefs to the viewer's shared layout.json.
@@ -93,7 +93,7 @@ export interface DevtoolsMountOptions {
   persistLayout?: boolean;
   /** Downgrade unhandledRejection from the engine's fatal handler to a
    *  logged error — a flaky target's channel must never take down the
-   *  viewer (or, embedded, the host game). The trade-off: other unhandled
+   *  viewer (or, embedded, the host app). The trade-off: other unhandled
    *  rejections in the process also become non-fatal. Pass false to keep
    *  strict engine semantics. Default true. */
   rejectionGuard?: boolean;
@@ -105,13 +105,13 @@ export interface DevtoolsMount {
   dispose(): void;
 }
 
-/** Expose the host game's devtools backend over a loopback mirror WS.
- *  Blitz games keep their backend in-process — this attaches a
+/** Expose the host app's devtools backend over a loopback mirror WS.
+ *  Blitz apps keep their backend in-process — this attaches a
  *  DevToolsServer to it so remote viewers (this overlay included) get the
  *  provider channel, and writes the ~/.downdraft/devtools/<pid>.json
  *  discovery record. Skips web hosts (already mirrored) and missing
  *  backends (devtools.ui:"none"). */
-async function attachSelfMirror(ctx: GameContext): Promise<(() => void) | null> {
+async function attachSelfMirror(ctx: AppContext): Promise<(() => void) | null> {
   const host = (ctx.renderer as {
     nativeDebugger?: { devtoolsMirror?: DevtoolsBackend; url?: string };
   }).nativeDebugger;
@@ -135,7 +135,7 @@ async function attachSelfMirror(ctx: GameContext): Promise<(() => void) | null> 
   return () => { detach(); void server.stop(); };
 }
 
-export function mountDevtools(ctx: GameContext, opts: DevtoolsMountOptions = {}): DevtoolsMount {
+export function mountDevtools(ctx: AppContext, opts: DevtoolsMountOptions = {}): DevtoolsMount {
   const overlay = opts.overlay ?? false;
   const visible0 = overlay ? (opts.initiallyVisible ?? false) : true;
   const toggleKey = opts.toggleKey === undefined ? (overlay ? "F12" : null) : opts.toggleKey;
@@ -169,8 +169,8 @@ export function mountDevtools(ctx: GameContext, opts: DevtoolsMountOptions = {})
   const setVisible = (on: boolean) => {
     store.setState({ overlayVisible: on });
     if (on) {
-      // Games that hold pointer lock (FPS look) must release it for the
-      // overlay's panels to be clickable — same contract the game's own
+      // Apps that hold pointer lock (FPS look) must release it for the
+      // overlay's panels to be clickable — same contract the app's own
       // overlays use. No-op when the surface isn't locked.
       (ctx.surface as { exitPointerLock?: () => void }).exitPointerLock?.();
       showShell();
@@ -179,9 +179,9 @@ export function mountDevtools(ctx: GameContext, opts: DevtoolsMountOptions = {})
     }
   };
 
-  // ── html-ui: prefer the host game's context (one worker + unified input
+  // ── html-ui: prefer the host app's context (one worker + unified input
   //    routing). When none exists, mount a private host that does NOT provide
-  //    HtmlUiTok — a game registering createHtmlUi afterwards then can't hit
+  //    HtmlUiTok — an app registering createHtmlUi afterwards then can't hit
   //    the duplicate-provides error regardless of mount order. ──
   const attachUi = (ui: HtmlUiContext) => {
     shellUi = ui;
@@ -239,9 +239,9 @@ export function mountDevtools(ctx: GameContext, opts: DevtoolsMountOptions = {})
   };
   ctx.renderer.useRendererModule?.(surfacesModule);
 
-  // ── Pointer lock: games re-lock on canvas click, and their DOM-level
+  // ── Pointer lock: apps re-lock on canvas click, and their DOM-level
   //    handlers can't see the input bus's consumed flags. Swallow lock
-  //  requests while the overlay is up — the game's own overlays use the
+  //  requests while the overlay is up — the app's own overlays use the
   //    same contract. Restored on dispose. ──
   const lockable = ctx.surface as { requestPointerLock?: () => Promise<void> | void };
   const origRequestPointerLock = lockable.requestPointerLock;
@@ -251,7 +251,7 @@ export function mountDevtools(ctx: GameContext, opts: DevtoolsMountOptions = {})
         if (store.getState().overlayVisible) return undefined;
         return origRequestPointerLock.call(this);
       };
-    } catch { /* non-writable surface — the game's gate still applies */ }
+    } catch { /* non-writable surface — the app's gate still applies */ }
   }
 
   // ── Target runtime: discovery + feed + sessions. Refcounted — safe when
@@ -280,7 +280,7 @@ export function mountDevtools(ctx: GameContext, opts: DevtoolsMountOptions = {})
       log.info("app", "target runtime started");
     });
     if (overlay) {
-      // The host game is a legitimate target here — let its own discovery
+      // The host app is a legitimate target here — let its own discovery
       // records (mirror, agent, mcp) register it as a session. "self" mode
       // pins it as the active target and hides the list; "all" merely
       // prefers it when nothing else is selected yet.

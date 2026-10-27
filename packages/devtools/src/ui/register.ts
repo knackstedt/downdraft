@@ -1,6 +1,6 @@
 // ============================================================================
 // register.ts — registers all panel factories into the panel registry.
-// Called once from game-module before the host module mounts.
+// Called once from app-module before the host module mounts.
 // ============================================================================
 
 import type { RendererModuleContext } from "@downdraft/engine/module/renderer-module";
@@ -24,7 +24,7 @@ export interface SurfaceFactoryCtx {
   mctx: RendererModuleContext;
   cache: RunCache;
   /** ScreenUiCompositor.order — embedded mounts use a high value so the
-   *  devtools pass draws above the host game's own screen-space UI. */
+   *  devtools pass draws above the host app's own screen-space UI. */
   order: number;
 }
 

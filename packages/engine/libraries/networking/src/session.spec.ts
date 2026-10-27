@@ -27,8 +27,8 @@ describe("MockPlatformAdapter", () => {
   it("should set and clear rich presence", async () => {
     const adapter = createMockPlatformAdapter();
     await adapter.init();
-    adapter.setRichPresence("status", "in-game");
-    expect(adapter.getRichPresence()["status"]).toBe("in-game");
+    adapter.setRichPresence("status", "in-app");
+    expect(adapter.getRichPresence()["status"]).toBe("in-app");
     adapter.clearRichPresence();
     expect(Object.keys(adapter.getRichPresence())).toHaveLength(0);
   });
@@ -137,12 +137,12 @@ describe("LobbyManager", () => {
     expect(lobby.getLobby()).toBeNull();
   });
 
-  it("should start game from waiting", async () => {
+  it("should start app from waiting", async () => {
     const platform = createMockPlatformAdapter();
     await platform.init();
     const lobby = new LobbyManager(platform, { maxPlayers: 4 });
     await lobby.create();
-    lobby.startGame();
+    lobby.startApp();
     expect(lobby.getState()).toBe("active");
   });
 

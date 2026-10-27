@@ -12,10 +12,10 @@ export function createMultiInputChannel(opts: MultiInputChannelOptions = {}) {
   return defineChannel({
     name: "multi-input",
     magic: 0x4d495043,
-    // v2: gamepadButtons is now a u32 bitmask pair ([lo, hi], W3C standard
-    // button order = GP_BTN_* in ./gamepad-devices.ts), gamepadAxes grows to
-    // 8 (lx ly rx ry lt rt dpadX dpadY), and gamepadSlot binds the player to
-    // a device-table slot in the 'gamepad-devices' channel (0xFF = none).
+    // v2: controllerButtons is now a u32 bitmask pair ([lo, hi], W3C standard
+    // button order = GP_BTN_* in ./controller-devices.ts), controllerAxes grows to
+    // 8 (lx ly rx ry lt rt dpadX dpadY), and controllerSlot binds the player to
+    // a device-table slot in the 'controller-devices' channel (0xFF = none).
     version: 2,
     mode: "slots",
     header: { size: 64, fields: {} },
@@ -32,9 +32,9 @@ export function createMultiInputChannel(opts: MultiInputChannelOptions = {}) {
           mouseDeltaY: { type: "f32" },
           mouseButtons: { type: "i32", count: 3 },
           wheelDelta: { type: "f32" },
-          gamepadButtons: { type: "u32", count: 2 },
-          gamepadAxes: { type: "f32", count: 8 },
-          gamepadSlot: { type: "u32" },
+          controllerButtons: { type: "u32", count: 2 },
+          controllerAxes: { type: "f32", count: 8 },
+          controllerSlot: { type: "u32" },
           flags: { type: "u32" },
         },
       },

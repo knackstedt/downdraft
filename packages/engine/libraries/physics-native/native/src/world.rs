@@ -24,19 +24,19 @@ pub struct PhysicsWorld {
     /// rapier 0.30+ has no persistent QueryPipeline — queries are built as
     /// borrowed views over the broad-phase (see `queries()`).
     pub gravity: Vector,
-    /// Game body id → Rapier handle.
+    /// App body id → Rapier handle.
     pub body_map: HashMap<i32, RigidBodyHandle>,
-    /// Rapier handle → game body id (awake-state readback, contact reporting).
+    /// Rapier handle → app body id (awake-state readback, contact reporting).
     pub body_id_by_handle: HashMap<RigidBodyHandle, i32>,
-    /// Game collider id → Rapier handle.
+    /// App collider id → Rapier handle.
     // Keyed by collider_id — the JS backend allocates ids from a global
     // counter so they're unique across the realm.
     pub collider_map: HashMap<i32, ColliderHandle>,
-    /// Game controller id → controller state.
+    /// App controller id → controller state.
     pub controller_map: HashMap<i32, CharController>,
     /// Controllers with applyImpulsesToDynamicBodies enabled.
     pub impulse_controllers: std::collections::HashSet<i32>,
-    /// Game joint id → Rapier impulse joint handle.
+    /// App joint id → Rapier impulse joint handle.
     pub joint_map: HashMap<i32, ImpulseJointHandle>,
     pub ccd_solver: CCDSolver,
     /// Persistent integration params — dt is stored here so `setIntegrationDt`

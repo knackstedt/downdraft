@@ -1,6 +1,6 @@
 # `@downdraft/engine/modules/sailing`
 
-Sailing mechanics module — wind state, buoyancy integration, and sail controls for nautical games.
+Sailing mechanics module — wind state, buoyancy integration, and sail controls for nautical apps.
 
 ## Install
 

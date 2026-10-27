@@ -3,10 +3,10 @@
 // (Equivalent to launching via `draft dev --devtools-agent`; kept as a direct
 // import so the test bed also covers the manual-injection path.)
 import "@downdraft/platform-native/dev/devtools-agent.mjs";
-import { runNativeGameModule } from "@downdraft/platform-native";
-import { gameModule } from "./game-module";
+import { runNativeAppModule } from "@downdraft/platform-native";
+import { appModule } from "./app-module";
 
-await runNativeGameModule(gameModule, {
+await runNativeAppModule(appModule, {
   title: "dd-target",
   appId: "downdraft-dd-target",
   width: 900,

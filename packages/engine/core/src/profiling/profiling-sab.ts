@@ -1,5 +1,5 @@
 // ============================================================================
-// ProfilingSAB — SharedArrayBuffer layout for the in-game profiling system.
+// ProfilingSAB — SharedArrayBuffer layout for the in-app profiling system.
 //
 // One global SAB allocated by the renderer, shared to all workers + the
 // devtools host. Contains:

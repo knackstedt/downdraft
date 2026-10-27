@@ -56,7 +56,7 @@ export function getWorkerHost(): WorkerHost {
     onHostMessage: (handler: HostMessageHandler) => {
       // addEventListener — NOT ctx.onmessage assignment. The onmessage slot is
       // single-owner: assigning it clobbers (or is clobbered by) any other
-      // message consumer in the worker (buffer sync, game code, a second
+      // message consumer in the worker (buffer sync, app code, a second
       // expose() call). addEventListener composes.
       const listener = (e: MessageEvent) => handler(e.data);
       ctx.addEventListener("message", listener);

@@ -1,9 +1,9 @@
 ---
 title: Native Modules (Rust)
-description: Shipping game-owned Rust compute crates — C-ABI cdylibs via the FFI adapter and napi-rs .node addons — for desktop and Android
+description: Shipping app-owned Rust compute crates — C-ABI cdylibs via the FFI adapter and napi-rs .node addons — for desktop and Android
 ---
 
-Games can ship their own Rust crates for hot compute paths — physics-style batch kernels, procedural generation, delta-shedding workers. Two mechanisms are supported, and a game can pick per-runtime rather than supporting all three hosts.
+Apps can ship their own Rust crates for hot compute paths — physics-style batch kernels, procedural generation, delta-shedding workers. Two mechanisms are supported, and an app can pick per-runtime rather than supporting all three hosts.
 
 ## The two paths
 
@@ -21,14 +21,14 @@ Games can ship their own Rust crates for hot compute paths — physics-style bat
 
 **Choose napi-rs** when you need push-style delta delivery: `ThreadsafeFunction` is the only safe way to call into JS from a Rust-owned thread (FFI callbacks from foreign threads are unsafe or unsupported in all three hosts), or when you want typed JS objects at the boundary instead of raw pointers.
 
-Using napi doesn't lock you out of the other runtimes — Bun and Deno both load `.node` addons — but it does mean the addon can't run in hosts with no node-api table. Pin the game to the runtimes you verified.
+Using napi doesn't lock you out of the other runtimes — Bun and Deno both load `.node` addons — but it does mean the addon can't run in hosts with no node-api table. Pin the app to the runtimes you verified.
 
 ## Layout convention
 
-The packagers stage game-native artifacts from a fixed location:
+The packagers stage app-native artifacts from a fixed location:
 
 ```
-<game>/native/
+<app>/native/
   Cargo.toml            # standalone [workspace] — detaches from the engine's
   bench-ffi/            # cdylib, C-ABI exports
   bench-napi/           # cdylib, ships as *.node
@@ -108,14 +108,14 @@ env: {
 }
 ```
 
-`build-native.mjs` discovers the newest NDK under `$ANDROID_HOME/ndk/` when `ANDROID_NDK_HOME` is unset; a game-local build script should do the same.
+`build-native.mjs` discovers the newest NDK under `$ANDROID_HOME/ndk/` when `ANDROID_NDK_HOME` is unset; an app-local build script should do the same.
 
 ## Loading at runtime
 
-Search order used by a typical native-module bridge (`src/native/bridge-lib.ts` in the game repo):
+Search order used by a typical native-module bridge (`src/native/bridge-lib.ts` in the app repo):
 
 1. Env override (`BENCH_FFI_LIB` / `BENCH_NAPI_LIB`)
-2. Dev tree: `<game>/native/dist/<platform>-<arch>/`
+2. Dev tree: `<app>/native/dist/<platform>-<arch>/`
 3. Packaged desktop: `dirname(process.execPath)/native/`
 4. Android: `$DOWNDRAFT_BUNDLE_DIR/native/<platform>-<arch>/` (`.node`), or bare soname for `lib*.so` (jniLibs → the OS installs them into the app's native lib dir)
 
@@ -123,7 +123,7 @@ For the FFI side, pass your candidates to `resolveNativeLibrary(name, { dirs })`
 
 ## Packaging
 
-`package-native.mjs` (desktop) and `package-mobile.mjs` (Android) both stage from `<game>/native/dist/`:
+`package-native.mjs` (desktop) and `package-mobile.mjs` (Android) both stage from `<app>/native/dist/`:
 
 - **Desktop**: `*.so/.dll/.dylib` + `*.node` for the current platform copied flat into `<outdir>/native/` beside the engine crates.
 - **Android**: `lib*.so` files → `lib/<abi>/` (installed by the OS, resolved by soname — same mechanism `lib-paths.ts` uses for engine crates). `*.node` files → `assets/bundle/native/android-<arch>/`, staged **before** `manifest.txt` is generated so the shell's extractor lists them; they land as real files under `DOWNDRAFT_BUNDLE_DIR` where `require()` can `dlopen` them.
@@ -141,7 +141,7 @@ These cost real debugging time — check them first if an addon misbehaves.
 
 ## Reference layout
 
-A working native-module game repo typically contains:
+A working native-module app repo typically contains:
 
 - `native/bench-ffi/` + `native/bench-napi/` — matching kernel implementations, so FFI and napi outputs can be checksummed against each other
 - `native/build.mjs` — host + Android cross-build with NDK discovery

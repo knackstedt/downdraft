@@ -36,7 +36,7 @@ export type { DeltaSnapshot, EntityPosition, InterestArea, InterpolationBuffer }
 export { AuthorityManager } from "./authority";
 export type { AuthorityLevel, EntityAuthority } from "./authority";
 
-// Engine library descriptor (declarative GameModule wiring)
+// Engine library descriptor (declarative AppModule wiring)
 export { NetworkClientTok, NetworkingLib } from "./library";
 export type { NetworkingLibConfig } from "./library";
 

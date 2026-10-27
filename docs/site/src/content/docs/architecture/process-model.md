@@ -3,14 +3,14 @@ title: Process Model
 description: Single-process native runtime and its execution contexts
 ---
 
-DownDraft Engine runs as a **single native process** — winit + wgpu, hosted under Bun (default), Node+tsx, or Deno. There's no embedded browser: the window and the GPU are the real thing, and game code reaches the platform through direct function calls. Isolation is achieved with worker threads and SharedArrayBuffer rather than OS processes.
+DownDraft Engine runs as a **single native process** — winit + wgpu, hosted under Bun (default), Node+tsx, or Deno. There's no embedded browser: the window and the GPU are the real thing, and app code reaches the platform through direct function calls. Isolation is achieved with worker threads and SharedArrayBuffer rather than OS processes.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
-  Game Process (src/native-entry.ts — Bun/Node/Deno)
-    • createNativeHost() / runNativeGameModule()
+  App Process (src/native-entry.ts — Bun/Node/Deno)
+    • createNativeHost() / runNativeAppModule()
     • Window lifecycle (winit), GPU device (wgpu)
     • HostAPI bridge — direct in-process calls
     • Saves, import cache, MCP server, tracing
@@ -22,7 +22,7 @@ DownDraft Engine runs as a **single native process** — winit + wgpu, hosted un
     ┌────────┴──────────┐
     │  Sim Worker       │
     │  (ECS World,      │
-    │   game systems,   │
+    │   app systems,   │
     │   physics, plugins)│
     └───────────────────┘
 ```
@@ -31,7 +31,7 @@ DownDraft Engine runs as a **single native process** — winit + wgpu, hosted un
 
 ### 1. Host (main thread)
 
-- Game-owned `src/native-entry.ts` calls `runNativeGameModule()` / `createNativeHost()` from `@downdraft/platform-native`
+- App-owned `src/native-entry.ts` calls `runNativeAppModule()` / `createNativeHost()` from `@downdraft/platform-native`
 - Owns the winit window, the single wgpu device, and the `RenderSurface`
 - Exposes the `HostAPI` (`downdraft.*`) as direct in-process calls — saves, screenshots, import cache, window state, dialogs, restart routing
 - MCP server (in-process, PID-file discovery), telemetry, native tracing
@@ -39,7 +39,7 @@ DownDraft Engine runs as a **single native process** — winit + wgpu, hosted un
 
 ### 2. Sim Worker
 
-- Spawned from the host; runs the ECS `World`, game systems, and physics
+- Spawned from the host; runs the ECS `World`, app systems, and physics
 - Communicates with the host via `SharedArrayBuffer` (zero-copy) and `postMessage` events
 - Sim-targeted plugins are registered by a sim-side `PluginHost`; WASM plugins run in a dedicated worker each (see below)
 - Workers can attach a non-owning view of the shared GPU device to encode command buffers in parallel

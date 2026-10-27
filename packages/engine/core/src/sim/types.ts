@@ -17,8 +17,8 @@ export interface Transform {
 }
 
 // --- Generic Entity Interface ---
-// Plugins depend on this interface, not the game's concrete SimEntity.
-// The game's SimEntity structurally satisfies this interface.
+// Plugins depend on this interface, not the app's concrete SimEntity.
+// The app's SimEntity structurally satisfies this interface.
 
 export interface SimEntityLike {
   id: EntityId;
@@ -38,7 +38,7 @@ export interface SimEntityLike {
 }
 
 // --- Generic Player Interface ---
-// Plugins depend on this interface, not the game's concrete SimPlayer.
+// Plugins depend on this interface, not the app's concrete SimPlayer.
 
 export interface SimPlayerLike {
   playerId: PlayerId;
@@ -82,7 +82,7 @@ export interface InputReaderLike {
 }
 
 // --- Simulation Interface ---
-// Games implement this so engine features (hot-reload, save/load, debugging)
+// Apps implement this so engine features (hot-reload, save/load, debugging)
 // can depend on a stable contract instead of a concrete class.
 
 export interface ISimulation {
@@ -106,7 +106,7 @@ export interface IWorkerManager {
 
 // --- Hot-Reloadable Interface ---
 // Extends IWorkerManager with hot-reload support. The renderer's HMR handlers
-// interact with any game's worker layer through this common interface.
+// interact with any app's worker layer through this common interface.
 
 export interface IHotReloadable extends IWorkerManager {
   hotReload(config: unknown, preserveState: boolean): Promise<void>;

@@ -37,9 +37,9 @@ export function nativeGlob(
 // ── Install nativeGlob as a global polyfill ──
 // The engine code calls import.meta.glob() which is a Vite-specific feature.
 // In native mode, we can't intercept import.meta.glob directly, but we can
-// provide a helper that game code can use conditionally.
+// provide a helper that app code can use conditionally.
 //
-// The approach: game code checks for native mode and calls nativeGlob() instead
+// The approach: app code checks for native mode and calls nativeGlob() instead
 // of import.meta.glob(). This is done via the runtime detection utility.
 export function installAssetGlob(): void {
   (globalThis as any).__nativeGlob = nativeGlob;

@@ -1,5 +1,5 @@
 // ============================================================================
-// create-html-ui.ts — game-facing mount layer for the Blitz HTML/CSS UI stack.
+// create-html-ui.ts — app-facing mount layer for the Blitz HTML/CSS UI stack.
 //
 //   renderer.useRendererModule(createHtmlUi({ build(ui) { ... } }))
 //
@@ -11,7 +11,7 @@
 
 import { resourceToken } from "@downdraft/engine/ecs/resource";
 import type { OsrDomEvent } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
-import { GamepadSourceTok } from "@downdraft/engine/libraries/gamepad/library";
+import { ControllerSourceTok } from "@downdraft/engine/libraries/controller/library";
 import { UiNavRouter, type UiNavRouterOptions } from "@downdraft/engine/libraries/html-ui-kit/nav/router";
 import type { RendererModule, RendererModuleContext } from "@downdraft/engine/module/renderer-module";
 import { createLogger } from "@downdraft/engine/util/logger";
@@ -45,7 +45,7 @@ export interface HtmlUiContext {
    *  a specific point (e.g. the event's clientX/Y) rather than the last seen
    *  pointer position. */
   isPointerOverUI(x?: number, y?: number): boolean;
-  /** Per-frame hook (see createGameUi.onUpdate semantics). */
+  /** Per-frame hook (see createAppUi.onUpdate semantics). */
   onUpdate(fn: (dt: number, elapsed: number) => void): void;
   onResize(fn: (w: number, h: number, dpr: number) => void): void;
   onDispose(fn: () => void): void;
@@ -69,7 +69,7 @@ export interface HtmlUiOptions {
   name?: string;
   /**
    * Controller nav wiring. `false` disables; `true`/object enables
-   * (default). The pad source comes from `GamepadSourceTok` (GamepadLib)
+   * (default). The pad source comes from `ControllerSourceTok` (ControllerLib)
    * unless `source` is supplied explicitly. Keyboard arrow/enter/escape
    * nav is always wired when enabled.
    */
@@ -93,7 +93,7 @@ export interface HtmlUiOptions {
   zoomKeys?: boolean | UiZoomKeysOptions;
   /** Provide this context on `HtmlUiTok` for `inject`/`injectOptional`
    *  consumers (default true). Set false for a private host — e.g. an
-   *  embedded devtools surface that must not collide with the game's own
+   *  embedded devtools surface that must not collide with the app's own
    *  createHtmlUi registration regardless of module order. */
   provideToken?: boolean;
   build(ui: HtmlUiContext): void;
@@ -102,8 +102,8 @@ export interface HtmlUiOptions {
 export const HtmlUiTok = resourceToken<HtmlUiContext>("htmlUi");
 
 // Mounted contexts — lets input handlers/renderers hit-test panels without
-// each game keeping its own `activeUi` singleton. Multiple coexisting
-// contexts (game UI + devtools overlay) OR together.
+// each app keeping its own `activeUi` singleton. Multiple coexisting
+// contexts (app UI + devtools overlay) OR together.
 const activeContexts = new Set<HtmlUiContext>();
 
 /** True when the pointer is inside any mounted html-ui panel. Optional
@@ -158,7 +158,7 @@ export function createHtmlUi(options: HtmlUiOptions): RendererModule {
         ? new UiNavRouter(host, {
             ...(typeof navCfg === "object" ? navCfg : {}),
             source: (typeof navCfg === "object" ? navCfg.source : undefined)
-              ?? ctx.injectOptional(GamepadSourceTok)
+              ?? ctx.injectOptional(ControllerSourceTok)
               ?? null,
             // Input space is backing-buffer px (NativeWindow.mapX/Y) — not
             // CSS px (clientWidth diverges at scaleFactor ≠ 1).

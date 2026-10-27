@@ -10,7 +10,7 @@ DownDraft uses multiple SharedArrayBuffer (SAB) channels — typed `RecordReader
 | Boundary | Mechanism | Use case |
 |---|---|---|
 | Sim → Render | Multiple SharedArrayBuffers + Atomics | Transforms, water, terrain, physics, audio positions (60fps, zero-copy) |
-| Game ↔ Host | Direct function calls (HostAPI) | Saves, screenshots, window state, dialogs, restart |
+| App ↔ Host | Direct function calls (HostAPI) | Saves, screenshots, window state, dialogs, restart |
 | Host ↔ Sim | postMessage + multiple SABs | Commands/events (postMessage), state (SAB channels via sequence counters) |
 | Host ↔ Service workers | postMessage / MessageChannel | Save worker, task pool, UI raster workers, plugin workers |
 | Cross-thread sync | Atomics on SAB headers | Frame synchronization, seqlock read/write coordination |
@@ -30,7 +30,7 @@ Each channel has its own independent sequence counter, enabling fine-grained fra
 | Channel | Data |
 |---|---|
 | Transform | Entity positions, rotations, scales |
-| Input | Keyboard, mouse, gamepad state (host → sim) |
+| Input | Keyboard, mouse, controller state (host → sim) |
 | Physics | Physics body transforms |
 | Audio Position | Spatial audio source positions |
 | Water | Water height field, dynamics |

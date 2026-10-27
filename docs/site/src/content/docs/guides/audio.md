@@ -8,10 +8,10 @@ DownDraft provides a pluggable audio system with a Kira backend via Rust FFI.
 ## AudioEngine
 
 ```typescript
-import { startGame } from "@downdraft/engine/app/main";
+import { startApp } from "@downdraft/engine/app/main";
 import { AudioKiraLib, AudioEngineTok } from "@downdraft/engine/libraries/audio-kira";
 
-startGame({
+startApp({
   libraries: [AudioKiraLib],
   // inject the backend via the typed token in onReady:
   onReady: (ctx) => {

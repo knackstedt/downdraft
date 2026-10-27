@@ -37,7 +37,7 @@ describe("CLI new — minimal template", () => {
   });
 
   it("should scaffold a minimal project", async () => {
-    await newProject([TEST_DIR, "--template=minimal", "--name=my-game"]);
+    await newProject([TEST_DIR, "--template=minimal", "--name=my-app"]);
 
     expect(existsSync(join(TEST_DIR, "package.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "src/main.tsx"))).toBe(false);
@@ -52,7 +52,7 @@ describe("CLI new — minimal template", () => {
 
   it("should write valid package.json", async () => {
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
-    expect(pkg.name).toBe("my-game");
+    expect(pkg.name).toBe("my-app");
     expect(pkg.type).toBe("module");
     expect(pkg.dependencies["@downdraft/engine"]).toBe("^0.1.0");
     expect(pkg.scripts.dev).toBe("draft dev");
@@ -81,14 +81,14 @@ describe("CLI new — minimal template", () => {
     await newProject([
       authorDir,
       "--template=minimal",
-      "--name=my-game",
+      "--name=my-app",
       "--author=Jane Developer",
-      "--description=A test game",
+      "--description=A test app",
     ]);
 
     const pkg = JSON.parse(readFileSync(join(authorDir, "package.json"), "utf-8"));
     expect(pkg.author).toEqual({ name: "Jane Developer" });
-    expect(pkg.description).toBe("A test game");
+    expect(pkg.description).toBe("A test app");
 
     try { rmSync(authorDir, { recursive: true, force: true }); } catch {}
   });
@@ -150,7 +150,7 @@ describe("CLI new — minimal template", () => {
 
   it("should write valid downdraft.config.json", async () => {
     const config = JSON.parse(readFileSync(join(TEST_DIR, "downdraft.config.json"), "utf-8"));
-    expect(config.name).toBe("my-game");
+    expect(config.name).toBe("my-app");
     expect(config.builder).toBeUndefined();
   });
 
@@ -159,17 +159,17 @@ describe("CLI new — minimal template", () => {
     expect(existsSync(join(TEST_DIR, "src/preload.ts"))).toBe(false);
   });
 
-  it("should write a game module with the GameModule shape", async () => {
-    const module = readFileSync(join(TEST_DIR, "src/game-module.ts"), "utf-8");
-    expect(module).toContain("GameModule");
+  it("should write an app module with the AppModule shape", async () => {
+    const module = readFileSync(join(TEST_DIR, "src/app-module.ts"), "utf-8");
+    expect(module).toContain("AppModule");
     expect(module).toContain("onReady");
     expect(module).toContain("onDispose");
   });
 
   it("should write a native entry for the default runtime", async () => {
     const entry = readFileSync(join(TEST_DIR, "src/native-entry.ts"), "utf-8");
-    expect(entry).toContain("runNativeGameModule");
-    expect(entry).toContain("gameModule");
+    expect(entry).toContain("runNativeAppModule");
+    expect(entry).toContain("appModule");
     const pkg = JSON.parse(readFileSync(join(TEST_DIR, "package.json"), "utf-8"));
     expect(pkg.dependencies["@downdraft/platform-native"]).toBeDefined();
   });
@@ -190,7 +190,7 @@ describe("CLI new — physics template", () => {
   });
 
   it("should scaffold a physics project", async () => {
-    await newProject([TEST_DIR, "--template=physics", "--name=physics-game"]);
+    await newProject([TEST_DIR, "--template=physics", "--name=physics-app"]);
 
     expect(existsSync(join(TEST_DIR, "package.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "src/main.tsx"))).toBe(false);
@@ -229,7 +229,7 @@ describe("CLI new — full template", () => {
   });
 
   it("should scaffold a full project", async () => {
-    await newProject([TEST_DIR, "--template=full", "--name=full-game"]);
+    await newProject([TEST_DIR, "--template=full", "--name=full-app"]);
 
     expect(existsSync(join(TEST_DIR, "package.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "src/main.tsx"))).toBe(false);
@@ -277,7 +277,7 @@ describe("CLI new — AI companion", () => {
   });
 
   it("should scaffold AI companion files with --ai-companion", async () => {
-    await newProject([TEST_DIR, "--template=minimal", "--name=my-game", "--ai-companion"]);
+    await newProject([TEST_DIR, "--template=minimal", "--name=my-app", "--ai-companion"]);
 
     expect(existsSync(join(TEST_DIR, ".devin/config.json"))).toBe(true);
     expect(existsSync(join(TEST_DIR, ".devin/rules/logging.md"))).toBe(true);
@@ -357,7 +357,7 @@ describe("CLI --help and --version", () => {
     const { parseArgs } = await import("./args");
     expect(
       parseArgs(["--help"], {
-        flags: [{ name: "game", type: "string" }],
+        flags: [{ name: "app", type: "string" }],
       }).help,
     ).toBe(true);
   });
@@ -366,7 +366,7 @@ describe("CLI --help and --version", () => {
     const { parseArgs } = await import("./args");
     expect(
       parseArgs(["-h"], {
-        flags: [{ name: "game", type: "string" }],
+        flags: [{ name: "app", type: "string" }],
       }).help,
     ).toBe(true);
   });

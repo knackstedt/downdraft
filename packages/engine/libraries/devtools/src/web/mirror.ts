@@ -16,7 +16,7 @@ export interface WebMirrorOptions {
   server: DevToolsServer;
   cdp: CdpBridge;
   renderer: unknown;
-  gameScene?: unknown;
+  appScene?: unknown;
   profilingSAB: SharedArrayBuffer | null;
 }
 
@@ -27,7 +27,7 @@ export class WebDevtoolsMirror extends DevtoolsBackend {
       hasClient: () => opts.server.clientCount > 0,
       cdp: opts.cdp,
       renderer: opts.renderer,
-      gameScene: opts.gameScene,
+      appScene: opts.appScene,
       profilingSAB: opts.profilingSAB,
     });
     opts.server.setHello(() => ({

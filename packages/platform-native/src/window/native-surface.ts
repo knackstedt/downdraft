@@ -140,7 +140,7 @@ export class NativeCanvasContext {
 
   /**
    * The device from the most recent configure() call. Renderers may create
-   * their own device (GameRenderer.init does) and reconfigure the surface —
+   * their own device (AppRenderer.init does) and reconfigure the surface —
    * readback/copy machinery MUST use this device, not the host's, or the
    * copy validates as cross-device usage and panics wgpu-native.
    */
@@ -304,15 +304,15 @@ export class NativeCanvasContext {
   }
 
   present(): void {
-    // Nothing acquired this frame → nothing to present. Games with
+    // Nothing acquired this frame → nothing to present. Apps with
     // dirty-tracking skip all render work on idle frames
     // and rely on the canvas retaining the last presented frame. Calling
     // wgpuSurfacePresent without an outstanding surface texture presents
     // an empty swapchain image (black), so skip it — and keep pre-present
     // hooks queued for the next frame that actually draws.
     if (!this.currentTexture) return;
-    // Acquired but never written (e.g. GameRenderer acquired the texture
-    // for a viewport, then the game's dirty-tracking skipped all draws).
+    // Acquired but never written (e.g. AppRenderer acquired the texture
+    // for a viewport, then the app's dirty-tracking skipped all draws).
     // Presenting it would show a blank frame — skip the present so the
     // swapchain retains the last real frame. Keep the texture outstanding:
     // the next getCurrentTexture() returns it, a later frame can still
@@ -382,7 +382,7 @@ export class NativeSurface extends MiniEventTarget {
    *  cursor, imageRendering); all writes are no-ops on the native surface. */
   readonly style: Record<string, any> = {};
   /** Canvas id (renderers query element ids for multi-canvas setups). */
-  id = "game-canvas";
+  id = "app-canvas";
 
   constructor(width: number, height: number, surfacePtr: ptr,
     scaleFactor?: () => number) {
@@ -420,7 +420,7 @@ export class NativeSurface extends MiniEventTarget {
   get width(): number { return this._width; }
   get height(): number { return this._height; }
   // HTMLCanvasElement semantics: assigning width/height resizes the backing
-  // store. Without these setters `canvas.width = w` (GameRenderer.onResize)
+  // store. Without these setters `canvas.width = w` (AppRenderer.onResize)
   // silently no-ops and the UI/render layout stays at the stale size while
   // the swapchain tracks the real window size — the frame ends up uniformly
   // stretched, which reads as blurry text and edges.

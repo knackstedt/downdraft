@@ -5,14 +5,14 @@ description: Dev workflow, build modes, and project structure
 
 ## Dev Shell
 
-The primary development workflow runs a game on the native runtime:
+The primary development workflow runs an app on the native runtime:
 
 ```bash
-cd <game-directory>
+cd <app-directory>
 draft dev
 ```
 
-This boots the game's `src/native-entry.ts` entrypoint inside the native dev shell — a JS-runtime process (Bun by default; `--runtime=node|deno` selects Node+tsx or Deno) hosting a winit window and the wgpu device, with an embedded Vite module runner providing tiered HMR (module-level invalidation through full session/host restart). Telemetry, devtools, and the MCP endpoint are enabled in dev mode.
+This boots the app's `src/native-entry.ts` entrypoint inside the native dev shell — a JS-runtime process (Bun by default; `--runtime=node|deno` selects Node+tsx or Deno) hosting a winit window and the wgpu device, with an embedded Vite module runner providing tiered HMR (module-level invalidation through full session/host restart). Telemetry, devtools, and the MCP endpoint are enabled in dev mode.
 
 Use `--no-hmr` to spawn the entry directly without the dev shell.
 
@@ -33,7 +33,7 @@ downdraft/
 ├── packages/
 │   ├── engine/         # The @downdraft/engine package
 │   │   ├── core/       # ECS, render, SAB, input, modules, particles, animation, physics, audio
-│   │   ├── app/        # Runtime-agnostic game bootstrap (startGame/bootstrapGame)
+│   │   ├── app/        # Runtime-agnostic app bootstrap (startApp/bootstrapApp)
 │   │   ├── mcp/        # Engine-side MCP server (tools, resources, prompts)
 │   │   ├── shader-graph/# Material/shader graph compiler
 │   │   ├── asset-bake/ # Offline asset baking
@@ -46,7 +46,7 @@ downdraft/
 │   ├── devtools-web/   # Web devtools UI (optional browser backend over loopback HTTP+WS)
 │   └── native-*/       # Prebuilt platform binaries per target
 ├── examples/           # Example projects
-├── games/              # Optional local clones of game repos (gitignored)
+├── apps/              # Optional local clones of app repos (gitignored)
 ├── tests/              # Test infrastructure (e2e specs, fixtures)
 └── docs/               # Documentation
 ```
@@ -55,16 +55,16 @@ downdraft/
 
 ```bash
 # Build for current platform
-draft release --game=my-game --target=linux --out=release
+draft release --app=my-app --target=linux --out=release
 
 # Build for all desktop targets
-draft release --game=my-game --target=all --out=release
+draft release --app=my-app --target=all --out=release
 
 # Linux .deb + AppImage + Flatpak, node runtime
-draft release --game=my-game --target=linux --runtime=node --format=deb,appimage,flatpak
+draft release --app=my-app --target=linux --runtime=node --format=deb,appimage,flatpak
 ```
 
-`draft release` compiles the game's native entry via `scripts/package-native.mjs` (win/mac: standalone Bun binary) or `scripts/package-desktop.mjs` (linux: `--runtime=bun|node|deno`, `--format=dir|deb|appimage|flatpak`), staging the platform cdylibs, game-native artifacts, and `dd-assets/` beside it. See [Packaging & Distribution](/guides/packaging/).
+`draft release` compiles the app's native entry via `scripts/package-native.mjs` (win/mac: standalone Bun binary) or `scripts/package-desktop.mjs` (linux: `--runtime=bun|node|deno`, `--format=dir|deb|appimage|flatpak`), staging the platform cdylibs, app-native artifacts, and `dd-assets/` beside it. See [Packaging & Distribution](/guides/packaging/).
 
 ## DevTools
 
@@ -77,4 +77,4 @@ In dev mode, the docked Blitz devtools UI (toggled with F12) is available with:
 - **Provider panels** — Materials, Assets, RenderGraph, Workers, Memory, PostFx, Input, and the `downdraft doctor` module-graph panel
 - **Debug draw** — Wireframe, AABBs, gizmos, and scene overlays via `modules/debug`
 
-Devtools render as a Blitz/html-ui document docked in the game window — the same HTML/CSS rasterization path as game UIs, no webviews. An alternative `WebDevtoolsHost` backend can instead serve `packages/devtools-web` over loopback HTTP+WS and open it in a desktop browser.
+Devtools render as a Blitz/html-ui document docked in the app window — the same HTML/CSS rasterization path as app UIs, no webviews. An alternative `WebDevtoolsHost` backend can instead serve `packages/devtools-web` over loopback HTTP+WS and open it in a desktop browser.

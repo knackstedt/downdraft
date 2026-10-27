@@ -645,7 +645,7 @@ struct ViewShared {
     sc: Mutex<ScState>,
     /// Skip the ASurfaceControl display path entirely — host-bridge views
     /// are composited by the engine via pullFrame, and a surfaced layer
-    /// would present a rogue unpositioned overlay on top of the game.
+    /// would present a rogue unpositioned overlay on top of the app.
     #[cfg(target_os = "android")]
     pull_only: bool,
     /// exportable + backend pointers the shm callback needs to release

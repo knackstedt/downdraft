@@ -4,15 +4,15 @@ import type { ToolRegistration } from "../types";
 import { errorResult, jsonResult } from "../types";
 
 /** Base directory used for path confinement. Falls back to cwd. */
-const GAME_ROOT = process.cwd();
+const APP_ROOT = process.cwd();
 
 export function createBuildTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [
 
     {
       def: {
-        name: "build_game",
-        description: "Package the game for a target platform.",
+        name: "build_app",
+        description: "Package the app for a target platform.",
         inputSchema: {
           type: "object",
           properties: {
@@ -89,7 +89,7 @@ export function createBuildTools(ctx: EngineContext): ToolRegistration[] {
 
         const scripts = ctx.scriptingSystem.getScriptNames();
         if (scripts.length === 0) {
-          issues.push("No scripts loaded — game will have no logic");
+          issues.push("No scripts loaded — app will have no logic");
         }
 
         const entityCount = ctx.ecsWorld.entityCount();
@@ -128,7 +128,7 @@ export function createBuildTools(ctx: EngineContext): ToolRegistration[] {
       handler: async (params) => {
         const path = params.path as string;
         try {
-          const safePath = confinePath(GAME_ROOT, path);
+          const safePath = confinePath(APP_ROOT, path);
           await ctx.saveSystem.saveToFile(ctx.ecsWorld, ctx.scene.name, safePath);
           return jsonResult({ exported: true, path: safePath, scene: ctx.scene.name });
         } catch (e) {

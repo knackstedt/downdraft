@@ -7,7 +7,7 @@
 // attached remotely over a DevToolsServer mirror.
 //
 //   EmbeddedDevtoolsHost: the headless in-process backend host bootstrap
-//     wires per game (CdpBridge + DevtoolsBackend, no UI of its own).
+//     wires per app (CdpBridge + DevtoolsBackend, no UI of its own).
 //
 //   DevToolsServer (web/): loopback WS/JSON-RPC server that fronts a
 //     DevtoolsBackend for remote viewers; WebDevtoolsMirror is the
@@ -16,7 +16,7 @@
 // Panels: Console (CDP Runtime.consoleAPICalled + exceptionThrown + logger
 // sink), Scene/DOM trees, GPU info, CDP profiler, per-thread ProfilingSAB
 // metrics, and provider-fed snapshot panels (sim, memory, render-graph,
-// materials, doctor, workers, input, postfx, assets, game).
+// materials, doctor, workers, input, postfx, assets, app).
 // ============================================================================
 
 export { DevtoolsBackend, panelSlot, slotName } from "./backend";

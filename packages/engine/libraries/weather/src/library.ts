@@ -2,17 +2,17 @@
 // WeatherLib — declarative engine library descriptor for @downdraft/engine/libraries/weather
 //
 // Dynamic weather simulation with rare events, rain collectors, wind, and
-// visibility. WeatherSystem depends on a BiomeProvider interface (game-supplied)
+// visibility. WeatherSystem depends on a BiomeProvider interface (app-supplied)
 // to drive biome-aware weather transitions.
 //
-// Games declare `libraries: [WeatherLib]` (or
+// Apps declare `libraries: [WeatherLib]` (or
 // `[[WeatherLib, { weatherIntensityMul: 1.5 }]]` to override config) in their
-// GameModule. The host creates the WeatherSystem (sim-side) during sim worker
+// AppModule. The host creates the WeatherSystem (sim-side) during sim worker
 // init and exposes it via the WeatherTok token.
 //
-// Games that need full control can still import WeatherSystem directly
+// Apps that need full control can still import WeatherSystem directly
 // (escape hatch). Note: a BiomeProvider must be provided to the constructor —
-// games supply it via the config or inject it from another library/plugin.
+// apps supply it via the config or inject it from another library/plugin.
 // ============================================================================
 
 import { resourceToken, type EngineLibrary } from "@downdraft/engine";
@@ -22,7 +22,7 @@ import { DEFAULT_WEATHER_CONFIG, type BiomeProvider, type WeatherConfig } from "
 // ── Config ──
 
 export interface WeatherLibConfig {
-  /** Game-supplied biome provider (required for biome-aware transitions). */
+  /** App-supplied biome provider (required for biome-aware transitions). */
   biomeProvider: BiomeProvider;
   /** Multiplier for weather intensity (0 = calm, 1 = normal, >1 = extreme). Default: 1. */
   weatherIntensityMul?: number;
@@ -58,8 +58,8 @@ export const WeatherLib: EngineLibrary<WeatherLibConfig> = {
       // pure simulation state (weather type, wind, visibility, rain
       // collectors). No explicit destroy/cleanup method is needed.
     },
-    // tick is game-specific (calls weather.tick(dt, timeOfDay) each sim
-    // step) — games wire this via onReady or a sim tick system.
+    // tick is app-specific (calls weather.tick(dt, timeOfDay) each sim
+    // step) — apps wire this via onReady or a sim tick system.
   },
 
   tickPhase: "pre-physics",

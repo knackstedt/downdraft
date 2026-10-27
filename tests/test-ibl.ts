@@ -88,7 +88,7 @@ async function testIBLShaderChunkConstant() {
 // ─── Entity Shader Integration Tests ───────────────────────────────────────
 
 async function testEntityShaderPBRBindings() {
-  const { PBR_BINDINGS } = await import("../games/to-the-ocean/src/engine/shaders/entity-shaders");
+  const { PBR_BINDINGS } = await import("../apps/to-the-ocean/src/engine/shaders/entity-shaders");
   assert(PBR_BINDINGS.includes("@group(2) @binding(0)"), "Entity PBR_BINDINGS: should use group 2 binding 0");
   assert(PBR_BINDINGS.includes("irradianceMap"), "Entity PBR_BINDINGS: should declare irradianceMap");
   assert(PBR_BINDINGS.includes("prefilterMap"), "Entity PBR_BINDINGS: should declare prefilterMap");
@@ -100,7 +100,7 @@ async function testEntityShaderPBRBindings() {
 }
 
 async function testEntityShaderIBLUsage() {
-  const { LIGHTING_FN, INSTANCED_ENTITY_WGSL } = await import("../games/to-the-ocean/src/engine/shaders/entity-shaders");
+  const { LIGHTING_FN, INSTANCED_ENTITY_WGSL } = await import("../apps/to-the-ocean/src/engine/shaders/entity-shaders");
 
   assert(LIGHTING_FN.includes("getIBLDiffuse(N)"), "entityLighting: should call getIBLDiffuse(N)");
   assert(LIGHTING_FN.includes("getIBLSpecular(N, R, roughness)"), "entityLighting: should call getIBLSpecular(N, R, roughness)");
@@ -115,7 +115,7 @@ async function testEntityShaderIBLUsage() {
 }
 
 async function testEntityShaderIslandLighting() {
-  const { ISLAND_WGSL } = await import("../games/to-the-ocean/src/engine/shaders/entity-shaders");
+  const { ISLAND_WGSL } = await import("../apps/to-the-ocean/src/engine/shaders/entity-shaders");
 
   assert(ISLAND_WGSL.includes("getIBLDiffuse(perturbedN)"), "islandLighting: should call getIBLDiffuse(perturbedN)");
   assert(ISLAND_WGSL.includes("getIBLSpecular(perturbedN, R, roughness)"), "islandLighting: should call getIBLSpecular(perturbedN, R, roughness)");

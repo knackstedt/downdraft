@@ -1,8 +1,8 @@
-// @downdraft/engine/libraries/sand — reusable falling-sand (powder game) simulation primitives.
+// @downdraft/engine/libraries/sand — reusable falling-sand (powder app) simulation primitives.
 //
-// Extracted from a game so multiple games share the same material definitions,
+// Extracted from an app so multiple apps share the same material definitions,
 // cell packing, and SandWorld simulation.
-// Games keep their own SharedArrayBuffer/worker wiring but import the core
+// Apps keep their own SharedArrayBuffer/worker wiring but import the core
 // sim types and the SandWorld class from here.
 
 export {
@@ -62,7 +62,7 @@ export type { MaterialDef } from "./materials";
 export { SandStepPool, type SandStepPoolOptions } from "./sand-step-pool";
 export { GRAVEL_DISTURB_SETTLE_TICKS, GRAVEL_SETTLE_TICKS, SandWorld } from "./sand-world";
 
-// Generic grid-based SharedArrayBuffer framework for sand/grid games
+// Generic grid-based SharedArrayBuffer framework for sand/grid apps
 export {
     allocateGridSimBuffer,
     computeGridSimOffsets,

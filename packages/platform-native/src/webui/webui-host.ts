@@ -8,7 +8,7 @@
 // OSR-shaped contract.
 //
 // Absent backend → createWebUiHost returns { available:false } and the
-// bridge leaves `downdraft.webui` undefined — games gate on presence, so a
+// bridge leaves `downdraft.webui` undefined — apps gate on presence, so a
 // missing cdylib never crashes the host.
 //
 // The tier is opt-in by use: the cdylib links its runtime eagerly
@@ -254,7 +254,7 @@ function buildHost(backend: WebUiBackend, initOpts: WebUiGlobalInitOpts = {}): W
         maxCrashRetries: config.maxCrashRetries,
         // Host-bridge views are always engine-composited via pullFrame —
         // suppress the Android ASurfaceControl overlay (a surfaced layer
-        // would present unpositioned over the game, on top of the panel).
+        // would present unpositioned over the app, on top of the panel).
         pullOnly: true,
       }, config.width, config.height, config.scale ?? 1);
       if (!view) return false;

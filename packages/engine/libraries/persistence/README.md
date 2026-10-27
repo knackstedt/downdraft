@@ -1,6 +1,6 @@
 # `@downdraft/engine/libraries/persistence`
 
-Save system — save stores (file, directory-handle), autosave manager, and serialization for game state.
+Save system — save stores (file, directory-handle), autosave manager, and serialization for app state.
 
 ## Install
 

@@ -5,13 +5,13 @@ import { createRequire } from "node:module";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, print, renderHelp } from "./args";
-import { formatGamesList } from "./list-games";
-import { buildCwd, findMonorepoRoot, readGameConfig } from "./paths";
+import { formatAppsList } from "./list-apps";
+import { buildCwd, findMonorepoRoot, readAppConfig } from "./paths";
 import { killProcessTree } from "./process-utils";
 import { getCommand } from "./usage";
 
 const log = createLogger();
-const GAME_CONFIG = "downdraft.config.json";
+const APP_CONFIG = "downdraft.config.json";
 const NATIVE_ENTRY = "src/native-entry.ts";
 
 /**
@@ -38,18 +38,18 @@ function resolveDevShellDir(): string {
 }
 
 /**
- * Resolve the game directory by walking up from `process.cwd()` looking for
+ * Resolve the app directory by walking up from `process.cwd()` looking for
  * `downdraft.config.json`, falling back to `src/native-entry.ts` presence.
- * This lets games run `draft dev` from their own directory (the scaffolded
+ * This lets apps run `draft dev` from their own directory (the scaffolded
  * `package.json` already sets `"dev": "draft dev"`).
  *
- * Returns `{ game, gameDir }` or `null` if no game could be found.
+ * Returns `{ app, appDir }` or `null` if no app could be found.
  */
-function resolveGameDir(): { game: string; gameDir: string } | null {
+function resolveAppDir(): { app: string; appDir: string } | null {
   let dir = process.cwd();
   for (;;) {
-    if (existsSync(resolve(dir, GAME_CONFIG)) || existsSync(resolve(dir, NATIVE_ENTRY))) {
-      return { game: basename(dir), gameDir: dir };
+    if (existsSync(resolve(dir, APP_CONFIG)) || existsSync(resolve(dir, NATIVE_ENTRY))) {
+      return { app: basename(dir), appDir: dir };
     }
     const parent = dirname(dir);
     if (parent === dir) break; // reached filesystem root
@@ -70,27 +70,27 @@ export async function dev(args: string[]): Promise<void> {
 }
 
 /**
- * Native dev mode — runs the game with winit + wgpu under Bun, Node, or Deno.
- * Looks for `src/native-entry.ts` in the game directory. `overrideDir` lets a
- * sibling command (`draft devtools`) run a package directory as the game.
+ * Native dev mode — runs the app with winit + wgpu under Bun, Node, or Deno.
+ * Looks for `src/native-entry.ts` in the app directory. `overrideDir` lets a
+ * sibling command (`draft devtools`) run a package directory as the app.
  */
 export async function devNative(parsed: any, overrideDir?: string): Promise<void> {
   const resolved = overrideDir
-    ? { game: basename(overrideDir), gameDir: overrideDir }
-    : resolveGameDir();
+    ? { app: basename(overrideDir), appDir: overrideDir }
+    : resolveAppDir();
   if (!resolved) {
-    log.error("draft", `No game directory found (looking for downdraft.config.json or src/native-entry.ts from "${process.cwd()}").`);
-    log.error("draft", `Run "draft dev" from a game directory.`);
-    print(formatGamesList(findMonorepoRoot() ?? process.cwd()));
+    log.error("draft", `No app directory found (looking for downdraft.config.json or src/native-entry.ts from "${process.cwd()}").`);
+    log.error("draft", `Run "draft dev" from an app directory.`);
+    print(formatAppsList(findMonorepoRoot() ?? process.cwd()));
     process.exit(1);
   }
 
-  const { game, gameDir } = resolved;
-  const nativeEntry = resolve(gameDir, NATIVE_ENTRY);
+  const { app, appDir } = resolved;
+  const nativeEntry = resolve(appDir, NATIVE_ENTRY);
 
   if (!existsSync(nativeEntry)) {
     log.error("draft", `No native entry point found at "${nativeEntry}".`);
-    log.error("draft", `The game "${game}" needs a src/native-entry.ts to run on the native runtime.`);
+    log.error("draft", `The app "${app}" needs a src/native-entry.ts to run on the native runtime.`);
     process.exit(1);
   }
 
@@ -135,11 +135,11 @@ export async function devNative(parsed: any, overrideDir?: string): Promise<void
   // before either spawn path — wpe also decides the namespace wrap below.
   const webuiBackend = (parsed.flags.webui as string | undefined)
     || process.env.DD_WEBUI_BACKEND
-    || ((readGameConfig(gameDir).webui as { backend?: string } | undefined)?.backend);
+    || ((readAppConfig(appDir).webui as { backend?: string } | undefined)?.backend);
   if (webuiBackend) env.DD_WEBUI_BACKEND = webuiBackend;
 
   // --devtools-agent → the dev shell imports the bundled devtools-agent.mjs
-  // before evaluating game code (CDP inspector + network/console/heap feed
+  // before evaluating app code (CDP inspector + network/console/heap feed
   // for a devtools viewer). DD_DEVTOOLS_AGENT=<path> injects a
   // custom agent module instead.
   if (parsed.flags["devtools-agent"]) env.DD_DEVTOOLS_AGENT = env.DD_DEVTOOLS_AGENT || "1";
@@ -150,22 +150,22 @@ export async function devNative(parsed: any, overrideDir?: string): Promise<void
     const spec = env.DD_DEVTOOLS_AGENT;
     if (!spec) return null;
     if (spec === "1" || spec === "true") return join(resolveDevShellDir(), "devtools-agent.mjs");
-    return resolve(gameDir, spec);
+    return resolve(appDir, spec);
   };
 
   // ── WPE dev runtime namespace ──
 // The vendored Debian WPE build spawns WPEWebProcess/WPENetworkProcess
 // from hardcoded /usr/lib/… paths — scripts/run-wpe.sh presents the
 // vendored libexec tree there inside a user+mount namespace. When the
-// resolved backend is wpe and no system WPE/WebKit exists, wrap the game
+// resolved backend is wpe and no system WPE/WebKit exists, wrap the app
 // shell spawn in it so `draft dev --webui=wpe` works transparently.
 // DD_WEBUI_NO_NSWRAP=1 opts out (e.g. already inside a namespace).
-function resolveWpeDistDir(gameDir: string): string | null {
+function resolveWpeDistDir(appDir: string): string | null {
   const plat = `${process.platform}-${process.arch}`;
   const env = process.env.DD_WEBUI_WPE_PREFIX;
   const pkgRoot = (() => {
     try {
-      const req = createRequire(join(gameDir, "package.json"));
+      const req = createRequire(join(appDir, "package.json"));
       return dirname(req.resolve("@downdraft/engine/package.json"));
     } catch { return null; }
   })();
@@ -185,7 +185,7 @@ function resolveWpeDistDir(gameDir: string): string | null {
   return null;
 }
 
-function wpeNamespaceWrap(cmd: string, args: string[], gameDir: string, env: NodeJS.ProcessEnv): { cmd: string; args: string[] } | null {
+function wpeNamespaceWrap(cmd: string, args: string[], appDir: string, env: NodeJS.ProcessEnv): { cmd: string; args: string[] } | null {
   if (process.platform !== "linux") return null;
   if (env.DD_WEBUI_NO_NSWRAP) return null;
   // Only when wpe is the picked backend — "auto" resolves to cef on linux
@@ -193,11 +193,11 @@ function wpeNamespaceWrap(cmd: string, args: string[], gameDir: string, env: Nod
   if (env.DD_WEBUI_BACKEND !== "wpe") return null;
   // A real system WPE/WebKit resolves its own libexec — no wrap needed.
   if (existsSync("/usr/lib/x86_64-linux-gnu/wpe-webkit-2.0")) return null;
-  const dist = resolveWpeDistDir(gameDir);
+  const dist = resolveWpeDistDir(appDir);
   if (!dist) return null;
   const script = (() => {
     try {
-      const req = createRequire(join(gameDir, "package.json"));
+      const req = createRequire(join(appDir, "package.json"));
       const pkg = dirname(req.resolve("@downdraft/engine/package.json"));
       return join(pkg, "libraries", "webui", "scripts", "run-wpe.sh");
     } catch { return null; }
@@ -213,10 +213,10 @@ function wpeNamespaceWrap(cmd: string, args: string[], gameDir: string, env: Nod
     // `bun --preload <mod> <entry>` — `run` omitted so the flag binds to the
     // entry script regardless of subcommand arg parsing.
     const bunArgs = agentPath ? ["--preload", agentPath, nativeEntry] : ["run", nativeEntry];
-    log.info("draft", `dev ${game} — ${nativeEntry} (bun, no hmr${agentPath ? ", devtools-agent" : ""})`);
-    const w = wpeNamespaceWrap("bun", bunArgs, gameDir, env)
+    log.info("draft", `dev ${app} — ${nativeEntry} (bun, no hmr${agentPath ? ", devtools-agent" : ""})`);
+    const w = wpeNamespaceWrap("bun", bunArgs, appDir, env)
       ?? { cmd: "bun", args: bunArgs };
-    const code = await spawnAndForward(w.cmd, w.args, buildCwd(gameDir), env, {
+    const code = await spawnAndForward(w.cmd, w.args, buildCwd(appDir), env, {
       onChild: (c) => { currentChild = c; },
     });
     if (!shuttingDown) process.exit(code);
@@ -240,7 +240,7 @@ function wpeNamespaceWrap(cmd: string, args: string[], gameDir: string, env: Nod
   // (absent flags parse as "" here, so || not ??)
   const requested = (parsed.flags.runtime as string | undefined)
     || process.env.DD_RUNTIME
-    || (readGameConfig(gameDir).runtime as string | undefined)
+    || (readAppConfig(appDir).runtime as string | undefined)
     || undefined;
   const runtime = detectRuntime(requested);
   if (!runtime) {
@@ -252,7 +252,7 @@ function wpeNamespaceWrap(cmd: string, args: string[], gameDir: string, env: Nod
     process.exit(1);
   }
 
-  env.DD_GAME_DIR = gameDir;
+  env.DD_APP_DIR = appDir;
   env.DD_ENTRY = nativeEntry;
   env.DD_RUNTIME = runtime;
   env.DD_HMR = "1";
@@ -275,7 +275,7 @@ function wpeNamespaceWrap(cmd: string, args: string[], gameDir: string, env: Nod
   if (parsed.flags["engine-source"]) engineSource = true;
   else if (parsed.flags["engine-dist"]) engineSource = false;
   else engineSource = !!repoRoot;
-  if (!engineSource && !engineDistExists(gameDir)) {
+  if (!engineSource && !engineDistExists(appDir)) {
     log.warn("draft",
       "engine dist/ not found — run `bun run build:dist` in the engine repo " +
       "(or reinstall @downdraft/engine); resolving engine from source.");
@@ -288,22 +288,22 @@ function wpeNamespaceWrap(cmd: string, args: string[], gameDir: string, env: Nod
   if (engineSource) env.DENO_CONDITIONS = "downdraft-source";
 
   const { cmd, args } = spawnArgsFor(runtime, devShell, {
-    configPath: runtime === "deno" ? findDenoConfig(gameDir, repoRoot) : undefined,
+    configPath: runtime === "deno" ? findDenoConfig(appDir, repoRoot) : undefined,
     conditions: engineSource ? ["downdraft-source"] : [],
   });
 
-  log.info("draft", `dev ${game} — ${nativeEntry} (runtime=${runtime}, hmr, engine=${engineSource ? "source" : "dist"}${env.DD_DEVTOOLS_AGENT ? ", devtools-agent" : ""})`);
+  log.info("draft", `dev ${app} — ${nativeEntry} (runtime=${runtime}, hmr, engine=${engineSource ? "source" : "dist"}${env.DD_DEVTOOLS_AGENT ? ", devtools-agent" : ""})`);
   if (verbose) log.info("draft", `dev shell: ${cmd} ${args.join(" ")}`);
 
   // WPE namespace wrap — applies to every respawn (run-wpe.sh execs the
   // shell inside the namespace; restarts re-enter it).
-  const wrapped = wpeNamespaceWrap(cmd, args, gameDir, env) ?? { cmd, args };
+  const wrapped = wpeNamespaceWrap(cmd, args, appDir, env) ?? { cmd, args };
   if (wrapped.cmd !== cmd) log.info("draft", `wpe runtime: namespaced via ${wrapped.args[0]}`);
 
   // Respawn loop: the dev shell exits with DD_RESTART_EXIT when a changed
   // file affects the loader/config layer (Tier-5) — respawn in place.
   for (;;) {
-    const code = await spawnAndForward(wrapped.cmd, wrapped.args, buildCwd(gameDir), env, {
+    const code = await spawnAndForward(wrapped.cmd, wrapped.args, buildCwd(appDir), env, {
       onChild: (c) => { currentChild = c; },
     });
     if (shuttingDown) return; // signal handler already owns exit
@@ -316,9 +316,9 @@ function wpeNamespaceWrap(cmd: string, args: string[], gameDir: string, env: Nod
 }
 
 /** True when the resolved @downdraft/engine package has a pre-built dist/. */
-function engineDistExists(gameDir: string): boolean {
+function engineDistExists(appDir: string): boolean {
   try {
-    const req = createRequire(join(gameDir, "package.json"));
+    const req = createRequire(join(appDir, "package.json"));
     const pkgRoot = dirname(req.resolve("@downdraft/engine/package.json"));
     return existsSync(join(pkgRoot, "dist"));
   } catch {

@@ -11,7 +11,7 @@
 // Shading mirrors THUMB_VS/THUMB_FS: two-sided lambert fill + subtle rim.
 //
 // `loadBytes` (optional) replaces fetch() for URI → bytes resolution, e.g.
-// reading absolute filesystem paths through a game's `downdraft` bridge on
+// reading absolute filesystem paths through an app's `downdraft` bridge on
 // native.
 // ============================================================================
 
@@ -198,7 +198,7 @@ export class SoftwareThumbnailRenderer {
       }
       const model = await loadModel(buffer, filename, mtl, bin, {
         // Apply the same sidecar import settings (.ddmeta.json/.meta/.import)
-        // the game's loader uses — thumbnails should match what Load shows.
+        // the app's loader uses — thumbnails should match what Load shows.
         // The resolver's relative URIs route through the sibling-resolution
         // callback, wrapped in a minimal Response shim.
         sidecarResolver: this.resolveTexture
@@ -268,7 +268,7 @@ export class SoftwareThumbnailRenderer {
   }
 
   /**
-   * Upload an already-parsed model — used when the game's own loader applies
+   * Upload an already-parsed model — used when the app's own loader applies
    * accessory/variant filtering that raw loadModel() skips (unfiltered
    * player FBXs draw every variant superimposed).
    */

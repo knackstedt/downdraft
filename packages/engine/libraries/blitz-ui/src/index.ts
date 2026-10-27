@@ -5,7 +5,7 @@
 //   web and native).
 // - createBlitzUiNativeModule: headless vello_cpu → texture → UiBlitPass
 //   compositing for the native runtime — native-only, import via
-//   "@downdraft/engine/libraries/blitz-ui/native-module". Game crates
+//   "@downdraft/engine/libraries/blitz-ui/native-module". App crates
 //   compile the shared `downdraft-blitz-shell` Rust crate
 //   (libraries/blitz-ui/native) with their own Dioxus app + snapshot type.
 // ============================================================================

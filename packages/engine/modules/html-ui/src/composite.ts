@@ -1,5 +1,5 @@
 // ============================================================================
-// composite.ts — draws panel textures over the frame inside GameRenderer's
+// composite.ts — draws panel textures over the frame inside AppRenderer's
 // end-of-frame surface pass. Sampling goes through an rgba8unorm-srgb view so
 // supersampled docs resolve in LINEAR space, then re-encodes on write (the
 // swapchain is gamma-space *8unorm). Premultiplied-alpha blend.

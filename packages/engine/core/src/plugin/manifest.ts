@@ -19,7 +19,7 @@ export type PluginTier = "data" | "script" | "native";
 
 /**
  * Where the plugin's code executes.
- * - `sim`       — inside the game's existing sim Web Worker.
+ * - `sim`       — inside the app's existing sim Web Worker.
  * - `renderer`  — in-process on the renderer (main) thread.
  * - `own-worker`— a dedicated Web Worker spawned for this plugin (WASM is
  *                 always forced to this for crash isolation).
@@ -35,7 +35,7 @@ export type PluginPermission =
   | "ecs" // register ECS systems/components (native tier, sim thread)
   | "sab" // allocate SharedArrayBuffer channels
   | "gpu" // register renderer passes / GPU access (native tier, renderer/own-worker)
-  | "events" // subscribe/publish on the game event bus
+  | "events" // subscribe/publish on the app event bus
   | "state" // per-plugin KV state store
   | "tick" // register per-frame tick callbacks
   | "storage" // persist plugin state to the host save backend
@@ -49,7 +49,7 @@ export type PluginPermission =
 // A `mod.json` declares a pack of extensions in addition to (or instead of)
 // the legacy single-format fields. Each extension is declarative data
 // registered by the host; the optional `logic` extension is code (worker-js
-// or wasm) that runs under permission gating and may mutate the game via
+// or wasm) that runs under permission gating and may mutate the app via
 // host calls. Only quickjs/wasm runtimes are hard-isolated — worker-js
 // isolation is best-effort global stripping (see loader-worker.ts).
 
@@ -183,13 +183,13 @@ export interface AssetPluginManifest {
   audio?: string[];
   /** Optional: mesh/model files (glb/gltf) to register. */
   meshes?: string[];
-  /** Optional: arbitrary JSON data files exposed to game code. */
+  /** Optional: arbitrary JSON data files exposed to app code. */
   data?: string[];
 }
 
 /** The full `plugin.json` manifest. */
 export interface PluginManifest {
-  /** Unique plugin id, kebab-case (e.g. "my-game-bronze-blocks"). */
+  /** Unique plugin id, kebab-case (e.g. "my-app-bronze-blocks"). */
   id: string;
   /** Human-readable display name. */
   name: string;
@@ -201,8 +201,8 @@ export interface PluginManifest {
   description?: string;
   /** Semver range against the engine version (e.g. "^0.1.0"). Required. */
   engineVersion: string;
-  /** Target game appId (e.g. "my-game"). Required so a plugin can't load into the wrong game. */
-  game: string;
+  /** Target app appId (e.g. "my-app"). Required so a plugin can't load into the wrong app. */
+  app: string;
   /** Plugin format. */
   format: PluginFormat;
   /** Capability tier. */
@@ -213,7 +213,7 @@ export interface PluginManifest {
   entry?: string;
   /** Requested permissions. Validated against the tier's allowed set. */
   permissions?: PluginPermission[];
-  /** Stringly-typed plugin resource keys this plugin provides (namespace `game:kind/name`). */
+  /** Stringly-typed plugin resource keys this plugin provides (namespace `app:kind/name`). */
   provides?: string[];
   /** Stringly-typed plugin resource keys this plugin requires. */
   requires?: string[];
@@ -307,8 +307,8 @@ export function validatePluginManifest(raw: unknown): PluginManifestValidation {
   if (typeof m.engineVersion !== "string" || !isSemverRange(m.engineVersion)) {
     errors.push(`engineVersion: required semver range (e.g. "^0.1.0"), got "${m.engineVersion}"`);
   }
-  if (typeof m.game !== "string" || !m.game) {
-    errors.push("game: required string (target game appId)");
+  if (typeof m.app !== "string" || !m.app) {
+    errors.push("app: required string (target app appId)");
   }
 
   // format

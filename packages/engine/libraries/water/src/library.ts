@@ -1,12 +1,12 @@
 // ============================================================================
 // WaterLib — declarative engine library descriptor for @downdraft/engine/libraries/water
 //
-// Games declare `libraries: [WaterLib]` (or `[[WaterLib, { patchSize: 8 }]]`
-// to override config) in their GameModule. The host allocates the water SAB,
+// Apps declare `libraries: [WaterLib]` (or `[[WaterLib, { patchSize: 8 }]]`
+// to override config) in their AppModule. The host allocates the water SAB,
 // creates the WaterBufferWriter (sim-side) and WaterBufferReader (renderer-side),
 // and exposes them via typed tokens.
 //
-// Games that need full control can still import WaterBufferWriter/Reader
+// Apps that need full control can still import WaterBufferWriter/Reader
 // directly (escape hatch).
 // ============================================================================
 
@@ -52,8 +52,8 @@ export const WaterLib: EngineLibrary<WaterLibConfig> = {
       // WaterBufferWriter holds only a SAB view — no GPU resources to free.
       // The SAB itself is managed by the host.
     },
-    // tick is game-specific (calls updateWaterBuffer with Gerstner waves,
-    // shore damping, wake sources, etc.) — games wire this via onReady.
+    // tick is app-specific (calls updateWaterBuffer with Gerstner waves,
+    // shore damping, wake sources, etc.) — apps wire this via onReady.
   },
 
   tickPhase: "pre-physics",
@@ -61,12 +61,12 @@ export const WaterLib: EngineLibrary<WaterLibConfig> = {
   renderer: {
     init(_config, _ctx) {
       // WaterPass is in @downdraft/engine, not this library.
-      // The game creates the pass in onReady and injects WaterReaderTok.
+      // The app creates the pass in onReady and injects WaterReaderTok.
       return null;
     },
     setBuffers(_instance, buffers, _ctx) {
       // The reader is created here and provided to the DI graph.
-      // Games inject WaterReaderTok in onReady to get it.
+      // Apps inject WaterReaderTok in onReady to get it.
       const reader = new WaterBufferReader(buffers.water);
       if (_ctx?.provide) {
         _ctx.provide(WaterReaderTok, reader);

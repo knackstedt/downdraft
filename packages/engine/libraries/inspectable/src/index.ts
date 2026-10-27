@@ -1,6 +1,6 @@
 // ============================================================================
 // @downdraft/engine/libraries/inspectable — schema'd registry of named
-// game-state nodes that automation can read and write semantically
+// app-state nodes that automation can read and write semantically
 // (no synthetic input). See inspectable.ts for the design notes.
 // ============================================================================
 

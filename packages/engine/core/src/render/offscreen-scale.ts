@@ -6,13 +6,13 @@
 // small color target onto the full-size swapchain view with a single
 // fullscreen-triangle draw (linear or nearest sampling).
 //
-// This is what makes `GameRenderer.setResolutionScale()` work on the native
+// This is what makes `AppRenderer.setResolutionScale()` work on the native
 // runtime — the swapchain extent must equal the window size (wgpu validates it
 // at acquire), so scaling has to happen on an offscreen target instead.
 // ============================================================================
 
 import { FULLSCREEN_VS } from "./fullscreen-vs";
-import type { OffscreenMode, ViewportRect } from "./game-renderer";
+import type { OffscreenMode, ViewportRect } from "./app-renderer";
 import { pipelinePool } from "./pipeline-pool";
 import { createValidatedShaderModule } from "./shader-validator";
 

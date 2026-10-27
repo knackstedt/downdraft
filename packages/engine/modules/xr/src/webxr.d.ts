@@ -120,7 +120,7 @@ declare global {
     readonly targetRayMode: "gaze" | "tracked-pointer" | "screen";
     readonly targetRaySpace: XRSpace;
     readonly gripSpace?: XRSpace;
-    readonly gamepad?: Gamepad;
+    readonly controller?: Controller;
     readonly profiles: string[];
     readonly hand?: XRHand;
   }

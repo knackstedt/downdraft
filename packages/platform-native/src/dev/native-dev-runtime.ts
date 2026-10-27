@@ -6,7 +6,7 @@
 // per session restart — and owns:
 //
 //   - the __ddSession tracker (timers/listeners/workers/devices bookkeeping)
-//   - the __ddHmr control surface (game/engine code calls these to escalate)
+//   - the __ddHmr control surface (app/engine code calls these to escalate)
 //   - import.meta.hot listeners that map vite HMR payloads onto the tiered
 //     reload pipeline (beforeFullReload → session teardown → re-import)
 //
@@ -47,22 +47,22 @@ session.beginSession();
 // (multi-second) entry-graph transform/eval is still running. The promise
 // resolves with EarlyHostParts; the entry's own createNativeHost() call
 // awaits + adopts them (see native-host.ts) — there is exactly ONE
-// createNativeHost call, so no adoption race exists. Games without a
+// createNativeHost call, so no adoption race exists. Apps without a
 // "native" block — bespoke entries like gpu-bench — keep the old boot shape.
-if (!g.__ddEarlyHostPromise && !g.__nativeHost && cfg.gameConfig?.native) {
-  g.__ddEarlyHostPromise = startEarlyHost(cfg.gameConfig).catch((e: any) => {
+if (!g.__ddEarlyHostPromise && !g.__nativeHost && cfg.appConfig?.native) {
+  g.__ddEarlyHostPromise = startEarlyHost(cfg.appConfig).catch((e: any) => {
     logError(`early host boot failed (entry will create its own): ${e?.message ?? e}`);
     return null;
   });
 }
 
-async function startEarlyHost(gameConfig: any): Promise<any> {
-  const n = gameConfig.native ?? {};
+async function startEarlyHost(appConfig: any): Promise<any> {
+  const n = appConfig.native ?? {};
   try {
     const { bootEarlyHost } = await import("./early-host");
     const parts = await bootEarlyHost({
       window: {
-        title: n.title ?? gameConfig.name ?? "Downdraft",
+        title: n.title ?? appConfig.name ?? "Downdraft",
         width: n.width ?? 1280,
         height: n.height ?? 720,
         focused: n.focused,
@@ -155,12 +155,12 @@ if (typeof g.__ddImportMetaGlob !== "function") {
   };
 }
 
-// ── __ddHmr — the game/engine-facing control surface ────────────────────────
+// ── __ddHmr — the app/engine-facing control surface ────────────────────────
 // Installed once; closures only touch globals so they stay valid across
 // session re-evals.
 
 g[HMR_KEY] ??= {
-  /** Restart the game session in-process (state-preserving). */
+  /** Restart the app session in-process (state-preserving). */
   restartSession(reason?: string): void {
     sup?.requestSessionRestart?.(reason ?? "explicit restartSession()");
   },
@@ -311,7 +311,7 @@ if (hot && !g[LISTENERS_FLAG]) {
 
   // Update/transform failure → report only. Vite already rejected the
   // update; restarting the session on a transient syntax error would
-  // crash-loop the game while the developer is mid-typing.
+  // crash-loop the app while the developer is mid-typing.
   hot.on("vite:error", (payload: any) => {
     const msg = payload?.err?.message ?? payload?.message ?? String(payload);
     logError(`vite update error: ${msg}`);

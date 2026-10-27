@@ -125,11 +125,11 @@ describe("synthesizeSkeletonSkin", () => {
   });
 });
 
-// The real fixture lives in a separate game repo (games/ is gitignored) —
+// The real fixture lives in a separate app repo (apps/ is gitignored) —
 // skip when it isn't on disk.
-describe.skipIf(!existsSync(resolve(SPEC_DIR, "..", "..", "..", "..", "..", "games/to-the-ocean/src/assets")))("loadModel skeleton synthesis (real fixture)", () => {
+describe.skipIf(!existsSync(resolve(SPEC_DIR, "..", "..", "..", "..", "..", "apps/to-the-ocean/src/assets")))("loadModel skeleton synthesis (real fixture)", () => {
   it("X Bot@Idle.fbx (animation-only FBX) gets a synthesized skin", async () => {
-    const data = await loadRealWorld("games/to-the-ocean/src/assets/animations/human/mixamo/X Bot@Idle.fbx");
+    const data = await loadRealWorld("apps/to-the-ocean/src/assets/animations/human/mixamo/X Bot@Idle.fbx");
     const model = await loadModel(data, "X Bot@Idle.fbx", null, null);
     expect(model.meshes.length).toBe(0);
     expect(model.skin).toBeDefined();

@@ -12,9 +12,9 @@ interface FieldIndices {
   mouseDeltaYIdx: number;
   mouseButtonsIdx: number;
   wheelDeltaIdx: number;
-  gamepadButtonsIdx: number;
-  gamepadAxesIdx: number;
-  gamepadSlotIdx: number;
+  controllerButtonsIdx: number;
+  controllerAxesIdx: number;
+  controllerSlotIdx: number;
   flagsIdx: number;
 }
 
@@ -29,9 +29,9 @@ function extractFieldIndices(sectionLayout: SlotSectionLayout): FieldIndices {
     mouseDeltaYIdx: f("mouseDeltaY").index,
     mouseButtonsIdx: f("mouseButtons").index,
     wheelDeltaIdx: f("wheelDelta").index,
-    gamepadButtonsIdx: f("gamepadButtons").index,
-    gamepadAxesIdx: f("gamepadAxes").index,
-    gamepadSlotIdx: f("gamepadSlot").index,
+    controllerButtonsIdx: f("controllerButtons").index,
+    controllerAxesIdx: f("controllerAxes").index,
+    controllerSlotIdx: f("controllerSlot").index,
     flagsIdx: f("flags").index,
   };
 }
@@ -69,7 +69,7 @@ export class MultiInputSABBridge {
 
       this.pollKeys(slot, playerState, p);
       this.pollMouse(slot, playerState);
-      this.pollGamepad(slot, playerState);
+      this.pollController(slot, playerState);
     }
   }
 
@@ -129,31 +129,31 @@ export class MultiInputSABBridge {
     }
   }
 
-  private pollGamepad(slot: { i32: Int32Array; u32: Uint32Array; f32: Float32Array }, state: InputState): void {
+  private pollController(slot: { i32: Int32Array; u32: Uint32Array; f32: Float32Array }, state: InputState): void {
     const u32 = slot.u32;
     const f32 = slot.f32;
     const idx = this.indices;
 
-    // gamepadButtons is a u32 pair [lo, hi] — W3C standard button order.
-    const lo = Atomics.load(u32, idx.gamepadButtonsIdx) >>> 0;
-    const hi = Atomics.load(u32, idx.gamepadButtonsIdx + 1) >>> 0;
-    const incomingGamepad = new Set<number>();
+    // controllerButtons is a u32 pair [lo, hi] — W3C standard button order.
+    const lo = Atomics.load(u32, idx.controllerButtonsIdx) >>> 0;
+    const hi = Atomics.load(u32, idx.controllerButtonsIdx + 1) >>> 0;
+    const incomingController = new Set<number>();
     for (let b = 0; b < 32; b++) {
-      if (lo & (1 << b)) incomingGamepad.add(b);
-      if (hi & (1 << b)) incomingGamepad.add(32 + b);
+      if (lo & (1 << b)) incomingController.add(b);
+      if (hi & (1 << b)) incomingController.add(32 + b);
     }
-    for (const btn of incomingGamepad.values()) {
-      state.gamepadButtons.add(btn);
+    for (const btn of incomingController.values()) {
+      state.controllerButtons.add(btn);
     }
-    for (const btn of state.gamepadButtons.values()) {
-      if (!incomingGamepad.has(btn)) {
-        state.gamepadButtons.delete(btn);
+    for (const btn of state.controllerButtons.values()) {
+      if (!incomingController.has(btn)) {
+        state.controllerButtons.delete(btn);
       }
     }
 
-    const axes = f32.subarray(idx.gamepadAxesIdx, idx.gamepadAxesIdx + 8);
-    for (let i = 0; i < axes.length && i < state.gamepadAxes.length; i++) {
-      state.gamepadAxes[i] = axes[i];
+    const axes = f32.subarray(idx.controllerAxesIdx, idx.controllerAxesIdx + 8);
+    for (let i = 0; i < axes.length && i < state.controllerAxes.length; i++) {
+      state.controllerAxes[i] = axes[i];
     }
   }
 }
@@ -175,10 +175,10 @@ export class MultiInputSABWriter {
   /**
    * Write one player's input snapshot.
    *
-   * `gamepadButtons` is the u32 bitmask pair `[lo, hi]` (W3C standard button
-   * order, see GP_BTN_* in ../sab/gamepad-devices.ts) — NOT a per-button 0/1
-   * array. `gamepadAxes` is the 8-axis state (lx ly rx ry lt rt dpadX dpadY).
-   * `gamepadSlot` binds the player to a slot in the 'gamepad-devices'
+   * `controllerButtons` is the u32 bitmask pair `[lo, hi]` (W3C standard button
+   * order, see GP_BTN_* in ../sab/controller-devices.ts) — NOT a per-button 0/1
+   * array. `controllerAxes` is the 8-axis state (lx ly rx ry lt rt dpadX dpadY).
+   * `controllerSlot` binds the player to a slot in the 'controller-devices'
    * channel (0xFF = unbound).
    */
   writePlayerInput(
@@ -190,9 +190,9 @@ export class MultiInputSABWriter {
     mouseDeltaY: number,
     mouseButtons: number[],
     wheelDelta: number,
-    gamepadButtons: number[],
-    gamepadAxes: number[],
-    gamepadSlot = 0xff,
+    controllerButtons: number[],
+    controllerAxes: number[],
+    controllerSlot = 0xff,
   ): void {
     if (playerIdx < 0 || playerIdx >= this.maxPlayers) return;
     const sections = this.writer.sections;
@@ -230,12 +230,12 @@ export class MultiInputSABWriter {
 
     f32[idx.wheelDeltaIdx] = wheelDelta;
 
-    Atomics.store(i32, idx.gamepadButtonsIdx, gamepadButtons[0] ?? 0);
-    Atomics.store(i32, idx.gamepadButtonsIdx + 1, gamepadButtons[1] ?? 0);
+    Atomics.store(i32, idx.controllerButtonsIdx, controllerButtons[0] ?? 0);
+    Atomics.store(i32, idx.controllerButtonsIdx + 1, controllerButtons[1] ?? 0);
     for (let i = 0; i < 8; i++) {
-      f32[idx.gamepadAxesIdx + i] = i < gamepadAxes.length ? gamepadAxes[i] : 0;
+      f32[idx.controllerAxesIdx + i] = i < controllerAxes.length ? controllerAxes[i] : 0;
     }
-    slot.u32[idx.gamepadSlotIdx] = gamepadSlot;
+    slot.u32[idx.controllerSlotIdx] = controllerSlot;
 
     this.writer.bumpSequence();
   }

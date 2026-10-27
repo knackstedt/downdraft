@@ -5,7 +5,7 @@
 // Zero-dependency module (no imports) to avoid circular dependency concerns.
 // The wgslHmrPlugin (vite) registers shader sources at module-load time and
 // calls reload() when a `*.wgsl?raw` module is hot-updated. Consumers
-// (MaterialLibrary, game pass classes, entity-shaders) subscribe to be
+// (MaterialLibrary, app pass classes, entity-shaders) subscribe to be
 // notified of changes so they can rebuild GPU pipelines without a full page
 // reload. When there are no subscribers for a given shader, reload() falls
 // back to a full page reload so edits always take effect.

@@ -2,7 +2,7 @@
 // kernel.ts — GpuKernel host: transpiled JS kernels on the *shared* GPUDevice.
 //
 // Unlike gpu.js, a GpuKernel never creates its own device — it runs on the
-// game's existing GPUDevice, so `resultBuffer` (or `dispatchInto` targets) can
+// app's existing GPUDevice, so `resultBuffer` (or `dispatchInto` targets) can
 // be bound straight into renderer/compute pipelines with no CPU round-trip.
 // `readInto(view)` writes results into caller memory — including Float32Array
 // views over SharedArrayBuffer for sim-worker handoff. `cpu()`/`cpuInto()` are

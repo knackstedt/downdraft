@@ -1,12 +1,12 @@
 // ============================================================================
-// DevTools type interfaces — contracts between the base inspector, games,
+// DevTools type interfaces — contracts between the base inspector, apps,
 // and the DevTools extension panels.
 // ============================================================================
 
 import type { GizmoMode } from "./index";
 
 /** Minimal renderer interface for data feeds (perf, GC, GPU, telemetry).
- *  Used by DevToolsDataBridge — games that don't need the full scene inspector
+ *  Used by DevToolsDataBridge — apps that don't need the full scene inspector
  *  can pass an adapter implementing only these methods. Only getFPS() is
  *  required; all other methods are optional and accessed via optional chaining. */
 export interface IDevToolsDataRenderer {
@@ -27,7 +27,7 @@ export interface IDevToolsDataRenderer {
 }
 
 /** Full renderer interface for the scene inspector (extends data renderer).
- *  Used by BaseSceneInspector — games that want the full 3D scene inspector
+ *  Used by BaseSceneInspector — apps that want the full 3D scene inspector
  *  pass a renderer implementing all of these methods. */
 export interface IDevToolsRenderer extends IDevToolsDataRenderer {
   // Gizmo
@@ -60,7 +60,7 @@ export interface IDevToolsRenderer extends IDevToolsDataRenderer {
   getFrameGraph(): any | null;
 }
 
-/** Asset resolution — games provide this to support model import/thumbnails. */
+/** Asset resolution — apps provide this to support model import/thumbnails. */
 export interface IAssetResolver {
   getAvailableModels(): { path: string; name: string; format: string; url: string }[];
   syncFetchArrayBuffer(url: string): ArrayBuffer | null;
@@ -69,8 +69,8 @@ export interface IAssetResolver {
   getTextureUrl(uri: string): string | null;
 }
 
-/** Optional debug draw toggles — games with GPU-side debug overlays
- *  (chunk grid, velocity arrows) implement this. Drives the game's own
+/** Optional debug draw toggles — apps with GPU-side debug overlays
+ *  (chunk grid, velocity arrows) implement this. Drives the app's own
  *  debug rendering, not a DOM overlay. */
 export interface IDebugOverlayProvider {
   setShowChunkGrid(show: boolean): void;
@@ -79,7 +79,7 @@ export interface IDebugOverlayProvider {
   getShowVelocityArrows(): boolean;
 }
 
-/** Optional sim/worker debug mode hook — games with a sim worker implement this. */
+/** Optional sim/worker debug mode hook — apps with a sim worker implement this. */
 export interface IDebugModeProvider {
   setDebugMode(enabled: boolean): void;
   /** Forward GC controller config to the sim worker. Optional. */
@@ -88,7 +88,7 @@ export interface IDebugModeProvider {
   forceMajorGC?(): void;
 }
 
-/** Optional performance metrics provider — games with multi-process architectures implement this. */
+/** Optional performance metrics provider — apps with multi-process architectures implement this. */
 export interface IPerformanceMetricsProvider {
   getPerformanceMetrics(): any;
 }
@@ -162,8 +162,8 @@ export interface IAssetUrlMaps {
   binUrlMap: Map<string, string>;
 }
 
-/** Combined provider interface that games implement for game-specific devtools features. */
-export interface IGameDevToolsExtension {
+/** Combined provider interface that apps implement for app-specific devtools features. */
+export interface IAppDevToolsExtension {
   assetResolver?: IAssetResolver;
   debugOverlayProvider?: IDebugOverlayProvider;
   debugModeProvider?: IDebugModeProvider;
@@ -184,13 +184,13 @@ export interface ISimStats {
   paused: boolean;
   /** Current speed multiplier (1.0 = normal). */
   speed: number;
-  /** Game-specific extra rows (grid dims, entity count, player pos, etc.). */
+  /** App-specific extra rows (grid dims, entity count, player pos, etc.). */
   extra?: Record<string, any>;
 }
 
 /**
  * Provides sim stats and control methods for the DevTools "Sim" tab.
- * Any sim-driven game (2D or 3D) can implement this.
+ * Any sim-driven app (2D or 3D) can implement this.
  */
 export interface ISimStatsProvider {
   getSimStats(): ISimStats;

@@ -1,7 +1,7 @@
 // ============================================================================
 // Cross-thread plugin contract — shared dependency graph across sim + renderer
 //
-// In a multi-threaded Downdraft game, the sim worker and renderer each have
+// In a multi-threaded Downdraft app, the sim worker and renderer each have
 // their own ModuleHost with their own DI graph. Some resources (like SABs)
 // are shared across threads — the sim writes, the renderer reads. Cross-thread
 // tokens declare these shared resources so both hosts can validate the

@@ -237,7 +237,7 @@ export class FrameGraph {
   private aliasing: Map<string, string> = new Map(); // resource name -> physical texture name
   private slotRegistry = new SlotRegistry();
   /** Imported (external) resources dedupe by name so "color"/"depth" are
-   *  well-known handles shared between the renderer and game passes. */
+   *  well-known handles shared between the renderer and app passes. */
   private importedByName: Map<string, TextureHandle> = new Map();
 
   importTexture(name: string, texture?: GPUTexture | null): TextureHandle {
@@ -458,7 +458,7 @@ export class FrameGraph {
     pass.execute(ctx);
     tracked.end();
     ctx.pass = null;
-    // Caller (GameRenderer) aggregates draw call stats from the tracked pass.
+    // Caller (AppRenderer) aggregates draw call stats from the tracked pass.
     (ctx as any).lastPassStats = {
       name: pass.name,
       drawCalls: tracked.drawCalls,

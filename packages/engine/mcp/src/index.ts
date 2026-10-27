@@ -1,7 +1,7 @@
-export { discoverGameInstance, findFreePort, GameClient, launchGame, listGameInstances, McpClientError, mcpPortDir } from "./client";
-export type { CallOptions, GameClientOptions, GameInstance, InstanceSelector, LaunchedGame, LaunchGameOptions, ProcessProbe } from "./client";
+export { discoverAppInstance, findFreePort, AppClient, launchApp, listAppInstances, McpClientError, mcpPortDir } from "./client";
+export type { CallOptions, AppClientOptions, AppInstance, InstanceSelector, LaunchedApp, LaunchAppOptions, ProcessProbe } from "./client";
 export { EngineContext } from "./engine-context";
-export type { EngineContextFromGameOptions, EngineContextOptions } from "./engine-context";
+export type { EngineContextFromAppOptions, EngineContextOptions } from "./engine-context";
 export { MCPServer } from "./server";
 export type { MCPServerOptions } from "./server";
 export { errorResult, jsonResult, textResult } from "./types";

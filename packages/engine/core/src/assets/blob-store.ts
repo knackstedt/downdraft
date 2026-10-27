@@ -1,6 +1,6 @@
 /**
  * Generic blob storage interface.
- * Abstracts any S3-compatible or custom object store so games can
+ * Abstracts any S3-compatible or custom object store so apps can
  * pull/push assets without coupling to a specific provider.
  */
 

@@ -127,7 +127,7 @@ export class XRFrameLoop {
     this.ctx.setViewportCount(2);
 
     // Install per-eye viewport camera provider (takes priority over the
-    // game's onViewport callback)
+    // app's onViewport callback)
     this.ctx.setViewportCameraProvider((viewportIdx, _dt, _elapsedTime) => {
       const eye = viewportIdx === 0 ? "left" : "right";
       const [left, right] = this.cameraRig.computeEyeCameras(
@@ -187,7 +187,7 @@ export class XRFrameLoop {
     // Update layer views from the pose
     this.layerManager.beginFrame(frame, refSpace);
 
-    // Update head pose for game logic
+    // Update head pose for app logic
     this.cameraRig.updateHeadPose(pose, refSpace);
   }
 

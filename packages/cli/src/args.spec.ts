@@ -52,44 +52,44 @@ describe("parseArgs — boolean flags", () => {
 describe("parseArgs — string flags", () => {
   it("parses --flag=value", () => {
     const schema: CommandSchema = {
-      flags: [{ name: "game", type: "string" }],
+      flags: [{ name: "app", type: "string" }],
     };
-    expect(parseArgs(["--game=foo"], schema).flags.game).toBe("foo");
+    expect(parseArgs(["--app=foo"], schema).flags.app).toBe("foo");
   });
 
   it("parses --flag value (space form)", () => {
     const schema: CommandSchema = {
-      flags: [{ name: "game", type: "string" }],
+      flags: [{ name: "app", type: "string" }],
     };
-    expect(parseArgs(["--game", "foo"], schema).flags.game).toBe("foo");
+    expect(parseArgs(["--app", "foo"], schema).flags.app).toBe("foo");
   });
 
   it("parses short alias -g value", () => {
     const schema: CommandSchema = {
-      flags: [{ name: "game", alias: "g", type: "string" }],
+      flags: [{ name: "app", alias: "g", type: "string" }],
     };
-    expect(parseArgs(["-g", "foo"], schema).flags.game).toBe("foo");
+    expect(parseArgs(["-g", "foo"], schema).flags.app).toBe("foo");
   });
 
   it("parses short alias -gvalue (attached)", () => {
     const schema: CommandSchema = {
-      flags: [{ name: "game", alias: "g", type: "string" }],
+      flags: [{ name: "app", alias: "g", type: "string" }],
     };
-    expect(parseArgs(["-gfoo"], schema).flags.game).toBe("foo");
+    expect(parseArgs(["-gfoo"], schema).flags.app).toBe("foo");
   });
 
   it("parses short alias -g=value", () => {
     const schema: CommandSchema = {
-      flags: [{ name: "game", alias: "g", type: "string" }],
+      flags: [{ name: "app", alias: "g", type: "string" }],
     };
-    expect(parseArgs(["-g=foo"], schema).flags.game).toBe("foo");
+    expect(parseArgs(["-g=foo"], schema).flags.app).toBe("foo");
   });
 
   it("throws when a string flag has no value", () => {
     const schema: CommandSchema = {
-      flags: [{ name: "game", type: "string" }],
+      flags: [{ name: "app", type: "string" }],
     };
-    expect(() => parseArgs(["--game"], schema)).toThrow(ArgError);
+    expect(() => parseArgs(["--app"], schema)).toThrow(ArgError);
   });
 
   it("applies a default when absent", () => {
@@ -135,33 +135,33 @@ describe("parseArgs — enum validation", () => {
 describe("parseArgs — repeatable flags", () => {
   it("collects repeated occurrences into an array", () => {
     const schema: CommandSchema = {
-      flags: [{ name: "game", type: "string", repeatable: true }],
+      flags: [{ name: "app", type: "string", repeatable: true }],
     };
-    const r = parseArgs(["--game", "a", "--game", "b"], schema);
-    expect(r.flags.game).toEqual(["a", "b"]);
+    const r = parseArgs(["--app", "a", "--app", "b"], schema);
+    expect(r.flags.app).toEqual(["a", "b"]);
   });
 
   it("defaults to an empty array", () => {
     const schema: CommandSchema = {
-      flags: [{ name: "game", type: "string", repeatable: true }],
+      flags: [{ name: "app", type: "string", repeatable: true }],
     };
-    expect(parseArgs([], schema).flags.game).toEqual([]);
+    expect(parseArgs([], schema).flags.app).toEqual([]);
   });
 });
 
 describe("parseArgs — required flags", () => {
   it("throws when a required flag is missing", () => {
     const schema: CommandSchema = {
-      flags: [{ name: "games", type: "string", required: true }],
+      flags: [{ name: "apps", type: "string", required: true }],
     };
     expect(() => parseArgs([], schema)).toThrow(ArgError);
   });
 
   it("passes when a required flag is present", () => {
     const schema: CommandSchema = {
-      flags: [{ name: "games", type: "string", required: true }],
+      flags: [{ name: "apps", type: "string", required: true }],
     };
-    expect(parseArgs(["--games=x"], schema).flags.games).toBe("x");
+    expect(parseArgs(["--apps=x"], schema).flags.apps).toBe("x");
   });
 });
 
@@ -209,11 +209,11 @@ describe("parseArgs — positionals", () => {
 describe("parseArgs -- terminator", () => {
   it("treats everything after -- as positional", () => {
     const schema: CommandSchema = {
-      flags: [{ name: "game", type: "string" }],
+      flags: [{ name: "app", type: "string" }],
       positionals: [{ name: "rest", variadic: true }],
     };
-    const r = parseArgs(["--game=x", "--", "--foo", "bar"], schema);
-    expect(r.flags.game).toBe("x");
+    const r = parseArgs(["--app=x", "--", "--foo", "bar"], schema);
+    expect(r.flags.app).toBe("x");
     expect(r.positionals).toEqual(["--foo", "bar"]);
   });
 });
@@ -240,18 +240,18 @@ describe("parseArgs — unknown flags", () => {
 
 describe("parseArgs — --help", () => {
   it("returns help=true for --help", () => {
-    const schema: CommandSchema = { flags: [{ name: "game", type: "string" }] };
+    const schema: CommandSchema = { flags: [{ name: "app", type: "string" }] };
     expect(parseArgs(["--help"], schema).help).toBe(true);
   });
 
   it("returns help=true for -h", () => {
-    const schema: CommandSchema = { flags: [{ name: "game", type: "string" }] };
+    const schema: CommandSchema = { flags: [{ name: "app", type: "string" }] };
     expect(parseArgs(["-h"], schema).help).toBe(true);
   });
 
   it("skips validation when help is requested", () => {
     const schema: CommandSchema = {
-      flags: [{ name: "games", type: "string", required: true }],
+      flags: [{ name: "apps", type: "string", required: true }],
     };
     // Required flag missing, but --help present → no throw.
     expect(parseArgs(["--help"], schema).help).toBe(true);
@@ -260,11 +260,11 @@ describe("parseArgs — --help", () => {
 
 describe("formatFlag", () => {
   it("renders a string flag with placeholder", () => {
-    expect(formatFlag({ name: "game", type: "string" })).toBe("--game <game>");
+    expect(formatFlag({ name: "app", type: "string" })).toBe("--app <app>");
   });
 
   it("renders an aliased string flag", () => {
-    expect(formatFlag({ name: "game", alias: "g", type: "string" })).toBe("--game <game>, -g <game>");
+    expect(formatFlag({ name: "app", alias: "g", type: "string" })).toBe("--app <app>, -g <app>");
   });
 
   it("renders a boolean flag without placeholder", () => {
@@ -276,13 +276,13 @@ describe("renderHelp", () => {
   it("includes the usage line and flags", () => {
     const help = renderHelp("draft test [options]", {
       flags: [
-        { name: "game", alias: "g", type: "string", description: "Game to test" },
+        { name: "app", alias: "g", type: "string", description: "App to test" },
         { name: "renderer", alias: "r", type: "string", enum: ["gpu", "cpu"], default: "cpu", description: "WebGPU backend" },
       ],
     });
     expect(help).toContain("Usage: draft test [options]");
-    expect(help).toContain("--game <game>, -g <game>");
-    expect(help).toContain("Game to test");
+    expect(help).toContain("--app <app>, -g <app>");
+    expect(help).toContain("App to test");
     expect(help).toContain("one of: gpu|cpu");
     expect(help).toContain("-h, --help");
   });

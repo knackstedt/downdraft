@@ -1,12 +1,12 @@
 // ============================================================================
 // BaseWorkerHost — shared boilerplate for main-thread worker host classes.
 //
-// Each game's XxxWorkerHost re-implemented the same ~80 lines: SAB allocation,
+// Each app's XxxWorkerHost re-implemented the same ~80 lines: SAB allocation,
 // wrap(), onerror, onEvents("ready"), stop(), ready tracking, proxy management.
 // This base class centralizes that boilerplate. Subclasses provide:
 //   - createWorker(): MUST return `new Worker(new URL("./xxx-worker.ts", import.meta.url), { type: "module" })`
-//   - onInit(): call the worker's init RPC with the SAB + game-specific args
-//   - onEvent(): override for game-specific events (defaults to ready tracking)
+//   - onInit(): call the worker's init RPC with the SAB + app-specific args
+//   - onEvent(): override for app-specific events (defaults to ready tracking)
 //   - getSyncConfig(): optional — buffer sync regions for SAB polyfill (mobile)
 //
 // CRITICAL: Vite's static analysis requires `new Worker(new URL(..., import.meta.url))`
@@ -146,7 +146,7 @@ export abstract class BaseWorkerHost<TApi extends WorkerApi> {
   /**
    * Shut down the worker: call shutdown() RPC, terminate, clean up.
    * Safe to call multiple times.
-   * Alias for stop() — some games call shutdown(), others stop().
+   * Alias for stop() — some apps call shutdown(), others stop().
    */
   async shutdown(): Promise<void> {
     return this.stop();
@@ -227,7 +227,7 @@ export abstract class BaseWorkerHost<TApi extends WorkerApi> {
   }
 
   /**
-   * Override for game-specific event handling.
+   * Override for app-specific event handling.
    * Default: sets ready=true on "ready" event.
    */
   protected onEvent(kind: string, _data?: unknown): void {

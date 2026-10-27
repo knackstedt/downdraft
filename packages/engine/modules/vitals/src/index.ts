@@ -4,10 +4,10 @@
 // `Vitals` tracks health, damage (with overkill + last-damage-time), death,
 // respawn, delayed regen, and secondary meters (oxygen, energy, hunger, ...)
 // against a caller-supplied host object so `p.health` stays a plain save
-// field. Games wire death/damage UI through the config callbacks.
+// field. Apps wire death/damage UI through the config callbacks.
 //
 // The module wrapper provides a configured factory via DI for module-host
-// games; hand-rolled sims can use `new Vitals(config, host)` directly.
+// apps; hand-rolled sims can use `new Vitals(config, host)` directly.
 // ============================================================================
 
 import { resourceToken, type Module, type ModuleContext } from "@downdraft/engine";

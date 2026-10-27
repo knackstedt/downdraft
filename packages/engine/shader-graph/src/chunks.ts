@@ -1,7 +1,7 @@
 // ============================================================================
 // WGSL Shader Chunk Library
 // Reusable WGSL function/struct definitions that can be injected into
-// graph-compiled shaders. Extracted from a game's EntityRenderer.
+// graph-compiled shaders. Extracted from an app's EntityRenderer.
 // ============================================================================
 
 export const LIGHT_STRUCTS = /* wgsl */ `

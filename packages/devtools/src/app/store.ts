@@ -52,9 +52,9 @@ export interface Rect { x: number; y: number; w: number; h: number }
 /** Main-area (top strip) fixed tabs. */
 export const MAIN_TABS = ["console", "profiler", "threads", "sources", "world", "gpu", "plugins"] as const;
 
-/** Provider names that roll up into the World tab — a downdraft game with a
+/** Provider names that roll up into the World tab — a downdraft app with a
  *  world/scene exposes at least one of these (or the get_world_state MCP tool). */
-const WORLD_PANEL_NAMES = new Set(["sim", "scene", "target-state", "game", "world"]);
+const WORLD_PANEL_NAMES = new Set(["sim", "scene", "target-state", "app", "world"]);
 
 /** Does this target have anything the World tab can show? */
 export function targetHasWorld(t: TargetInfo | null | undefined): boolean {

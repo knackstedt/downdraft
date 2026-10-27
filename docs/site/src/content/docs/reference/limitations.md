@@ -8,7 +8,7 @@ implemented — things to know before committing to the engine.
 
 ## Accessibility
 
-Game UI (html-ui, world-space OSR panels) renders to GPU textures — there is
+App UI (html-ui, world-space OSR panels) renders to GPU textures — there is
 **no DOM and therefore no accessibility tree**. Screen readers, focus
 traversal for assistive tech, and OS-level text-input services (IME on some
 paths) are not wired. Keyboard/controller navigation inside documents exists
@@ -56,5 +56,5 @@ double the Bun footprint. Android APKs embed libnode similarly.
   without it, module/GC state shared across spec files corrupts the rapier
   WASM instance mid-step (this is why `bun run test` sets it).
 - **Deprecated command removals**: `draft build|dist|export|mobile|
-  build-games` are removed — use `draft release` stages (see
+  build-apps` are removed — use `draft release` stages (see
   [CLI reference](/reference/cli/)).

@@ -41,7 +41,7 @@ export class ScriptingSystem {
   }
 
   async load(name: string, modulePath: string): Promise<ScriptHandle> {
-    // Validate modulePath is confined within the game's scripts directory.
+    // Validate modulePath is confined within the app's scripts directory.
     const safePath = confinePath(this.scriptsDir, modulePath);
 
     const existing = this.scripts.get(name);

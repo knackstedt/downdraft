@@ -24,7 +24,7 @@ const ENV_KEYS = [
   "DOWNDRAFT_GPU_BACKEND",
   "DOWNDRAFT_GPU_FALLBACK",
   "DOWNDRAFT_GPU_DENY",
-  "DD_GAME_DIR",
+  "DD_APP_DIR",
   "XDG_CONFIG_HOME",
 ];
 
@@ -71,10 +71,10 @@ describe("resolveGpuPolicy", () => {
     expect(p.explicitAdapter).toBe(false);
   });
 
-  it("reads the gpu block from downdraft.config.json (gameDir)", () => {
+  it("reads the gpu block from downdraft.config.json (appDir)", () => {
     const dir = mkdtempSync(join(tmpdir(), "gpu-cfg-"));
     writeConfig(dir, { adapter: "software", backend: "vulkan", softwareFallback: false, deny: ["foo"] });
-    const p = resolveGpuPolicy({ appId: APP, gameDir: dir });
+    const p = resolveGpuPolicy({ appId: APP, appDir: dir });
     expect(p.adapter).toBe("software");
     expect(p.backend).toBe("vulkan");
     expect(p.softwareFallback).toBe(false);
@@ -82,10 +82,10 @@ describe("resolveGpuPolicy", () => {
     expect(p.explicitAdapter).toBe(true);
   });
 
-  it("mode=performance presets hardware-only — no fallback chain (games)", () => {
+  it("mode=performance presets hardware-only — no fallback chain (apps)", () => {
     const dir = mkdtempSync(join(tmpdir(), "gpu-cfg-"));
     writeConfig(dir, { mode: "performance" });
-    const p = resolveGpuPolicy({ appId: APP, gameDir: dir });
+    const p = resolveGpuPolicy({ appId: APP, appDir: dir });
     expect(p.adapter).toBe("hardware");
     expect(p.softwareFallback).toBe(false);
     expect(p.glFallback).toBe(false);
@@ -95,7 +95,7 @@ describe("resolveGpuPolicy", () => {
   it("mode=stability presets the graceful chain — auto + software + gl tier", () => {
     const dir = mkdtempSync(join(tmpdir(), "gpu-cfg-"));
     writeConfig(dir, { mode: "stability" });
-    const p = resolveGpuPolicy({ appId: APP, gameDir: dir });
+    const p = resolveGpuPolicy({ appId: APP, appDir: dir });
     expect(p.adapter).toBe("auto");
     expect(p.softwareFallback).toBe(true);
     expect(p.glFallback).toBe(true);
@@ -104,7 +104,7 @@ describe("resolveGpuPolicy", () => {
   it("granular fields override the mode preset they sit beside", () => {
     const dir = mkdtempSync(join(tmpdir(), "gpu-cfg-"));
     writeConfig(dir, { mode: "stability", softwareFallback: false });
-    const p = resolveGpuPolicy({ appId: APP, gameDir: dir });
+    const p = resolveGpuPolicy({ appId: APP, appDir: dir });
     expect(p.glFallback).toBe(true); // preset applied
     expect(p.softwareFallback).toBe(false); // explicit field wins
   });
@@ -113,7 +113,7 @@ describe("resolveGpuPolicy", () => {
     const dir = mkdtempSync(join(tmpdir(), "gpu-cfg-"));
     writeConfig(dir, { adapter: "software" });
     process.env.DOWNDRAFT_GPU_MODE = "performance";
-    const p = resolveGpuPolicy({ appId: APP, gameDir: dir });
+    const p = resolveGpuPolicy({ appId: APP, appDir: dir });
     expect(p.adapter).toBe("hardware");
     expect(p.softwareFallback).toBe(false);
   });
@@ -124,11 +124,11 @@ describe("resolveGpuPolicy", () => {
     expect(resolveGpuPolicy({ appId: APP }).adapter).toBe("hardware");
   });
 
-  it("walks up from the gameDir for downdraft.config.json", () => {
+  it("walks up from the appDir for downdraft.config.json", () => {
     const dir = mkdtempSync(join(tmpdir(), "gpu-cfg-"));
     writeConfig(dir, { adapter: "software" });
-    const p = resolveGpuPolicy({ appId: APP, gameDir: join(dir, "nested", "deeper") });
-    // gameDir is taken literally — the walk happens from cwd/DD_GAME_DIR,
+    const p = resolveGpuPolicy({ appId: APP, appDir: join(dir, "nested", "deeper") });
+    // appDir is taken literally — the walk happens from cwd/DD_APP_DIR,
     // so a literal nonexistent dir falls back to defaults.
     expect(["auto", "software"]).toContain(p.adapter);
   });
@@ -137,7 +137,7 @@ describe("resolveGpuPolicy", () => {
     const dir = mkdtempSync(join(tmpdir(), "gpu-cfg-"));
     writeConfig(dir, { adapter: "software" });
     process.env.DOWNDRAFT_GPU = "hardware";
-    const p = resolveGpuPolicy({ appId: APP, gameDir: dir });
+    const p = resolveGpuPolicy({ appId: APP, appDir: dir });
     expect(p.adapter).toBe("hardware");
   });
 

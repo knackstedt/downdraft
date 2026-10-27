@@ -97,7 +97,7 @@ describe("Vitals", () => {
     v.update(1, { submerged: false });
     expect(host.oxygen).toBe(10);
     // Drain to 0 — the tick that depletes the meter already deals damage
-    // (matches the original games' drain-then-check ordering).
+    // (matches the original apps' drain-then-check ordering).
     for (let i = 0; i < 10; i++) v.update(1, { submerged: true });
     expect(host.oxygen).toBe(0);
     expect(host.health).toBe(98);

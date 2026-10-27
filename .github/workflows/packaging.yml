@@ -6,8 +6,8 @@ on:
   pull_request:
     branches: [main, master]
 
-# Builds the tracked packaging fixture (examples/packaging-smoke — real games
-# are separate repos and gitignored, so the fixture stands in for "a game")
+# Builds the tracked packaging fixture (examples/packaging-smoke — real apps
+# are separate repos and gitignored, so the fixture stands in for "a app")
 # through the full linux matrix: (dir, deb, appimage, flatpak, rpm) x (bun,
 # node, deno). Every artifact is launched headless — the fixture prints DD_SMOKE_OK
 # from its packaged entrypoint and exits, covering worker entrypoints, asset

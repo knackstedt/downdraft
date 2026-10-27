@@ -2,10 +2,10 @@
 // inspectable.ts — characterCustomizationNodes(): InspectableNode[] exposing
 // a CharacterCustomization to automation (MCP inspectable_* tools, devtools).
 //
-// The nodes write through the game's `apply` callback — the SAME function the
+// The nodes write through the app's `apply` callback — the SAME function the
 // customization UI calls (store update → resolveCustomizationMeshes → mesh
 // re-upload → sim dispatch) — so an agent setting `player.customization.
-// variants.ash_torso` produces exactly the in-game effect of a user picking
+// variants.ash_torso` produces exactly the in-app effect of a user picking
 // that variant.
 //
 // Group coverage is captured at call time: re-run the helper and re-register
@@ -36,7 +36,7 @@ export interface CharacterCustomizationNodesOptions {
     catalog: VariantCatalog | (() => VariantCatalog | null);
     /** Read the live customization (e.g. `() => store.getState().player.customization`). */
     get: () => CharacterCustomization;
-    /** Apply a changed customization — pass the same function the game's
+    /** Apply a changed customization — pass the same function the app's
      *  customizer UI calls. */
     apply(next: CharacterCustomization): void;
 }

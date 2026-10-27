@@ -1,8 +1,8 @@
 // ============================================================================
-// Debug View Descriptors — declarative registration of in-game profiler views.
+// Debug View Descriptors — declarative registration of in-app profiler views.
 //
 // Profiling surfaces read these descriptors to know which views to render.
-// The devtools module registers the 8 built-in views; games can register
+// The devtools module registers the 8 built-in views; apps can register
 // custom views via devtools.registerView().
 //
 // View kinds:

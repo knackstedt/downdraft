@@ -2,7 +2,7 @@
 // hotkeys.ts — global keyboard shortcuts on the input bus.
 //
 // Embedded (overlay) mode: `isVisible` gates every devtools key so a hidden
-// overlay never consumes the host game's input; `toggleKey` is the one
+// overlay never consumes the host app's input; `toggleKey` is the one
 // exception — it's handled in both states and flips visibility via onToggle.
 // ============================================================================
 

@@ -44,7 +44,7 @@ The library is split into four modules, each implementing a phase of the splat r
 ```ts
 import { GaussianSplatsLib } from "@downdraft/engine/libraries/gaussian-splats";
 
-startGame({
+startApp({
   libraries: [[GaussianSplatsLib, {
     shDegree: 2,
     sortThreshold: 4096,

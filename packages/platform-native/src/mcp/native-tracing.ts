@@ -17,7 +17,7 @@
 //     configurable from JS; heap_snapshot always captures the full heap.
 //
 // The ProfilingBridge is resolved lazily per call (it doesn't exist until the
-// game's initDevTools runs). Games without devtools.profiling get an honest
+// app's initDevTools runs). Apps without devtools.profiling get an honest
 // error instead of an empty trace.
 // ============================================================================
 
@@ -99,7 +99,7 @@ interface ProfilingBridgeLike {
   };
 }
 
-/** Resolve the game's ProfilingBridge (created by initDevTools in onReady). */
+/** Resolve the app's ProfilingBridge (created by initDevTools in onReady). */
 function getProfilingBridge(): ProfilingBridgeLike | null {
   const api = ((globalThis as any).window?.__downdraftDevtools ?? (globalThis as any).__downdraftDevtools) as
     | { __getProfilingBridge?: () => ProfilingBridgeLike }
@@ -111,13 +111,13 @@ function requireBridge(): ProfilingBridgeLike {
   const bridge = getProfilingBridge();
   if (!bridge) {
     throw new Error(
-      "ProfilingBridge not available — the game must init devtools with profiling enabled (initDevTools({ profiling: true })).",
+      "ProfilingBridge not available — the app must init devtools with profiling enabled (initDevTools({ profiling: true })).",
     );
   }
   return bridge;
 }
 
-/** Lazily-built reader over the game's ProfilingSAB (for tick-free reads). */
+/** Lazily-built reader over the app's ProfilingSAB (for tick-free reads). */
 let liveReader: { reader: ProfilingSABReader; layout: ProfilingSABLayout } | null = null;
 
 /** Read a fresh snapshot straight from the ProfilingSAB (no render tick needed). */

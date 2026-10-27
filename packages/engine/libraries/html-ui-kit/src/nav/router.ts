@@ -4,11 +4,11 @@
 //   UiNavRouter owns one NavController per mounted panel, routes a shared
 //   input stream (any connected pad + optional keyboard) to the topmost
 //   panel, and auto-opens the OSK when a pad confirms an editable node.
-//   createHtmlUi wires this up when `nav` is enabled; games can also build
+//   createHtmlUi wires this up when `nav` is enabled; apps can also build
 //   one directly for bespoke integration.
 // ============================================================================
 
-import type { GamepadSource } from "@downdraft/engine/input/local-player-manager";
+import type { ControllerSource } from "@downdraft/engine/input/local-player-manager";
 import type { HtmlUiHost, UiPanelHandle } from "@downdraft/engine/modules/html-ui";
 import { NavController, type NavAction, type NavControllerOptions } from "./nav-controller";
 import { keyToNavAction, PadNavDriver, type NavInputOptions } from "./nav-input";
@@ -18,7 +18,7 @@ export interface UiNavRouterOptions {
   screenW: number;
   screenH: number;
   /** Pad source — any connected pad drives nav (one driver per slot). */
-  source?: GamepadSource | null;
+  source?: ControllerSource | null;
   /** PadNavDriver tuning (deadzone, repeat, thresholds). */
   pad?: NavInputOptions;
   /** Auto-open the OSK when a pad confirms an editable node. Default true. */
@@ -43,7 +43,7 @@ export class UiNavRouter {
   private readonly ctrls = new Map<UiPanelHandle, NavController>();
   private order: UiPanelHandle[] = [];
   private pads = new Map<number, PadNavDriver>();
-  private source: GamepadSource | null;
+  private source: ControllerSource | null;
   private oskSession: OskSession | null = null;
   /** Which device kind produced the in-flight dispatch — read by onConfirm. */
   private lastVia: "pad" | "key" = "key";

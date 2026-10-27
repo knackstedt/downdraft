@@ -28,12 +28,12 @@ describe("XRInputMapper", () => {
     expect(mapper.getControllerCount()).toBe(0);
   });
 
-  it("should map gamepad buttons to InputState keys", () => {
+  it("should map controller buttons to InputState keys", () => {
     const mapper = new XRInputMapper();
     const state = new InputState();
 
-    // Create a mock XRInputSource with a gamepad
-    const mockGamepad = {
+    // Create a mock XRInputSource with a controller
+    const mockController = {
       buttons: [
         { pressed: true, touched: false, value: 1 }, // trigger (button 0)
         { pressed: false, touched: false, value: 0 }, // squeeze (button 1)
@@ -47,7 +47,7 @@ describe("XRInputMapper", () => {
     const mockSource = {
       handedness: "right",
       targetRayMode: "tracked-pointer",
-      gamepad: mockGamepad,
+      gamepad: mockController,
       profiles: [],
       targetRaySpace: null,
       gripSpace: null,
@@ -74,15 +74,15 @@ describe("XRInputMapper", () => {
     expect(state.isKeyDown(66)).toBe(false);
 
     // Axes should be mapped
-    expect(state.gamepadAxes[0]).toBe(0.5);
-    expect(state.gamepadAxes[1]).toBe(-0.3);
+    expect(state.controllerAxes[0]).toBe(0.5);
+    expect(state.controllerAxes[1]).toBe(-0.3);
   });
 
   it("should detect button release transitions", () => {
     const mapper = new XRInputMapper();
     const state = new InputState();
 
-    const makeGamepad = (triggerPressed: boolean) => ({
+    const makeController = (triggerPressed: boolean) => ({
       buttons: [
         { pressed: triggerPressed, touched: false, value: triggerPressed ? 1 : 0 },
         { pressed: false, touched: false, value: 0 },
@@ -93,12 +93,12 @@ describe("XRInputMapper", () => {
       axes: [0, 0, 0, 0],
     } as unknown as Gamepad);
 
-    const makeFrame = (gamepad: Gamepad) => ({
+    const makeFrame = (controller: Gamepad) => ({
       session: {
         inputSources: [{
           handedness: "left",
           targetRayMode: "tracked-pointer",
-          gamepad,
+          gamepad: controller,
           profiles: [],
           targetRaySpace: null,
           gripSpace: null,
@@ -110,13 +110,13 @@ describe("XRInputMapper", () => {
     const mockRefSpace = {} as XRReferenceSpace;
 
     // Press trigger
-    mapper.update(makeFrame(makeGamepad(true)), mockRefSpace, state);
+    mapper.update(makeFrame(makeController(true)), mockRefSpace, state);
     expect(state.isMouseDown(0)).toBe(true);
 
     state.endFrame();
 
     // Release trigger
-    mapper.update(makeFrame(makeGamepad(false)), mockRefSpace, state);
+    mapper.update(makeFrame(makeController(false)), mockRefSpace, state);
     expect(state.isMouseDown(0)).toBe(false);
     expect(state.wasMouseReleased(0)).toBe(true);
   });

@@ -1,7 +1,7 @@
 // ============================================================================
 // BaseSceneInspector — generic DevTools API exposed on window.__downdraftDevtools.
-// Games extend this class and provide game-specific features via
-// IGameDevToolsExtension.
+// Apps extend this class and provide app-specific features via
+// IAppDevToolsExtension.
 //
 // Extends DevToolsDataBridge (which provides perf/GC/GPU/telemetry data feeds)
 // and adds scene-tree / model / gizmo / material-editor methods.
@@ -24,12 +24,12 @@ export abstract class BaseSceneInspector extends DevToolsDataBridge {
   // Core material library — the single source of truth for materials created
   // via the graph editor. Graph-compiled materials are registered here.
   protected materialLibrary: MaterialLibrary = new MaterialLibrary();
-  // Preview mesh renderer for live material graph preview (set by the game).
+  // Preview mesh renderer for live material graph preview (set by the app).
   protected previewMeshRenderer: { setMaterial: (m: Material) => void } | null = null;
 
   // --- Abstract methods ---
 
-  /** Games provide asset resolution for model import/thumbnails. */
+  /** Apps provide asset resolution for model import/thumbnails. */
   protected abstract getAssetResolver(): IAssetResolver | null;
 
   /** Typed view of the renderer as IDevToolsRenderer (scene-specific methods).
@@ -503,7 +503,7 @@ export abstract class BaseSceneInspector extends DevToolsDataBridge {
         this.previewMeshRenderer = renderer;
       },
 
-      /** Get the core material library (for game integration). */
+      /** Get the core material library (for app integration). */
       getMaterialLibrary: (): MaterialLibrary => {
         return this.materialLibrary;
       },

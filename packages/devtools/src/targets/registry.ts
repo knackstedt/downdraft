@@ -35,7 +35,7 @@ export class SessionManager {
    *  viewer leaves it null: inspecting yourself is meaningless there. */
   private selfPid: number | null = null;
   /** When true, self always takes the active slot on (re)discovery — the
-   *  embedded single-target mode where the host game IS the subject and
+   *  embedded single-target mode where the host app IS the subject and
    *  the target list is hidden. */
   private selfPinned = false;
   setSelfTarget(pid: number | null, opts?: { pin?: boolean }): void {
@@ -68,7 +68,7 @@ export class SessionManager {
   private onDiscovery(added: DiscoveredEndpoint[], removed: number[]): void {
     added.forEach((ep) => {
       // Don't inspect ourselves — except an embedded mount that opted its
-      // own pid in via setSelfTarget (the host game IS the target then).
+      // own pid in via setSelfTarget (the host app IS the target then).
       if (ep.pid === process.pid && ep.pid !== this.selfPid) return;
       const prev = this.endpoints.get(ep.pid);
       // Merge channels into the remembered endpoint (discovery files land at
@@ -97,7 +97,7 @@ export class SessionManager {
           onSnapshot: () => this.syncStore(),
         });
         this.sessions.set(ep.pid, s);
-        // Embedded self-target: the host game is the natural default —
+        // Embedded self-target: the host app is the natural default —
         // without this the overlay arbitrarily attaches to whichever
         // unrelated target discovery found first. Pinned mode takes the
         // slot unconditionally — including on re-discovery after another

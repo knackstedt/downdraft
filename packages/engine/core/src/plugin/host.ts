@@ -4,8 +4,8 @@
 // Thread-agnostic: a renderer-side host and a sim-side host each manage the
 // plugins targeted at their thread. The host:
 //   1. Discovers plugin manifests from configured sources (local dir, workshop).
-//   2. Validates each manifest (validatePluginManifest) + engine/game compat.
-//   3. Resolves permissions (requested ∩ tier ∩ game allowlist).
+//   2. Validates each manifest (validatePluginManifest) + engine/app compat.
+//   3. Resolves permissions (requested ∩ tier ∩ app allowlist).
 //   4. Resolves load order (PluginRegistry topological sort).
 //   5. For each plugin in order, asks the format-specific loader to load it,
 //      passing a tiered PluginContext facade. Native-tier context bridges
@@ -73,7 +73,7 @@ export interface PluginLoader {
  * A bucket-specific loader for declarative mod extensions (assets, maps,
  * physics, shaders). The host dispatches each flattened extension to the
  * loader registered for its bucket. The loader registers the extension's
- * data into the appropriate game registry (AssetManager, MapRegistry,
+ * data into the appropriate app registry (AssetManager, MapRegistry,
  * PostProcessStack, MaterialRegistry, etc.) and returns a dispose fn.
  *
  * One ExtensionLoader per bucket: "assets" | "maps" | "physics" |
@@ -111,21 +111,21 @@ export interface PluginHostOptions {
   /** The ModuleHost on this thread (for native-tier ECS/DI bridging). Optional
    *  for renderer-only hosts that never load native plugins. */
   moduleHost?: ModuleHost;
-  /** Game-defined permission allowlist (further restricts tier). */
-  gameAllow?: ReadonlySet<PluginPermission>;
-  /** Game-defined event catalog (event names → payload types). */
+  /** App-defined permission allowlist (further restricts tier). */
+  appAllow?: ReadonlySet<PluginPermission>;
+  /** App-defined event catalog (event names → payload types). */
   eventCatalog?: Record<string, unknown>;
   /** Discovery sources. Phase 1 supports `local`; `workshop` added in Phase 2. */
   sources?: PluginSource[];
-  /** The appId of the game this host belongs to (for manifest game-field check). */
-  gameId: string;
+  /** The appId of the app this host belongs to (for manifest app-field check). */
+  appId: string;
   /** Engine version for manifest engineVersion range checks. */
   engineVersion: string;
   /** DevTools API (for native-tier ctx.devtools). Optional. */
   devtools?: ModuleDevToolsAPI;
-  /** Game-implemented host-call bridge (spawn/physics/impulse/asset-ref).
+  /** App-implemented host-call bridge (spawn/physics/impulse/asset-ref).
    *  Injected into NativePluginContext so logic extensions can mutate the
-   *  game. Optional — a game that doesn't support mutation omits it, and
+   *  app. Optional — an app that doesn't support mutation omits it, and
    *  host-call methods reject with a clear error. */
   hostCalls?: PluginHostCalls;
 }
@@ -142,7 +142,7 @@ export class PluginHost {
   private discovered: Map<string, { manifest: PluginManifest; source: string }> = new Map();
   /** Shared event bus — all plugins on this host publish/subscribe through
    *  the same bus so mods can actually communicate with each other and with
-   *  the game (previously each plugin got a private bus, so publish/subscribe
+   *  the app (previously each plugin got a private bus, so publish/subscribe
    *  could never cross plugin boundaries). */
   private eventBus: PluginEventBus = makeEventBus();
   /** Per-plugin in-process tick drains (plugin id → drain fn). */
@@ -161,7 +161,7 @@ export class PluginHost {
 
   /**
    * Inject the ModuleHost after construction. Needed when the renderer's
-   * ModuleHost only exists after renderer init (startGame constructs the
+   * ModuleHost only exists after renderer init (startApp constructs the
    * PluginHost early but must wire the ModuleHost before loadAll()).
    */
   setModuleHost(moduleHost: ModuleHost): void {
@@ -170,18 +170,18 @@ export class PluginHost {
 
   /**
    * Publish an event to every plugin on this host (and, for worker plugins,
-   * to their sandbox via the loader's fan-out). Games call this to push
-   * game-defined events into the mod ecosystem.
+   * to their sandbox via the loader's fan-out). Apps call this to push
+   * app-defined events into the mod ecosystem.
    */
   publishEvent(event: string, data: unknown): void {
     if (this.opts.eventCatalog && !(event in this.opts.eventCatalog)) {
-      log.warn("plugin-host", `publishEvent("${event}") — not in the game's event catalog; delivering anyway`);
+      log.warn("plugin-host", `publishEvent("${event}") — not in the app's event catalog; delivering anyway`);
     }
     this.eventBus.publish(event, data);
   }
 
   /**
-   * Drive plugin tick callbacks. Games call this once per frame/tick from
+   * Drive plugin tick callbacks. Apps call this once per frame/tick from
    * their render loop. In-process plugins' onTick callbacks are drained here;
    * worker plugins receive a `__tick` message via their loader.
    */
@@ -219,14 +219,14 @@ export class PluginHost {
 
   /**
    * Register a discovered manifest (from a local dir scan or workshop fetch).
-   * Validates the manifest + engine/game compatibility. Does NOT load yet.
+   * Validates the manifest + engine/app compatibility. Does NOT load yet.
    */
   discover(manifest: PluginManifest, source: string): { ok: boolean; errors: string[] } {
     const v = validatePluginManifest(manifest);
     if (!v.valid) return { ok: false, errors: v.errors };
     const m = v.normalized!;
-    if (m.game !== this.opts.gameId) {
-      return { ok: false, errors: [`game "${m.game}" does not match host game "${this.opts.gameId}"`] };
+    if (m.app !== this.opts.appId) {
+      return { ok: false, errors: [`app "${m.app}" does not match host app "${this.opts.appId}"`] };
     }
     if (!satisfiesEngine(this.opts.engineVersion, m.engineVersion)) {
       return {
@@ -319,7 +319,7 @@ export class PluginHost {
     const granted = resolvePermissions(
       m.logic?.permissions ?? m.permissions ?? [],
       m.tier,
-      this.opts.gameAllow,
+      this.opts.appAllow,
     );
     this.active.set(id, {
       manifest: m,
@@ -377,7 +377,7 @@ export class PluginHost {
   ): ScriptPluginContext | NativePluginContext {
     const host = this;
     // Shared bus, wrapped per-plugin so subscriptions/publishes are
-    // validated against the game's event catalog (when one is configured).
+    // validated against the app's event catalog (when one is configured).
     const events = this.wrapEventBus(m.id);
     const state = makeStateStore(m.id);
     const tick = makeTickApi(m.id);
@@ -434,7 +434,7 @@ export class PluginHost {
 
   /**
    * Wrap the shared bus for a plugin: validates event names against the
-   * game's event catalog (if configured) — unknown events warn but still
+   * app's event catalog (if configured) — unknown events warn but still
    * deliver, so a partial catalog doesn't break cross-plugin traffic.
    */
   private wrapEventBus(pluginId: string): PluginEventBus {

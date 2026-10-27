@@ -11,7 +11,7 @@
 //
 // Usage:
 //   import { createNativeHost } from "@downdraft/platform-native";
-//   const host = await createNativeHost({ window: { title: "Game", width: 1920, height: 1080 } });
+//   const host = await createNativeHost({ window: { title: "App", width: 1920, height: 1080 } });
 // ============================================================================
 
 export { installAssetGlob, nativeGlob } from "./assets/native-assets";
@@ -35,10 +35,9 @@ export { WgpuAdapter, WgpuBindGroup, WgpuBindGroupLayout, WgpuBuffer, WgpuComman
 export { acquireSingleInstanceLock, addCrashFeatureLog, installNativeErrorHandlers, installWindowStatePersistence, releaseSingleInstanceLock } from "./host-lifecycle";
 export { createImageBitmapNative, getFreeTypeTextRenderer, installImagePolyfills, NativeCanvas2D, NativeImageBitmap } from "./image/native-image";
 export { createNativeHostTools, startNativeMcpServer, type NativeMcpOptions, type NativeMcpServer } from "./mcp/native-mcp";
-export { startNativeGame, type NativeGameContext, type NativeGameOptions } from "./native-game";
-export { runNativeGameModule, type RunNativeGameModuleOptions } from "./native-game-module";
+export { runNativeAppModule, type RunNativeAppModuleOptions } from "./native-app-module";
 export { createNativeHost, type NativeHostConfig, type NativeHostContext } from "./native-host";
-export { installRestartHook, requestGameRestart, type RestartHookOptions } from "./native-restart";
+export { installRestartHook, requestAppRestart, type RestartHookOptions } from "./native-restart";
 export { captureScreenshot, encodePNG, paddedReadbackToRGBA } from "./screenshot/screenshot";
 export { initNativeSecrets, type SecretsStore } from "./secrets/index";
 export { createHostServices, scopeServicesForPlugin, type HostServices, type HostServicesApi, type HostServicesOptions } from "./services/host-services";

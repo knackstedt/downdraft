@@ -1,44 +1,44 @@
 // ============================================================================
-// paths.ts — monorepo vs standalone-game resolution for the draft CLI
+// paths.ts — monorepo vs standalone-app resolution for the draft CLI
 // ============================================================================
 //
 // The CLI runs in two layouts:
 //
-//   1. Monorepo — the workspace `draft` bin, games at <root>/games/<name>.
-//   2. Standalone — @downdraft/cli installed as a game repo devDep; the game
-//      directory IS the project root (no games/ level).
+//   1. Monorepo — the workspace `draft` bin, apps at <root>/apps/<name>.
+//   2. Standalone — @downdraft/cli installed as an app repo devDep; the app
+//      directory IS the project root (no apps/ level).
 //
 // Resolution rules:
 //   - The monorepo root is detected by walking up looking for a package.json
 //     named "downdraft-engine" (the CLI's own install location is checked too,
-//     so `draft --game <x>` still works when invoked from outside the repo).
-//   - A game directory is identified by `downdraft.config.json`, falling back
-//     to `src/native-entry.ts` (un-migrated games). Inside the monorepo,
-//     `games/<name>` resolves by name; standalone games are found by walking
+//     so `draft --app <x>` still works when invoked from outside the repo).
+//   - An app directory is identified by `downdraft.config.json`, falling back
+//     to `src/native-entry.ts` (un-migrated apps). Inside the monorepo,
+//     `apps/<name>` resolves by name; standalone apps are found by walking
 //     up from cwd.
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
-export const GAME_CONFIG_FILE = "downdraft.config.json";
+export const APP_CONFIG_FILE = "downdraft.config.json";
 const NATIVE_ENTRY_FILE = "src/native-entry.ts";
 
-function isGameDir(dir: string): boolean {
-  return existsSync(join(dir, GAME_CONFIG_FILE))
+function isAppDir(dir: string): boolean {
+  return existsSync(join(dir, APP_CONFIG_FILE))
     || existsSync(join(dir, NATIVE_ENTRY_FILE));
 }
 
 /**
- * Read a game's `downdraft.config.json` — engine-level settings that apply
- * regardless of the game's package.json build section. Missing/invalid files
- * yield `{}` (the file doubles as a game-dir marker, so it may be absent).
+ * Read an app's `downdraft.config.json` — engine-level settings that apply
+ * regardless of the app's package.json build section. Missing/invalid files
+ * yield `{}` (the file doubles as an app-dir marker, so it may be absent).
  *
  *   { "runtime": "bun" | "node" | "deno" }  — default JS runtime for
  *   `draft dev`/`draft release` (overridden by --runtime / DD_RUNTIME).
  */
-export function readGameConfig(gameDir: string): Record<string, unknown> {
+export function readAppConfig(appDir: string): Record<string, unknown> {
   try {
-    const cfg = JSON.parse(readFileSync(join(gameDir, GAME_CONFIG_FILE), "utf8"));
+    const cfg = JSON.parse(readFileSync(join(appDir, APP_CONFIG_FILE), "utf8"));
     return cfg && typeof cfg === "object" ? cfg : {};
   } catch {
     return {};
@@ -49,7 +49,7 @@ export function readGameConfig(gameDir: string): Record<string, unknown> {
  * Find the downdraft monorepo root — a directory whose package.json is named
  * "downdraft-engine" and contains packages/engine. Searches cwd ancestry first,
  * then the CLI's own location (packages/cli/src → ../../.. in the monorepo).
- * Returns null when running inside a standalone game repo.
+ * Returns null when running inside a standalone app repo.
  */
 export function findMonorepoRoot(start: string = process.cwd()): string | null {
   const candidates = [resolve(start), resolve(import.meta.dir, "../../..")];
@@ -71,14 +71,14 @@ export function findMonorepoRoot(start: string = process.cwd()): string | null {
 }
 
 /**
- * Walk up from `start` looking for a game directory — `downdraft.config.json`
- * or `src/native-entry.ts`. Works for both `games/<name>` inside the monorepo
- * and standalone game repos.
+ * Walk up from `start` looking for an app directory — `downdraft.config.json`
+ * or `src/native-entry.ts`. Works for both `apps/<name>` inside the monorepo
+ * and standalone app repos.
  */
-export function findGameDirUpward(start: string = process.cwd()): string | null {
+export function findAppDirUpward(start: string = process.cwd()): string | null {
   let dir = resolve(start);
   for (;;) {
-    if (isGameDir(dir)) return dir;
+    if (isAppDir(dir)) return dir;
     const up = dirname(dir);
     if (up === dir) return null;
     dir = up;
@@ -86,23 +86,23 @@ export function findGameDirUpward(start: string = process.cwd()): string | null 
 }
 
 /**
- * Resolve a game's directory.
- *  - `name` given + monorepo → `<root>/games/<name>` (must exist).
- *  - `name` given + standalone → cwd's game dir, if its basename matches.
- *  - no name → walk up from cwd for the nearest game dir.
+ * Resolve an app's directory.
+ *  - `name` given + monorepo → `<root>/apps/<name>` (must exist).
+ *  - `name` given + standalone → cwd's app dir, if its basename matches.
+ *  - no name → walk up from cwd for the nearest app dir.
  * Returns null when nothing resolves.
  */
-export function resolveGameDir(name?: string): string | null {
-  const upward = findGameDirUpward();
+export function resolveAppDir(name?: string): string | null {
+  const upward = findAppDirUpward();
   if (!name) return upward;
-  // The cwd's own game wins when its name matches — standalone repos can live
+  // The cwd's own app wins when its name matches — standalone repos can live
   // anywhere, and the CLI's own location may still detect the monorepo.
   if (upward && basename(upward) === name) return upward;
   const root = findMonorepoRoot();
   if (root) {
-    // games/ holds local clones (gitignored); examples/ holds tracked
-    // fixtures (e.g. packaging-smoke) that always resolve in-repo.
-    for (const base of ["games", "examples"].values()) {
+    // apps/ holds tracked in-repo apps; games/ holds local project clones
+    // (gitignored); examples/ holds tracked fixtures (e.g. packaging-smoke).
+    for (const base of ["apps", "games", "examples"].values()) {
       const dir = join(root, base, name);
       if (existsSync(dir)) return dir;
     }
@@ -112,11 +112,11 @@ export function resolveGameDir(name?: string): string | null {
 
 /**
  * The directory builds should spawn from / write `dist` into — the monorepo
- * root when the game lives inside it (shared root dist), else the game
+ * root when the app lives inside it (shared root dist), else the app
  * directory itself. The CLI's own location must NOT trigger the monorepo
- * branch for standalone games (linked installs resolve back into the repo).
+ * branch for standalone apps (linked installs resolve back into the repo).
  */
-export function buildCwd(gameDir: string): string {
+export function buildCwd(appDir: string): string {
   const root = findMonorepoRoot();
-  return root && resolve(gameDir).startsWith(root + sep) ? root : gameDir;
+  return root && resolve(appDir).startsWith(root + sep) ? root : appDir;
 }

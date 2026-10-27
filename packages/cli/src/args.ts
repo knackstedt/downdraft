@@ -18,7 +18,7 @@
 
 /** A single flag declaration. */
 export interface FlagSpec {
-  /** Long name without `--` (e.g. `"game"`). */
+  /** Long name without `--` (e.g. `"app"`). */
   name: string;
   /** Optional single-char alias without `-` (e.g. `"g"`). */
   alias?: string;
@@ -79,7 +79,7 @@ function isStrict(): boolean {
   return false; // parser default; dev-mode strictness is opt-in here
 }
 
-/** Format a flag spec for usage output, e.g. `--game <name>, -g <name>`. */
+/** Format a flag spec for usage output, e.g. `--app <name>, -g <name>`. */
 export function formatFlag(spec: FlagSpec): string {
   const placeholder = spec.type === "boolean" ? "" : ` <${spec.name}>`;
   const long = `--${spec.name}${placeholder}`;

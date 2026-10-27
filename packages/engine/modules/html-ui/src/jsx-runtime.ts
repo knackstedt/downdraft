@@ -1,7 +1,7 @@
 // ============================================================================
 // jsx-runtime.ts — minimal JSX→markup runtime for html-ui panels.
 //
-// Games write .tsx components with
+// Apps write .tsx components with
 //   /** @jsxImportSource @downdraft/engine/modules/html-ui */
 // which call these exports to build vnode trees; `renderHtml(v)` serializes
 // to the markup string handed to a panel doc. There is no DOM and no vdom

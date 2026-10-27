@@ -4,7 +4,7 @@ Status: Accepted (evaluated 2026-10 — do not re-litigate without new facts)
 
 ## Context
 
-Native dev needs HMR for game code: module-level invalidation, accept-boundary
+Native dev needs HMR for app code: module-level invalidation, accept-boundary
 propagation, and escalation to worker/session/host restart tiers. The dev
 shell (`dev-shell.mjs` + `native-dev-runtime.ts`) embeds Vite as a
 `RunnableDevEnvironment` — not `vite dev`, and no browser-facing server.

@@ -1,13 +1,13 @@
 // ============================================================================
 // WeatherFxLib — declarative engine library descriptor for @downdraft/engine/libraries/weatherfx
 //
-// Games declare `libraries: [WeatherFxLib]` (or with config override) in their
-// GameModule. The host creates the ParticleSystem (renderer-side only — weather
+// Apps declare `libraries: [WeatherFxLib]` (or with config override) in their
+// AppModule. The host creates the ParticleSystem (renderer-side only — weather
 // visual effects are GPU compute + render passes) and exposes it via the
 // WeatherFxTok typed token.
 //
-// CloudSystem requires a game-specific CloudMeshProvider, so games create it in
-// onReady (injecting the GPU device from the renderer context). Games that need
+// CloudSystem requires an app-specific CloudMeshProvider, so apps create it in
+// onReady (injecting the GPU device from the renderer context). Apps that need
 // full control can still import CloudSystem / ParticleSystem directly (escape
 // hatch).
 // ============================================================================

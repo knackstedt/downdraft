@@ -69,7 +69,7 @@ function ensureZstdGlobal(): Promise<void> {
 export interface FileSaveStoreOptions {
   /** Directory to store save files (typically app.getPath("userData") + "/saves") */
   saveDir: string;
-  /** Current engine/game version string (e.g. "0.1.0") */
+  /** Current engine/app version string (e.g. "0.1.0") */
   engineVersion: string;
   /** Migration registry (optional — a new one is created if not provided) */
   migrationRegistry?: IMigrationRegistry;

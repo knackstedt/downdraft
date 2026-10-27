@@ -1,7 +1,7 @@
 // ============================================================================
-// user-data-dir.ts — per-game userData directory resolution for the native host
+// user-data-dir.ts — per-app userData directory resolution for the native host
 //
-// Each game gets an isolated directory for saves, import cache, window
+// Each app gets an isolated directory for saves, import cache, window
 // state, and debug artifacts.
 // ============================================================================
 
@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 /**
- * Resolve the per-game userData directory from an `appId`, following the
+ * Resolve the per-app userData directory from an `appId`, following the
  * platform's application-data convention:
  *   linux:   $XDG_CONFIG_HOME/<appId>   (~/.config/<appId>)
  *   darwin:  ~/Library/Application Support/<appId>

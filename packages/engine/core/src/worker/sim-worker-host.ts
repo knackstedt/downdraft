@@ -1,12 +1,12 @@
 // ============================================================================
 // SimWorkerHost — standard control surface for sim workers on BaseWorkerHost.
 //
-// Every game's XxxWorkerHost re-implemented the same methods on top of
+// Every app's XxxWorkerHost re-implemented the same methods on top of
 // BaseWorkerHost:
 //   - pause()/resume()/step()/setSpeed() fire-and-forget proxy wrappers
 //   - getStats() with a try/catch → null fallback
 //   - writeInput()/writeInputF32() into the SAB input region
-//   - per-game event callback fields (onCollected, onMatched, ...) — replaced
+//   - per-app event callback fields (onCollected, onMatched, ...) — replaced
 //     here by a generic onSimEvent(kind, cb) registry + "*" wildcard
 //   - attachProfilingSAB() — forwards __profilingAttach to the worker proxy
 //   - save/load RPC wrappers with null-safe fallbacks — replaced by the
@@ -60,7 +60,7 @@ export interface SimWorkerControlApi extends WorkerApi {
 /**
  * Optional save/command verbs — exposed worker-side when the worker was
  * created with createSimWorker({ save: {...}, onCommand }) or hand-rolled
- * equivalents. Games declare this on their worker API type
+ * equivalents. Apps declare this on their worker API type
  * (`interface MyApi extends SimWorkerControlApi, SimWorkerSaveApi {...}`) to
  * get typed captureState/restoreFromState calls through SimWorkerHost.
  */
@@ -78,7 +78,7 @@ export interface SimWorkerSaveApi {
 
 /**
  * Minimal input-writer surface — satisfied by GridSimBufferWriter
- * (library-sand) and RawInputRegionWriter (below), or any game writer with
+ * (library-sand) and RawInputRegionWriter (below), or any app writer with
  * the same methods. `field` is a byte offset within the input region.
  */
 export interface SimInputWriter {
@@ -87,7 +87,7 @@ export interface SimInputWriter {
 }
 
 /**
- * Input writer over a raw SAB region — for games that don't use
+ * Input writer over a raw SAB region — for apps that don't use
  * GridSimBufferWriter. Writes i32 via writeInput and f32 via writeInputF32,
  * treating `field` as a byte offset relative to `byteOffset`.
  */
@@ -114,7 +114,7 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
   private inputWriter: SimInputWriter | null = null;
 
   /**
-   * Set the SAB input writer (e.g. the game's GridSimBufferWriter or a
+   * Set the SAB input writer (e.g. the app's GridSimBufferWriter or a
    * RawInputRegionWriter). Typically called from the subclass constructor.
    */
   protected setInputWriter(writer: SimInputWriter): void {
@@ -149,11 +149,11 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
     }
   }
 
-  // --- Generic RPC helpers (replace per-game null-safe wrappers) ---
+  // --- Generic RPC helpers (replace per-app null-safe wrappers) ---
 
   /**
    * Await a worker RPC, returning null if the worker is not started or the
-   * call throws. Replaces the per-game `try { return await proxy.proxy.x() }
+   * call throws. Replaces the per-app `try { return await proxy.proxy.x() }
    * catch { return null }` pattern.
    */
   protected async apiCall<R>(fn: (api: TApi) => Promise<R>): Promise<R | null> {
@@ -168,7 +168,7 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
 
   /**
    * Fire-and-forget worker RPC — swallows the "not started" and rejection
-   * cases. Replaces the per-game `this.getProxy()?.proxy.x().catch(() => {})`
+   * cases. Replaces the per-app `this.getProxy()?.proxy.x().catch(() => {})`
    * pattern.
    */
   protected apiSend(fn: (api: TApi) => unknown): void {
@@ -202,7 +202,7 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
 
   /**
    * Serialize the worker's save payload — without touching any store. For
-   * renderer-owned save flows (createGameSaveSystem) that embed the payload
+   * renderer-owned save flows (createSaveSystem) that embed the payload
    * in their own SaveState. Binary data (typed arrays) arrives in `blobs`.
    * Null when the worker wasn't started or doesn't expose captureState.
    */
@@ -250,7 +250,7 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
   /**
    * Subscribe to a worker event kind (e.g. "collected", "matched"). Returns
    * an unsubscribe function. Use "*" to subscribe to all events (replaces the
-   * per-game `onEvents(handler)` single-handler field); wildcard callbacks
+   * per-app `onEvents(handler)` single-handler field); wildcard callbacks
    * receive the event kind as the second argument.
    */
   onSimEvent(kind: string, cb: (data: unknown, kind: string) => void): () => void {
@@ -266,9 +266,9 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
   }
 
   /**
-   * GameSimWorker-compatible event subscription — the callback receives
+   * SimWorker-compatible event subscription — the callback receives
    * `{ kind, data }` messages. Lets a renderer-owned SimWorkerHost plug into
-   * startGame()'s declarative `events` routing via `module.simFromRenderer`.
+   * startApp()'s declarative `events` routing via `module.simFromRenderer`.
    * Returns an unsubscribe function.
    */
   subscribeEvents(cb: (msg: { kind: string; data: unknown }) => void): () => void {
@@ -276,8 +276,8 @@ export abstract class SimWorkerHost<TApi extends WorkerApi = SimWorkerControlApi
   }
 
   /**
-   * GameSimWorker-compatible input-buffer accessor. Sim worker hosts share
-   * one SAB (input region lives inside the sim buffer); games with a
+   * SimWorker-compatible input-buffer accessor. Sim worker hosts share
+   * one SAB (input region lives inside the sim buffer); apps with a
    * separate input SAB override this.
    */
   getInputBuffer(): SharedArrayBuffer {

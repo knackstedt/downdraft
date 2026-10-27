@@ -1,4 +1,4 @@
-// Tests for the host-call bridge (game mutation API).
+// Tests for the host-call bridge (app mutation API).
 //
 // Covers:
 //   - worker-js (InlinePluginLoader) host calls: spawn/remove/physics/impulse/asset-ref
@@ -19,7 +19,7 @@ function nativeManifest(overrides: Partial<PluginManifest> = {}): PluginManifest
     name: "Test Native",
     version: "1.0.0",
     engineVersion: "^0.1.0",
-    game: "test-game",
+    app: "test-app",
     format: "worker-js",
     tier: "native",
     thread: "sim",
@@ -90,7 +90,7 @@ describe("host-call bridge", () => {
     const calls = fakeHostCalls();
     const results: { spawn?: SpawnedProp; phys?: PhysicsDesc; ref?: number } = {};
     const host = new PluginHost({
-      gameId: "test-game",
+      appId: "test-app",
       engineVersion: "0.1.0",
       moduleHost: new ModuleHost(new World()),
       hostCalls: calls,
@@ -124,7 +124,7 @@ describe("host-call bridge", () => {
 
   it("rejects host calls when no hostCalls bridge is wired", async () => {
     const host = new PluginHost({
-      gameId: "test-game",
+      appId: "test-app",
       engineVersion: "0.1.0",
       moduleHost: new ModuleHost(new World()),
       // no hostCalls
@@ -150,7 +150,7 @@ describe("host-call bridge", () => {
     // Script-tier plugins don't get NativePluginContext, so host calls aren't
     // on the ctx. This test verifies the ScriptPluginContext type doesn't
     // expose them (type-level check; runtime just confirms ctx has no spawnProp).
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     let hasSpawnProp = true;
     host.registerLoader({
       format: "quickjs",

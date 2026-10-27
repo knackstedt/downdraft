@@ -3,14 +3,14 @@
 //
 // The native HMR system keeps the process, winit window, wgpu host device,
 // bridge, and MCP server alive across source edits. What changes is the
-// *session*: the game module graph, its workers, timers, listeners, and
+// *session*: the app module graph, its workers, timers, listeners, and
 // renderer-created GPU devices.
 //
 // SessionTracker is the registry that makes session teardown deterministic:
 // it wraps the global registration surfaces (timers, RAF, event listeners,
 // Worker construction) while a session runs, and tears everything down on
 // session end — including for bespoke entries that never
-// learned the GameModule lifecycle.
+// learned the AppModule lifecycle.
 //
 // Lifecycle:
 //   installSessionTracker()  — once per process (idempotent, survives reloads)
@@ -23,7 +23,7 @@
 //
 // Registered sim handles (registerSim — auto-called by EntitySimWorkerHost)
 // power the Tier-2 "sim worker swap" and give state save/restore a generic
-// surface that works without game cooperation.
+// surface that works without app cooperation.
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
@@ -185,7 +185,7 @@ export class SessionTracker {
 
   /**
    * Register a renderer/meta state provider. If a previous session left a
-   * pending save, the provider is restored immediately (startGame registers
+   * pending save, the provider is restored immediately (startApp registers
    * post-init, which is exactly when renderer meta should be applied).
    */
   registerMetaProvider(provider: SessionMetaProvider): () => void {
@@ -247,7 +247,7 @@ export class SessionTracker {
    */
   async saveState(): Promise<boolean> {
     const dd = (globalThis as any).downdraft;
-    if (!dd?.saveGameState) return false;
+    if (!dd?.saveAppState) return false;
     try {
       const components: Record<string, any> = {};
       let anySaved = false;
@@ -273,7 +273,7 @@ export class SessionTracker {
       if (!anySaved && this.metaProviders.size === 0) return false;
       const merged = JSON.stringify(components);
       if (anySaved) this.pendingStateJson = merged;
-      await dd.saveGameState(HOT_RELOAD_SLOT, merged);
+      await dd.saveAppState(HOT_RELOAD_SLOT, merged);
       (globalThis as any).sessionStorage?.setItem?.(HOT_RELOAD_PENDING_KEY, "1");
       return true;
     } catch (e) {
@@ -295,7 +295,7 @@ export class SessionTracker {
     if (!storage?.getItem?.(HOT_RELOAD_PENDING_KEY)) return null;
     storage?.removeItem?.(HOT_RELOAD_PENDING_KEY);
     const dd = (globalThis as any).downdraft;
-    return (await dd?.loadGameState?.(HOT_RELOAD_SLOT)) ?? null;
+    return (await dd?.loadAppState?.(HOT_RELOAD_SLOT)) ?? null;
   }
 
   /** Restore renderer meta providers from a pending merged-state json. */
@@ -311,7 +311,7 @@ export class SessionTracker {
   /** Clear the stored pending save (after successful restore). */
   clearPendingState(): void {
     this.pendingStateJson = null;
-    void (globalThis as any).downdraft?.deleteGameState?.(HOT_RELOAD_SLOT);
+    void (globalThis as any).downdraft?.deleteAppState?.(HOT_RELOAD_SLOT);
   }
 
   // ── Sim hot reload (Tier 2) ───────────────────────────────────────────
@@ -708,7 +708,7 @@ export class SessionTracker {
 
     // A cursor grab is session-owned too — the window/surface outlive the
     // session, so a lock held at teardown would otherwise carry into the
-    // next session (fresh game boots with a trapped invisible cursor).
+    // next session (fresh app boots with a trapped invisible cursor).
     // exitPointerLock also resets pointerLockElement + inputGrabWanted.
     try {
       const host = this.host;

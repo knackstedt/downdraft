@@ -85,7 +85,7 @@ export class XRModule implements RendererModule {
     });
   }
 
-  // ── Public API (called by the game after registration) ──
+  // ── Public API (called by the app after registration) ──
 
   async isSupported(): Promise<boolean> {
     return await isVRSupported();

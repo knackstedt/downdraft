@@ -1,0 +1,44 @@
+import type { AppModule } from "@downdraft/engine/app/main";
+
+// ============================================================================
+// Minimal app template — declarative AppModule
+//
+// The SAME module drives both entry points:
+//   src/native-entry.ts — Bun + SDL + wgpu-native (draft dev, the default)
+//
+// For a more complete example with WebGPU rendering, sim worker, and
+// libraries, see the "full" template (`draft init --template full`).
+// ============================================================================
+
+export const appModule: AppModule = {
+  // Renderer factory — creates the renderer from a canvas element
+  renderer: (canvas) => ({
+    async init() { return true; },
+    setBuffers() {},
+    setupInputListeners() {},
+    render() {},
+    stop() {},
+    getFPS() { return 0; },
+  }),
+
+  // Sim worker factory — creates the sim worker
+  sim: () => ({
+    async start(_config: unknown) {},
+    onEvent(_cb: (msg: any) => void) {},
+    getSimBuffer() { return new SharedArrayBuffer(1024); },
+    getInputBuffer() { return new SharedArrayBuffer(1024); },
+  }),
+
+  // Sim config (passed to sim.start())
+  simConfig: { seed: 12345 },
+
+  // Post-init wiring — called after renderer init + sim start
+  onReady: (ctx) => {
+    console.log("[app] ready", { sim: ctx.sim, renderer: ctx.renderer });
+  },
+
+  // Cleanup — called on hot-reload dispose
+  onDispose: () => {
+    console.log("[app] disposed");
+  },
+};

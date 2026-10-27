@@ -2,8 +2,8 @@
 // TransformGizmoModule — RendererModule adapter for TransformGizmo
 //
 // Wires a `TransformGizmo` instance to the renderer plugin system's input bus
-// and render-pass hook. The game creates the gizmo (with device/format and
-// game-specific `onTransformUpdate` callback) and passes it to
+// and render-pass hook. The app creates the gizmo (with device/format and
+// app-specific `onTransformUpdate` callback) and passes it to
 // `createTransformGizmoModule(gizmo)`. The plugin handles:
 //  - pointerdown → hitTest → startDrag (with capture priority so a gizmo drag
 //    blocks the camera controller via stopPropagation)

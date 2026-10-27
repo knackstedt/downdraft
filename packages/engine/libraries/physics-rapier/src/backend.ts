@@ -58,9 +58,9 @@ export class RapierPhysicsBackend implements PhysicsBackend {
 
   /**
    * Step options — set by UniversalPhysicsAPI from PhysicsModuleConfig.
-   * Games that don't read contacts/intersections set extractContacts=false
+   * Apps that don't read contacts/intersections set extractContacts=false
    * to skip the expensive WASM↔JS callback traversal in step().
-   * Games that read transforms via the Raw API set readBackTransformsOnStep=false
+   * Apps that read transforms via the Raw API set readBackTransformsOnStep=false
    * to skip redundant high-level transform readback.
    */
   extractContacts = true;

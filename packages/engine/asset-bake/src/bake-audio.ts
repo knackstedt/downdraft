@@ -8,7 +8,7 @@
 //   2. Else → skip with a warning (do NOT fail the build over audio). The
 //      original file is passed through unchanged.
 //
-// We deliberately avoid bundling a wasm ffmpeg here (large + slow). Games that
+// We deliberately avoid bundling a wasm ffmpeg here (large + slow). Apps that
 // need guaranteed audio baking can install ffmpeg on the build host.
 //
 

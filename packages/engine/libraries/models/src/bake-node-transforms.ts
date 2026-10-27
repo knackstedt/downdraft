@@ -11,8 +11,8 @@
 // and applies it to the associated mesh's vertices and normals. After baking,
 // all meshes are in a consistent model-space coordinate system.
 //
-// Promoted from games/model-viewer/src/model-loader.ts to the engine so all
-// games benefit from correct node-transform handling.
+// Promoted from apps/model-viewer/src/model-loader.ts to the engine so all
+// apps benefit from correct node-transform handling.
 //
 
 import type { ModelData, ModelNode } from "./types";

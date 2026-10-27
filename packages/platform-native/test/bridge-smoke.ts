@@ -13,15 +13,15 @@ if (!d) throw new Error("downdraft bridge not installed");
 console.log("[ok] bridge installed");
 
 // ── saves ──
-const ok = await d.saveGameState("smoke", JSON.stringify({ hp: 42, pos: [1, 2, 3] }));
-console.log("[ok] saveGameState →", ok);
-console.log("[ok] loadGameState →", await d.loadGameState("smoke"));
+const ok = await d.saveAppState("smoke", JSON.stringify({ hp: 42, pos: [1, 2, 3] }));
+console.log("[ok] saveAppState →", ok);
+console.log("[ok] loadAppState →", await d.loadAppState("smoke"));
 const slots = await d.listSaveSlots();
 console.log("[ok] listSaveSlots →", slots.map((s: any) => s.slot ?? s.slotName));
 await d.setSaveProperties("smoke", { label: "smoke test" });
 console.log("[ok] getSaveProperties →", await d.getSaveProperties("smoke"));
-await d.deleteGameState("smoke");
-console.log("[ok] deleteGameState →", await d.loadGameState("smoke"));
+await d.deleteAppState("smoke");
+console.log("[ok] deleteAppState →", await d.loadAppState("smoke"));
 
 // ── import cache ──
 await d.importCacheSet("/models/test.glb", {

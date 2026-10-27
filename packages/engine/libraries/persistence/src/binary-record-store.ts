@@ -13,7 +13,7 @@
 //   per record: [u32 keyByteLen] [u32 payloadByteLen] [key utf8] [payload]
 //
 // A version mismatch discards old records (or routes them through `migrate`)
-// rather than failing — a stale-format save should never wedge the game.
+// rather than failing — a stale-format save should never wedge the app.
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
@@ -85,7 +85,7 @@ export class BinaryRecordStore implements IBinaryRecordStore {
       return navigator.storage.getDirectory();
     }
     // Native (Bun/Node/Deno, incl. sim workers): no OPFS — fall back to a
-    // node:fs handle rooted at the game's userData dir when the host
+    // node:fs handle rooted at the app's userData dir when the host
     // exports it.
     const base = typeof process !== "undefined" ? process.env.DOWNDRAFT_USER_DATA : undefined;
     if (!base) return null;

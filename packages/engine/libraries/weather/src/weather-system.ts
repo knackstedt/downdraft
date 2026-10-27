@@ -1,6 +1,6 @@
 // ============================================================================
 // Weather System — dynamic weather, rare events, rain collectors
-// Reusable plugin: depends on BiomeProvider interface, not game-specific types
+// Reusable plugin: depends on BiomeProvider interface, not app-specific types
 // ============================================================================
 
 import { WeatherType } from "./types";

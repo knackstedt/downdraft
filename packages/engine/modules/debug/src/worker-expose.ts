@@ -56,7 +56,7 @@ export function exposeDevToolsApi<T extends WorkerApi>(api: T): T & {
  * Convenience: attach the devtools SAB to the worker-side registry and
  * register it so the renderer can discover it via __devtoolsGetSAB().
  *
- * Games call this in their worker entry after allocating the devtools SAB:
+ * Apps call this in their worker entry after allocating the devtools SAB:
  *
  *   const dtSAB = allocateDevToolsSAB();
  *   attachDevToolsSAB(dtSAB);

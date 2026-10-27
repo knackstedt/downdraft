@@ -6,7 +6,7 @@
     "url": "https://github.com/knackstedt/downdraft.git",
     "directory": "packages/devtools"
   },
-  "description": "Downdraft DevTools — GPU-rendered devtools surface for Downdraft targets: standalone viewer (draft devtools) or embedded in-game overlay (mountDevtools)",
+  "description": "Downdraft DevTools — GPU-rendered devtools surface for Downdraft targets: standalone viewer (draft devtools) or embedded in-app overlay (mountDevtools)",
   "type": "module",
   "main": "dist/src/index.js",
   "types": "src/index.ts",

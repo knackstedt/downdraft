@@ -2240,7 +2240,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "downdraft-gamepad"
+name = "downdraft-controller"
 version = "0.1.0"
 dependencies = [
  "gilrs",

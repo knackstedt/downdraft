@@ -1,11 +1,11 @@
 // ============================================================================
 // PhysicsRapierLib — declarative engine library descriptor for @downdraft/engine/libraries/physics-rapier
 //
-// Games declare `libraries: [PhysicsRapierLib]` (or with config override)
-// in their GameModule. The host creates the RapierPhysicsBackend +
+// Apps declare `libraries: [PhysicsRapierLib]` (or with config override)
+// in their AppModule. The host creates the RapierPhysicsBackend +
 // UniversalPhysicsAPI (sim-side only — physics has no renderer component).
 //
-// Games that need full control can still import RapierPhysicsBackend /
+// Apps that need full control can still import RapierPhysicsBackend /
 // UniversalPhysicsAPI directly (escape hatch).
 // ============================================================================
 
@@ -86,8 +86,8 @@ export const PhysicsRapierLib: EngineLibrary<PhysicsRapierLibConfig> = {
     dispose(api) {
       (api as UniversalPhysicsAPI).destroy();
     },
-    // tick is game-specific (calls api.step() with entity data, reads back
-    // transforms, etc.) — games wire this via onReady or a sim system.
+    // tick is app-specific (calls api.step() with entity data, reads back
+    // transforms, etc.) — apps wire this via onReady or a sim system.
   },
 
   tickPhase: "physics",

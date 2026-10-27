@@ -1,18 +1,18 @@
 // ============================================================================
-// E2E test harness — thin spec-facing wrapper over the shared GameClient.
+// E2E test harness — thin spec-facing wrapper over the shared AppClient.
 //
 // The MCP client, PID-file discovery, process launch + tree kill, readiness
 // polling, and console-error capture all live in
-// @downdraft/engine/mcp/client (GameClient / launchGame). This file keeps
-// only the spec-facing surface: option plumbing (configPath → game name,
-// mcpPort → port), the GameProcess/launchGame names specs import, and the
+// @downdraft/engine/mcp/client (AppClient / launchApp). This file keeps
+// only the spec-facing surface: option plumbing (configPath → app name,
+// mcpPort → port), the AppProcess/launchApp names specs import, and the
 // screenshot/JSON helpers.
 // ============================================================================
 
 import {
+    AppClient,
     findFreePort,
-    GameClient,
-    launchGame as launchGameProcess,
+    launchApp as launchAppProcess,
 } from "@downdraft/engine/mcp/client";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -40,29 +40,29 @@ export interface McpClient {
   close(): void;
 }
 
-export interface GameProcess {
+export interface AppProcess {
   process: import("node:child_process").ChildProcess;
   mcpClient: McpClient;
   mcpPort: number;
-  /** Returns JS errors captured from the game process console output.
+  /** Returns JS errors captured from the app process console output.
    *  Call after tests to verify no uncaught errors occurred. */
   getConsoleErrors(): string[];
   kill(): Promise<void>;
 }
 
 export interface LaunchOptions {
-  game?: string;
+  app?: string;
   mcpPort?: number;
   gpu?: "auto" | "hardware" | "swiftshader";
   deterministic?: boolean;
   extraEnv?: Record<string, string>;
   /** Additional error patterns to ignore (regexes, matched against console output). */
   ignoreErrorPatterns?: RegExp[];
-  /** Deprecated alias for `game` — a path whose `games/<name>/` or
-   *  `examples/<name>/` segment supplies the game name. */
+  /** Deprecated alias for `app` — a path whose `apps/<name>/` or
+   *  `examples/<name>/` segment supplies the app name. */
   configPath?: string;
   /** Override for the native entry point (default: src/native-entry.ts
-   *  inside the game dir, or games/<game>/src/native-entry.ts when running
+   *  inside the app dir, or apps/<app>/src/native-entry.ts when running
    *  from the monorepo root). */
   nativeEntry?: string;
 }
@@ -110,15 +110,15 @@ export async function saveBase64Png(base64: string, path: string): Promise<void>
 }
 
 /**
- * Capture a screenshot via the game's MCP automation tools and save it to disk.
+ * Capture a screenshot via the app's MCP automation tools and save it to disk.
  * Returns the parsed metadata (width, height, fullPage) from the tool result.
  */
 export async function captureAndSaveScreenshot(
-  game: GameProcess,
+  app: AppProcess,
   filename: string,
   fullPage: boolean = true,
 ): Promise<{ width: number; height: number; fullPage: boolean }> {
-  const client = game.mcpClient as GameClient;
+  const client = app.mcpClient as AppClient;
   const out = join(import.meta.dir, "artifacts", filename);
   const meta = await client.screenshot(out, { fullPage });
   return { width: meta.width, height: meta.height, fullPage };
@@ -129,15 +129,16 @@ export async function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Does a runnable game exist for `name`? Looks for `downdraft.config.json` or
- * `src/native-entry.ts` under `games/<name>` and `examples/<name>` relative to
- * the repo root. Games live in separate repos — specs should guard with
- * `describe.skipIf(!gameAvailable("x"))` so the suite passes on checkouts
+ * Does a runnable app exist for `name`? Looks for `downdraft.config.json` or
+ * `src/native-entry.ts` under `apps/<name>`, `games/<name>` (local clones),
+ * and `examples/<name>` relative to the repo root. App repos may live outside
+ * this repo — specs should guard with
+ * `describe.skipIf(!appAvailable("x"))` so the suite passes on checkouts
  * without them.
  */
-export function gameAvailable(name: string): boolean {
+export function appAvailable(name: string): boolean {
   const root = resolve(import.meta.dir, "..", "..");
-  for (const base of ["games", "examples"].values()) {
+  for (const base of ["apps", "games", "examples"].values()) {
     const dir = join(root, base, name);
     if (existsSync(join(dir, "downdraft.config.json")) || existsSync(join(dir, "src", "native-entry.ts"))) {
       return true;
@@ -149,18 +150,18 @@ export function gameAvailable(name: string): boolean {
 export { findFreePort };
 
 // ---------------------------------------------------------------------------
-// Game launcher
+// App launcher
 // ---------------------------------------------------------------------------
 
-export async function launchGame(opts: LaunchOptions = {}): Promise<GameProcess> {
-  // Infer the game name from configPath when not given — legacy specs pass a
-  // `games/<name>/...` path whose first segment names the game.
-  const game = opts.game
-    ?? opts.configPath?.match(/(?:^|\/)(?:games|examples)\/([^/]+)\//)?.[1]
+export async function launchApp(opts: LaunchOptions = {}): Promise<AppProcess> {
+  // Infer the app name from configPath when not given — legacy specs pass a
+  // `apps/<name>/...` path whose first segment names the app.
+  const app = opts.app
+    ?? opts.configPath?.match(/(?:^|\/)(?:apps|examples)\/([^/]+)\//)?.[1]
     ?? "packaging-smoke";
 
-  const launched = await launchGameProcess({
-    game,
+  const launched = await launchAppProcess({
+    app,
     entry: opts.nativeEntry,
     port: opts.mcpPort,
     deterministic: opts.deterministic,

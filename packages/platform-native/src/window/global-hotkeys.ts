@@ -1,7 +1,7 @@
 // ============================================================================
 // global-hotkeys.ts — accelerator → X11 XGrabKey bridge
 //
-// Games register Electron-style accelerators ("Ctrl+Shift+F1", "F1",
+// Apps register Electron-style accelerators ("Ctrl+Shift+F1", "F1",
 // "MediaPlayPause"). We map the key name to an X11 keysym and the
 // modifiers to XCB mask bits, hand them to the native grabber, and invoke
 // the callback when a HOTKEY event arrives on the shared event queue.

@@ -1,6 +1,6 @@
 // ============================================================================
-// Individual composable hooks — fallback for games that need partial
-// composition instead of the full bootstrapGame() orchestrator.
+// Individual composable hooks — fallback for apps that need partial
+// composition instead of the full bootstrapApp() orchestrator.
 //
 // These are plain functions (not React hooks) that return cleanup callbacks.
 // ============================================================================
@@ -65,7 +65,7 @@ export function useHotReloadDispose(
 
 /**
  * Internal: register a dispose callback via Vite's import.meta.hot API.
- * Exported for bootstrapGame() to use.
+ * Exported for bootstrapApp() to use.
  *
  * Under the native dev shell the callback also lands on the __ddSession
  * dispose registry — vite only fires hot.dispose on targeted invalidation,

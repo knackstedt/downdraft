@@ -135,7 +135,7 @@ export class WebRTCTransport implements NetTransport {
     const config: RTCConfiguration = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
     this.pc = new RTCPeerConnection(config);
 
-    this.dc = this.pc.createDataChannel("game", {
+    this.dc = this.pc.createDataChannel("app", {
       ordered: false,
       maxRetransmits: 0,
     });

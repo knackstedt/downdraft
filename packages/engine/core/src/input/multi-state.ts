@@ -38,11 +38,11 @@ export class MultiInputState {
       s.mouseButtons.clear();
       s.mouseButtonsPressed.clear();
       s.mouseButtonsReleased.clear();
-      s.gamepadButtons.clear();
+      s.controllerButtons.clear();
       s.mouseDeltaX = 0;
       s.mouseDeltaY = 0;
       s.wheelDelta = 0;
-      for (let i = 0; i < s.gamepadAxes.length; i++) s.gamepadAxes[i] = 0;
+      for (let i = 0; i < s.controllerAxes.length; i++) s.controllerAxes[i] = 0;
     }
   }
 

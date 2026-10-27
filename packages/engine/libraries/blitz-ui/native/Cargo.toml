@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license.workspace = true
 publish = false
-description = "Shared headless Blitz/Dioxus UI shell for Downdraft games (native Bun + browser wasm)"
+description = "Shared headless Blitz/Dioxus UI shell for Downdraft apps (native Bun + browser wasm)"
 
 [lib]
 crate-type = ["rlib"]

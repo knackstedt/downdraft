@@ -6,7 +6,7 @@
 // are plain function calls.
 //
 // The bridge is assigned to `globalThis.downdraft` by createNativeHost()
-// BEFORE game modules evaluate their `downdraft` accessor (the accessor is a
+// BEFORE app modules evaluate their `downdraft` accessor (the accessor is a
 // lazy Proxy, so install order only needs to precede first use).
 // ============================================================================
 
@@ -31,7 +31,7 @@ import { createLogger } from "@downdraft/engine/util/logger";
 import { spawn } from "node:child_process";
 import { WgpuDevice } from "../gpu/wgpu-wrapper";
 import { addCrashFeatureLog } from "../host-lifecycle";
-import { requestGameRestart } from "../native-restart";
+import { requestAppRestart } from "../native-restart";
 import { createNativeOsrHost } from "../osr/native-osr-host";
 import { isPackaged } from "../packaged";
 import { encodePNG } from "../screenshot/screenshot";
@@ -44,7 +44,7 @@ import type { NativeWindow } from "../window/native-window";
 const log = createLogger("info");
 
 export interface NativeBridgeOptions {
-  /** Per-game application identifier — scopes saves/cache/state dirs. */
+  /** Per-app application identifier — scopes saves/cache/state dirs. */
   appId: string;
   window: NativeWindow;
   surface: NativeSurface;
@@ -181,10 +181,10 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
     // real SaveResult/LoadResult out; no JSON boundary.
     saveStore: new HostSaveStore(services.api, (cb) => services.onWarning(cb)),
     // ── Saves: routed through HostServices (services worker by default) ──
-    saveGameState: (slotName, stateJson, saveOpts) =>
-      services.api.saveGame(slotName, stateJson, saveOpts),
-    loadGameState: (slotName, loadOpts) => services.api.loadGame(slotName, loadOpts),
-    deleteGameState: (slotName) => services.api.deleteSave(slotName),
+    saveAppState: (slotName, stateJson, saveOpts) =>
+      services.api.saveApp(slotName, stateJson, saveOpts),
+    loadAppState: (slotName, loadOpts) => services.api.loadApp(slotName, loadOpts),
+    deleteAppState: (slotName) => services.api.deleteSave(slotName),
     listSaveSlots: () => services.api.listSaves(),
     listSaveGenerations: (slotName) => services.api.listGenerations(slotName),
     deleteSaveGeneration: (slotName, gen) => services.api.deleteGeneration(slotName, gen),
@@ -197,9 +197,9 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
     quit: async () => {
       opts.window.requestQuit();
     },
-    requestRestart: (reason: string) => requestGameRestart(reason),
+    requestRestart: (reason: string) => requestAppRestart(reason),
     // Single process — the caller already applied the flag locally; these
-    // exist to relay intent to subscribers (devtools overlay, game UI).
+    // exist to relay intent to subscribers (devtools overlay, app UI).
     setDebugMode: (enabled: boolean) => {
       emit("debug-mode", enabled);
     },
@@ -245,7 +245,7 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
       try {
         // Subscribe BEFORE requesting a frame — the copy must be registered
         // when present() runs. __ddRequestFrame (installed by
-        // runNativeGameModule) forces an on-demand frame when the render
+        // runNativeAppModule) forces an on-demand frame when the render
         // loop is stopped (deterministic/test mode); on a live loop it
         // just makes the capture fresh.
         const pending = opts.surface.captureNextFrame();
@@ -288,7 +288,7 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
     // ── Typed event subscriptions (each returns an unsubscribe fn) ──
     onSimReady: (cb: (data: SimReadyData) => void) => {
       // Single process: sim-ready data is known at bridge creation — the
-      // game's startGame() calls this after boot, so defer to a microtask
+      // app's startApp() calls this after boot, so defer to a microtask
       // to preserve the post-load timing semantics callers expect.
       queueMicrotask(() => cb(simReadyData));
       return () => {};
@@ -301,7 +301,7 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
 
     osr: osrApi,
     // Heavyweight browser-backed UI — undefined when no backend cdylib is
-    // staged or DD_WEBUI_BACKEND=none (games gate on its presence).
+    // staged or DD_WEBUI_BACKEND=none (apps gate on its presence).
     ...(webuiHost?.available ? { webui: webuiHost.api } : {}),
     // rawInput is intentionally absent: native relative-mouse grab covers
     // pointer-lock semantics without a native addon.

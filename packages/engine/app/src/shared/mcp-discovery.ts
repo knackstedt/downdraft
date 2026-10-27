@@ -1,6 +1,6 @@
 // ============================================================================
 // MCP instance discovery — PID-file based. Lets the stdio bridge
-// auto-discover running game instances.
+// auto-discover running app instances.
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
@@ -11,7 +11,7 @@ import { join } from "node:path";
 const log = createLogger("info");
 
 /**
- * Directory holding one PID file per running downdraft game instance.
+ * Directory holding one PID file per running downdraft app instance.
  * Each file is named `<pid>` and contains the bound MCP HTTP port (string).
  * The stdio bridge reads this directory to auto-discover running instances;
  * dead-PID files are pruned on read. Best-effort cleanup on process exit.

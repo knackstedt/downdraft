@@ -1,6 +1,6 @@
 // ============================================================================
 // Asset Utilities — generic model/texture/buffer fetching and cache management
-// Games provide URL maps via IAssetUrlMaps; these utilities handle fetching.
+// Apps provide URL maps via IAssetUrlMaps; these utilities handle fetching.
 // ============================================================================
 
 import type { IAssetUrlMaps } from "./types";

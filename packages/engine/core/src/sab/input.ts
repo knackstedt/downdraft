@@ -21,8 +21,8 @@ export class InputSABChannel {
     mouseDeltaY: number,
     mouseButtons: number[],
     wheelDelta: number,
-    gamepadButtons: number[],
-    gamepadAxes: number[],
+    controllerButtons: number[],
+    controllerAxes: number[],
   ): void {
     const w = this.writer;
 
@@ -37,12 +37,12 @@ export class InputSABChannel {
       (w.fields.mouseButtons as Int32Array)[i] = i < mouseButtons.length ? mouseButtons[i] : 0;
     }
     (w.fields.wheelDelta as Float32Array)[0] = wheelDelta;
-    // gamepadButtons is the bitmask pair [lo, hi] — W3C standard order.
-    const gp = w.fields.gamepadButtons as Uint32Array;
-    gp[0] = (gamepadButtons[0] ?? 0) >>> 0;
-    gp[1] = (gamepadButtons[1] ?? 0) >>> 0;
+    // controllerButtons is the bitmask pair [lo, hi] — W3C standard order.
+    const gp = w.fields.controllerButtons as Uint32Array;
+    gp[0] = (controllerButtons[0] ?? 0) >>> 0;
+    gp[1] = (controllerButtons[1] ?? 0) >>> 0;
     for (let i = 0; i < 8; i++) {
-      (w.fields.gamepadAxes as Float32Array)[i] = i < gamepadAxes.length ? gamepadAxes[i] : 0;
+      (w.fields.controllerAxes as Float32Array)[i] = i < controllerAxes.length ? controllerAxes[i] : 0;
     }
 
     w.bumpSequence();

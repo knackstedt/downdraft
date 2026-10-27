@@ -1,17 +1,17 @@
 // ============================================================================
-// GridCharacterController — shared 2D platformer physics for grid-based games
+// GridCharacterController — shared 2D platformer physics for grid-based apps
 //
-// Generalized from early games' player-movement modules
+// Generalized from early apps' player-movement modules
 // world where cells may be solid, liquid, climbable, or damaging.
 //
-// The game supplies a `GridCharacterWorld` of cell predicates, so this works
+// The app supplies a `GridCharacterWorld` of cell predicates, so this works
 // over any grid representation (Uint32 packed material ids, Uint16 block ids,
 // foreground + background layers, etc.).
 // ============================================================================
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
-/** Player state mutated by update(). Games may extend with extra fields. */
+/** Player state mutated by update(). Apps may extend with extra fields. */
 export interface GridCharacterState {
   /** Center X in grid cell coords */
   x: number;
@@ -62,7 +62,7 @@ export interface GridCharacterWorld {
   damageAt?(x: number, y: number): { damage: number; cause?: unknown } | number;
 }
 
-/** Damage notification — lets games track death causes, sfx, etc. */
+/** Damage notification — lets apps track death causes, sfx, etc. */
 export type GridDamageKind = "contact" | "fall" | "crush";
 
 export interface GridCharacterConfig {

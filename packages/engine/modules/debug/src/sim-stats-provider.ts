@@ -1,16 +1,16 @@
 // ============================================================================
 // createSimStatsProvider — reusable ISimStatsProvider factory that eliminates
-// the duplicated polling + control boilerplate across sim games.
+// the duplicated polling + control boilerplate across sim apps.
 //
 // Handles:
 //   - 10Hz polling of worker stats (cached for synchronous getSimStats())
-//   - pause/resume/step/speed/clear delegation to the worker host + game store
+//   - pause/resume/step/speed/clear delegation to the worker host + app store
 //
-// Games provide:
+// Apps provide:
 //   - getWorkerHost(): returns the worker host (with pause/resume/step/setSpeed/getStats)
-//   - getStorePaused() / setStorePaused(): game store paused state
-//   - getExtra(stats): game-specific extra rows (grid dims, player pos, etc.)
-//   - clearSim(): game-specific clear/reset (optional)
+//   - getStorePaused() / setStorePaused(): app store paused state
+//   - getExtra(stats): app-specific extra rows (grid dims, player pos, etc.)
+//   - clearSim(): app-specific clear/reset (optional)
 // ============================================================================
 
 import type { ISimStats, ISimStatsProvider } from "./types";
@@ -25,15 +25,15 @@ export interface SimStatsProviderOptions {
     setSpeed(speed: number): void;
   } | null;
 
-  /** Returns the current paused state from the game store. */
+  /** Returns the current paused state from the app store. */
   getStorePaused: () => boolean;
-  /** Sets the paused state in the game store. */
+  /** Sets the paused state in the app store. */
   setStorePaused: (paused: boolean) => void;
 
-  /** Game-specific extra rows appended to ISimStats.extra. */
+  /** App-specific extra rows appended to ISimStats.extra. */
   getExtra?: (cachedStats: { fps: number; tick: number; frame: number }) => Record<string, any>;
 
-  /** Game-specific clear/reset. Optional — omit if the game doesn't support clearing. */
+  /** App-specific clear/reset. Optional — omit if the app doesn't support clearing. */
   clearSim?: () => void;
 
   /** Polling interval in ms. Default: 100 (10Hz). */

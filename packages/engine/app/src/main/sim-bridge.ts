@@ -1,7 +1,7 @@
 // ============================================================================
 // createSimBridge — shared renderer-side facade over the sim worker + app bridge.
 //
-// Generalized from a game's sim-bridge. The reusable kernel is the
+// Generalized from an app's sim-bridge. The reusable kernel is the
 // three-mode save/load orchestration:
 //   - "worker": the sim worker owns its save store — just RPC.
 //   - "worker": worker serializes to stateJson, renderer writes it to a
@@ -11,8 +11,8 @@
 //     native). The JSON-string bridge methods are only a fallback when the
 //     host exposes no typed store.
 //
-// Game-specific command verbs (respawnPlayer, setWeather, sendCommand, ...)
-// stay in the game's own bridge — extend this object:
+// App-specific command verbs (respawnPlayer, setWeather, sendCommand, ...)
+// stay in the app's own bridge — extend this object:
 //   return { ...createSimBridge(deps), respawnPlayer: (id) => worker.respawnPlayer(id) };
 // ============================================================================
 
@@ -47,15 +47,15 @@ export interface SimBridgeDeps {
 
 /** Generic sim bridge — save/load + pause/resume + app window controls. */
 export interface SimBridge {
-  saveGame(slotName: string, opts?: SaveOptions): Promise<boolean>;
-  loadGame(slotName: string): Promise<boolean>;
-  pauseGame(): void;
-  resumeGame(): void;
+  saveApp(slotName: string, opts?: SaveOptions): Promise<boolean>;
+  loadApp(slotName: string): Promise<boolean>;
+  pauseSim(): void;
+  resumeSim(): void;
   quit(): void;
   toggleDevtools(): void;
   toggleFullscreen(): void;
   /** Reload the page to restart the sim. */
-  resetGame(): void;
+  resetSim(): void;
 }
 
 export function createSimBridge(deps: SimBridgeDeps): SimBridge {
@@ -65,7 +65,7 @@ export function createSimBridge(deps: SimBridgeDeps): SimBridge {
   const bridge = () => deps.downdraft ?? downdraft;
 
   return {
-    async saveGame(slotName: string, opts?: SaveOptions): Promise<boolean> {
+    async saveApp(slotName: string, opts?: SaveOptions): Promise<boolean> {
       const mergedOpts: SaveOptions = { ...opts };
 
       // Typed save store path (the host's HostSaveStore): serialize in the
@@ -104,18 +104,18 @@ export function createSimBridge(deps: SimBridgeDeps): SimBridge {
       const result = await worker.save(slotName, mergedOpts);
       if (result?.stateJson) {
         const dd = bridge();
-        if (dd.saveGameState) {
+        if (dd.saveAppState) {
           const components = JSON.parse(result.stateJson);
           if (renderer?.serializeRendererMeta) {
             components.renderer = { v: 1, data: renderer.serializeRendererMeta() };
           }
-          return dd.saveGameState(slotName, JSON.stringify(components), mergedOpts);
+          return dd.saveAppState(slotName, JSON.stringify(components), mergedOpts);
         }
       }
       return false;
     },
 
-    async loadGame(slotName: string): Promise<boolean> {
+    async loadApp(slotName: string): Promise<boolean> {
       // Typed save store: load from it directly.
       if (saveMode === "host" && saveStore) {
         const loadResult = await saveStore.load(slotName);
@@ -140,8 +140,8 @@ export function createSimBridge(deps: SimBridgeDeps): SimBridge {
 
       // Host fallback: load through the bridge's legacy JSON methods.
       const dd = bridge();
-      if (!dd.loadGameState) return false;
-      const stateJson = await dd.loadGameState(slotName);
+      if (!dd.loadAppState) return false;
+      const stateJson = await dd.loadAppState(slotName);
       if (!stateJson) return false;
       const loaded = await worker.load(slotName, stateJson);
       if (loaded) {
@@ -157,11 +157,11 @@ export function createSimBridge(deps: SimBridgeDeps): SimBridge {
       return loaded;
     },
 
-    pauseGame(): void {
+    pauseSim(): void {
       worker.pause();
     },
 
-    resumeGame(): void {
+    resumeSim(): void {
       worker.resume();
     },
 
@@ -177,10 +177,10 @@ export function createSimBridge(deps: SimBridgeDeps): SimBridge {
       bridge().toggleFullscreen();
     },
 
-    resetGame(): void {
+    resetSim(): void {
       // Host-owned restart on native (detached self-respawn); DOM hosts
       // reload the page.
-      if (bridge().requestRestart?.("game reset")) return;
+      if (bridge().requestRestart?.("app reset")) return;
       window.location.reload();
     },
   };

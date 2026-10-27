@@ -12,7 +12,7 @@ function nativeManifest(overrides: Partial<PluginManifest> = {}): PluginManifest
     name: "Test Native",
     version: "1.0.0",
     engineVersion: "^0.1.0",
-    game: "test-game",
+    app: "test-app",
     format: "worker-js",
     tier: "native",
     thread: "sim",
@@ -28,7 +28,7 @@ function scriptManifest(overrides: Partial<PluginManifest> = {}): PluginManifest
     name: "Test Script",
     version: "1.0.0",
     engineVersion: "^0.1.0",
-    game: "test-game",
+    app: "test-app",
     format: "quickjs",
     tier: "script",
     thread: "renderer",
@@ -57,7 +57,7 @@ describe("PluginHost", () => {
   afterAll(() => setStrict(null));
 
   it("discovers + loads a script-tier plugin via fake loader", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     let called = false;
     host.registerLoader(
       fakeLoader("quickjs", (ctx) => {
@@ -73,15 +73,15 @@ describe("PluginHost", () => {
     expect(snap.find((p) => p.id === "test-script")?.status).toBe("active");
   });
 
-  it("rejects a manifest targeting the wrong game", () => {
-    const host = new PluginHost({ gameId: "other-game", engineVersion: "0.1.0" });
-    const r = host.discover(scriptManifest({ game: "test-game" }), "local");
+  it("rejects a manifest targeting the wrong app", () => {
+    const host = new PluginHost({ appId: "other-app", engineVersion: "0.1.0" });
+    const r = host.discover(scriptManifest({ app: "test-app" }), "local");
     expect(r.ok).toBe(false);
-    expect(r.errors[0]).toContain("does not match host game");
+    expect(r.errors[0]).toContain("does not match host app");
   });
 
   it("rejects an unsatisfied engine version", () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     const r = host.discover(scriptManifest({ engineVersion: "^1.0.0" }), "local");
     expect(r.ok).toBe(false);
     expect(r.errors[0]).toContain("engineVersion");
@@ -91,7 +91,7 @@ describe("PluginHost", () => {
     const world = new World();
     const mh = new ModuleHost(world);
     const host = new PluginHost({
-      gameId: "test-game",
+      appId: "test-app",
       engineVersion: "0.1.0",
       moduleHost: mh,
     });
@@ -111,7 +111,7 @@ describe("PluginHost", () => {
   });
 
   it("marks a plugin errored when its loader throws", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     host.registerLoader({
       format: "quickjs",
       async load() {
@@ -127,7 +127,7 @@ describe("PluginHost", () => {
   });
 
   it("skips a plugin whose dependency errored", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     host.registerLoader({
       format: "quickjs",
       async load(m) {
@@ -147,7 +147,7 @@ describe("PluginHost", () => {
   });
 
   it("respects dependency load order", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     const order: string[] = [];
     host.registerLoader(
       fakeLoader("quickjs", (ctx) => {
@@ -162,7 +162,7 @@ describe("PluginHost", () => {
   });
 
   it("unload disposes + marks as pending in snapshot", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     let disposed = false;
     host.registerLoader(
       fakeLoader("quickjs", (ctx) => {
@@ -181,12 +181,12 @@ describe("PluginHost", () => {
     expect(snap!.status).toBe("pending");
   });
 
-  it("game allowlist denies disallowed native perms", async () => {
+  it("app allowlist denies disallowed native perms", async () => {
     const host = new PluginHost({
-      gameId: "test-game",
+      appId: "test-app",
       engineVersion: "0.1.0",
       moduleHost: new ModuleHost(new World()),
-      gameAllow: new Set(["ecs", "events"]), // no sab
+      appAllow: new Set(["ecs", "events"]), // no sab
     });
     host.registerLoader(fakeLoader("worker-js", () => {}));
     host.discover(nativeManifest({ permissions: ["ecs", "sab", "events"] }), "local");
@@ -198,7 +198,7 @@ describe("PluginHost", () => {
   });
 
   it("denies context capabilities the plugin didn't request", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     let captured: ScriptPluginContext | null = null;
     host.registerLoader(fakeLoader("quickjs", (ctx) => { captured = ctx as ScriptPluginContext; }));
     // Request only "state" — no events/tick.
@@ -215,7 +215,7 @@ describe("PluginHost", () => {
 
   it("denies native host calls without the mapped permission", async () => {
     const host = new PluginHost({
-      gameId: "test-game",
+      appId: "test-app",
       engineVersion: "0.1.0",
       moduleHost: new ModuleHost(new World()),
       hostCalls: { setPhysics: async () => {} },
@@ -229,7 +229,7 @@ describe("PluginHost", () => {
   });
 
   it("shares the event bus across plugins on the same host", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     const received: unknown[] = [];
     host.registerLoader(fakeLoader("quickjs", (ctx) => {
       const c = ctx as ScriptPluginContext;
@@ -245,7 +245,7 @@ describe("PluginHost", () => {
   });
 
   it("reload re-runs register", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     let count = 0;
     host.registerLoader(fakeLoader("quickjs", () => { count++; }));
     host.discover(scriptManifest(), "local");
@@ -256,7 +256,7 @@ describe("PluginHost", () => {
   });
 
   it("errors if no loader registered for format", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     host.discover(scriptManifest({ format: "wasm", thread: "own-worker", entry: "./x.wasm" }), "local");
     await host.loadAll();
     const snap = host.snapshot();
@@ -265,7 +265,7 @@ describe("PluginHost", () => {
   });
 
   it("native tier without moduleHost errors", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     host.registerLoader(fakeLoader("worker-js", () => {}));
     host.discover(nativeManifest(), "local");
     await host.loadAll();
@@ -275,7 +275,7 @@ describe("PluginHost", () => {
 
   it("dispatches declarative extensions to ExtensionLoaders after logic loads", async () => {
     const host = new PluginHost({
-      gameId: "test-game",
+      appId: "test-app",
       engineVersion: "0.1.0",
       moduleHost: new ModuleHost(new World()),
     });
@@ -320,7 +320,7 @@ describe("PluginHost", () => {
   });
 
   it("loads a pure-data mod (no logic) via extension loaders only", async () => {
-    const host = new PluginHost({ gameId: "test-game", engineVersion: "0.1.0" });
+    const host = new PluginHost({ appId: "test-app", engineVersion: "0.1.0" });
     const extLoaded: string[] = [];
     const mapLoader: ExtensionLoader = {
       bucket: "maps",

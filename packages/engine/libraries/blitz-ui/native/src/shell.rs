@@ -3,9 +3,9 @@
 //! re-rasterizes with vello_cpu when dirty. `frame` returns the RGBA8
 //! buffer which the host uploads to a texture / 2D canvas.
 //!
-//! Game-specific surface is injected via `ShellConfig`: the Dioxus root
+//! App-specific surface is injected via `ShellConfig`: the Dioxus root
 //! component and a snapshot applier that deserializes the raw JSON pushed
-//! by `push_snapshot` and writes the game's own UI state inside
+//! by `push_snapshot` and writes the app's own UI state inside
 //! `vdom.in_scope`.
 
 use std::cell::RefCell;
@@ -26,11 +26,11 @@ use dioxus_core::{Element, VirtualDom};
 use dioxus_native::DioxusDocument;
 use web_time::Instant;
 
-use crate::bridge::{GameBridge, BRIDGE};
+use crate::bridge::{AppBridge, BRIDGE};
 use crate::input::{mods_from_bits, PendingInput};
 
-/// Game-provided hooks. `apply_snapshot` runs inside `tick` whenever the
-/// host pushed raw snapshot JSON — the game deserializes into its own
+/// App-provided hooks. `apply_snapshot` runs inside `tick` whenever the
+/// host pushed raw snapshot JSON — the app deserializes into its own
 /// snapshot type and applies it (typically writing a global signal inside
 /// `vdom.in_scope(ScopeId::ROOT, ...)`).
 pub struct ShellConfig {
@@ -73,7 +73,7 @@ impl HeadlessShell {
                 ..Default::default()
             },
         );
-        doc.vdom.insert_any_root_context(Box::new(GameBridge));
+        doc.vdom.insert_any_root_context(Box::new(AppBridge));
         doc.initial_build();
 
         // Share the document handle for ui_hit_test / ui_dump.
@@ -296,7 +296,7 @@ impl HeadlessShell {
     }
 }
 
-// ---- public API (game crates expose these via #[wasm_bindgen] shims) ----
+// ---- public API (app crates expose these via #[wasm_bindgen] shims) ----
 
 /// taffy's `round_layout` snaps each border side to whole layout units via
 /// `round(c + w) - round(c)`, so a sub-unit border side (a 1px border at

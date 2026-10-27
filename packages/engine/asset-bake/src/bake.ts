@@ -27,19 +27,19 @@ export function isBakeable(absPath: string, opts: ResolvedBakeOptions): boolean 
  * on miss, bakes and stores the result.
  *
  * @param sourceAbsPath  absolute path to the source asset.
- * @param gameRoot       absolute path to the game root (for the cache dir).
+ * @param appRoot       absolute path to the app root (for the cache dir).
  * @param userOpts       user bake options (merged with defaults).
  * @param log            optional verbose logger.
  * @returns the cache hit (path to the baked file + metadata).
  */
 export async function bakeAsset(
   sourceAbsPath: string,
-  gameRoot: string,
+  appRoot: string,
   userOpts?: AssetBakeOptions,
   log?: (msg: string) => void,
 ): Promise<BakeCacheHit> {
   const opts = resolveOptions(userOpts);
-  const cache = new BakeCache(gameRoot);
+  const cache = new BakeCache(appRoot);
 
   const hit = cache.get(sourceAbsPath, opts);
   if (hit) {

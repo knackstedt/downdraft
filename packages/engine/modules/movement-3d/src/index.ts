@@ -4,9 +4,9 @@
 // Provides CharacterMotor3D: a configurable character movement kernel that
 // computes desired per-tick deltas (heading-relative WASD, walk/run, jump +
 // gravity, swimming, free-fly, turn-to-face). Collision resolution stays with
-// the game's physics backend (Rapier character controller, terrain query…).
+// the app's physics backend (Rapier character controller, terrain query…).
 //
-// The module wraps the factory in a DI token for module-host games; games
+// The module wraps the factory in a DI token for module-host apps; apps
 // with hand-rolled sims can import createCharacterMotor3D directly.
 // ============================================================================
 

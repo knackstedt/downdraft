@@ -3,7 +3,7 @@
 //! Optional companion to downdraft_platform: the host loads it via
 //! `resolveNativeLibrary("downdraft_secrets", { optional: true })`. Absence
 //! or a missing session keyring (no dbus / no secret-service daemon) simply
-//! means "no credential store" — games should degrade to prompting or a
+//! means "no credential store" — apps should degrade to prompting or a
 //! session-scoped token.
 //!
 //! FFI surface (all strings NUL-terminated UTF-8 `const char*`):

@@ -4,7 +4,7 @@
 // Spawned by `draft dev` as `<bun|node|deno> dev-shell.mjs`. Plain ESM — no
 // TypeScript, no runtime-specific APIs — so every supported runtime can host
 // it. Inside, a Vite dev server (middlewareMode) + a runnable "native"
-// environment evaluate the game's native-entry.ts through the ModuleRunner:
+// environment evaluate the app's native-entry.ts through the ModuleRunner:
 //
 //   vite watcher → classify (nativeHmrPlugin) →
 //     Tier 1  directed module update   (vite propagates, accept boundaries)
@@ -32,7 +32,7 @@ import {
     SUPERVISOR_KEY,
 } from "./dev-constants.mjs";
 import { installConsoleBridge, writeLine } from "./dev-log.mjs";
-import { buildNativeDevConfig, loadGameConfig, loadHmrOptions, resolveWgslRegistryPath } from "./vite-config.mjs";
+import { buildNativeDevConfig, loadAppConfig, loadHmrOptions, resolveWgslRegistryPath } from "./vite-config.mjs";
 
 const TAG = "dev";
 
@@ -68,13 +68,13 @@ function logFatal(msg) {
 
 // ── Environment contract (set by draft dev) ────────────────────────────────
 
-const gameDir = process.env.DD_GAME_DIR;
+const appDir = process.env.DD_APP_DIR;
 const entry = process.env.DD_ENTRY;
 const runtime = process.env.DD_RUNTIME ?? "node";
 const verbose = process.env.DD_VERBOSE === "1";
 
-if (!gameDir || !entry) {
-  logErr("DD_GAME_DIR and DD_ENTRY are required (spawned by `draft dev`)");
+if (!appDir || !entry) {
+  logErr("DD_APP_DIR and DD_ENTRY are required (spawned by `draft dev`)");
   process.exit(2);
 }
 if (!existsSync(entry)) {
@@ -96,7 +96,7 @@ function findRepoRoot(dir) {
   }
 }
 
-const repoRoot = process.env.DD_REPO_ROOT ?? findRepoRoot(gameDir);
+const repoRoot = process.env.DD_REPO_ROOT ?? findRepoRoot(appDir);
 const devDir = dirname(fileURLToPath(import.meta.url));
 const RUNTIME_MODULE = join(devDir, "native-dev-runtime.ts");
 // Slim slice imported before RUNTIME_MODULE — its tiny graph transforms in
@@ -105,18 +105,18 @@ const RUNTIME_MODULE = join(devDir, "native-dev-runtime.ts");
 const EARLY_HOST_MODULE = join(devDir, "early-host.ts");
 
 // ── Devtools agent (opt-in: draft dev --devtools-agent / DD_DEVTOOLS_AGENT) ──
-// Imported before the runner evaluates any game code — the ModuleRunner
+// Imported before the runner evaluates any app code — the ModuleRunner
 // shares this globalThis, so the agent's fetch/WebSocket/console wraps and
 // CDP inspector cover the whole session. Ordered AFTER installConsoleBridge()
 // so the bridge stays the innermost console sink: the agent posts to the
 // feed, then forwards to the bridged writer. "1"/"true" loads the bundled
 // devtools-agent.mjs; any other non-empty value is an explicit module path
-// (resolved against the game dir) for out-of-tree agents.
+// (resolved against the app dir) for out-of-tree agents.
 const agentSpec = process.env.DD_DEVTOOLS_AGENT;
 if (agentSpec) {
   const agentPath = agentSpec === "1" || agentSpec === "true"
     ? join(devDir, "devtools-agent.mjs")
-    : resolve(gameDir, agentSpec);
+    : resolve(appDir, agentSpec);
   try {
     await import(pathToFileURL(agentPath).href);
     log("agent", `devtools agent injected — ${agentPath}`);
@@ -125,11 +125,11 @@ if (agentSpec) {
   }
 }
 
-// ── Resolve vite from the game's dependency tree ───────────────────────────
+// ── Resolve vite from the app's dependency tree ───────────────────────────
 
 let vite;
 try {
-  const req = createRequire(join(gameDir, "package.json"));
+  const req = createRequire(join(appDir, "package.json"));
   // req.resolve("vite") returns the CJS build (index.cjs), which does NOT
   // export the ModuleRunner APIs — resolve package.json and load the ESM
   // entry (dist/node/index.js) directly.
@@ -151,7 +151,7 @@ if (typeof vite.createRunnableDevEnvironment !== "function") {
 
 // ── Supervisor state ───────────────────────────────────────────────────────
 
-const hmrOptions = loadHmrOptions(gameDir);
+const hmrOptions = loadHmrOptions(appDir);
 // 30s default: a Tier-2 swap includes a cache-busted worker respawn + init +
 // state restore, which legitimately exceeds the old 5s budget in dev and
 // caused every swap to false-positive into a session restart.
@@ -189,7 +189,7 @@ function finishSessionBoot() {
 }
 
 /** Kick the entry import on the current runner WITHOUT awaiting the module
- *  body. Blocking entries (runNativeGameModule, bespoke close-awaits)
+ *  body. Blocking entries (runNativeAppModule, bespoke close-awaits)
  *  top-level-await their run loop, so the import only settles at session
  *  end (window close or the entry's teardown release). Awaiting it in a
  *  reimport path parks the reimport queue for the session's whole
@@ -540,14 +540,14 @@ const supervisor = {
 
 globalThis[SUPERVISOR_KEY] = supervisor;
 globalThis.__ddMarker = "shell";
-const gameConfig = loadGameConfig(gameDir);
+const appConfig = loadAppConfig(appDir);
 globalThis[CONFIG_KEY] = {
   entry,
-  gameDir,
+  appDir,
   repoRoot,
   runtime,
   verbose,
-  gameConfig,
+  appConfig,
 };
 
 // ── Classifier events (from nativeHmrPlugin) ───────────────────────────────
@@ -660,12 +660,12 @@ async function rebindRunner() {
 }
 
 async function main() {
-  const wgslRegistryPath = resolveWgslRegistryPath(gameDir);
-  const watchPaths = [repoRoot && repoRoot !== gameDir ? repoRoot : null].filter(Boolean);
+  const wgslRegistryPath = resolveWgslRegistryPath(appDir);
+  const watchPaths = [repoRoot && repoRoot !== appDir ? repoRoot : null].filter(Boolean);
 
   const config = buildNativeDevConfig({
     vite,
-    gameDir,
+    appDir,
     repoRoot,
     runtime,
     verbose,
@@ -706,7 +706,7 @@ async function main() {
   globalThis.__ddRunner = runner;
   installSimAckListener();
 
-  if (verbose) log(`runtime=${runtime} game=${gameDir} entry=${entry}`);
+  if (verbose) log(`runtime=${runtime} app=${appDir} entry=${entry}`);
 
   // Boot: kick the slim early host FIRST — its graph transforms in a
   // fraction of RUNTIME_MODULE's, so the window + GPU device land while the
@@ -721,9 +721,9 @@ async function main() {
   // not a fatal boot failure.
   const bootGen = runnerGen;
   const superseded = () => runnerGen !== bootGen || hostRestartPending || restartPending || shuttingDown;
-  const gameCfg = globalThis[CONFIG_KEY]?.gameConfig;
-  if (!globalThis.__ddEarlyHostPromise && gameCfg?.native) {
-    const n = gameCfg.native;
+  const appCfg = globalThis[CONFIG_KEY]?.appConfig;
+  if (!globalThis.__ddEarlyHostPromise && appCfg?.native) {
+    const n = appCfg.native;
     try {
       // Await the module import — the early graph is tiny, and giving it
       // the transform pipeline first is the whole point. bootEarlyHost
@@ -732,7 +732,7 @@ async function main() {
       const earlyMod = await runner.import(EARLY_HOST_MODULE);
       globalThis.__ddEarlyHostPromise = Promise.resolve(earlyMod.bootEarlyHost({
         window: {
-          title: n.title ?? gameCfg.name ?? "Downdraft",
+          title: n.title ?? appCfg.name ?? "Downdraft",
           width: n.width ?? 1280,
           height: n.height ?? 720,
           focused: n.focused,
@@ -749,7 +749,7 @@ async function main() {
     }
   }
   // The runtime installs the session tracker + hot listeners, then the
-  // game entry evaluates inside the shared process.
+  // app entry evaluates inside the shared process.
   try {
     await runner.import(RUNTIME_MODULE);
     await runner.import(entry);
@@ -761,13 +761,13 @@ async function main() {
   finishSessionBoot();
 
   // Entry module resolved. Two shapes exist:
-  //  - blocking entries (runNativeGameModule): resolution means the window
+  //  - blocking entries (runNativeAppModule): resolution means the window
   //    closed → shut down.
   //  - fire-and-forget entries (to-the-ocean bespoke): the RAF/immediate
   //    loop keeps the process + window alive — shutdown comes from the
   //    window "close" hook (attachHost → __ddSupervisor.shutdown) instead.
   // Entry module resolved. Two shapes exist:
-  //  - blocking entries (runNativeGameModule): resolution means the window
+  //  - blocking entries (runNativeAppModule): resolution means the window
   //    closed → shut down.
   //  - fire-and-forget entries (to-the-ocean bespoke): an async main() is
   //    still in-flight creating the host — the RAF/immediate loop then keeps

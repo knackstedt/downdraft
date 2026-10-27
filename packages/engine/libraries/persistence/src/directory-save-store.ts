@@ -133,7 +133,7 @@ export interface DirectorySaveStoreOptions {
   rootDir?: FsDirHandle;
   /** Subdirectory name under root for saves. Default: "saves". */
   savesDirName?: string;
-  /** Current engine/game version string (e.g. "0.1.0"). */
+  /** Current engine/app version string (e.g. "0.1.0"). */
   engineVersion: string;
   /** Default max generations per slot. Default: 3. */
   maxGenerations?: number;

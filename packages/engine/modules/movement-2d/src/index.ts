@@ -4,9 +4,9 @@
 // Provides a configurable AABB-vs-grid character controller
 // (createGridCharacterController): platformer physics with collision,
 // step-up, swimming, ladder climbing, noclip, fall damage, bury/crush, and
-// contact hazards. The game supplies cell predicates via GridCharacterWorld.
+// contact hazards. The app supplies cell predicates via GridCharacterWorld.
 //
-// The module wraps the factory in a DI token for module-host games; games
+// The module wraps the factory in a DI token for module-host apps; apps
 // with hand-rolled sims can import createGridCharacterController directly.
 // ============================================================================
 

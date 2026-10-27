@@ -31,7 +31,7 @@ export class XRInputMapper {
     const controllers: XRControllerState[] = [];
     this.controllers = [];
 
-    let gamepadIdx = 0;
+    let controllerIdx = 0;
 
     for (let i = 0; i < sources.length; i++) {
       const source = sources[i] as unknown as XRInputSourceLike;
@@ -63,19 +63,19 @@ export class XRInputMapper {
         controllers.push(ctrl);
       }
 
-      // Map gamepad buttons to InputState
+      // Map controller buttons to InputState
       if (gamepad) {
-        this.mapGamepadToInputState(gamepad, gamepadIdx, inputState, i);
-        gamepadIdx++;
+        this.mapControllerToInputState(gamepad, controllerIdx, inputState, i);
+        controllerIdx++;
       }
     }
 
     inputState.xrControllers = controllers;
   }
 
-  private mapGamepadToInputState(
+  private mapControllerToInputState(
     gamepad: Gamepad,
-    _gamepadIdx: number,
+    _controllerIdx: number,
     inputState: InputState,
     sourceIdx: number,
   ): void {
@@ -117,20 +117,20 @@ export class XRInputMapper {
       prevStates[b] = pressed;
     }
 
-    // Map axes (thumbstick) to gamepadAxes
+    // Map axes (thumbstick) to controllerAxes
     // Standard XR controller: axes[0] = x, axes[1] = y, axes[2] = x2, axes[3] = y2
     if (axes.length >= 2) {
-      inputState.gamepadAxes[0] = axes[0];
-      inputState.gamepadAxes[1] = axes[1];
+      inputState.controllerAxes[0] = axes[0];
+      inputState.controllerAxes[1] = axes[1];
     }
     if (axes.length >= 4) {
-      inputState.gamepadAxes[2] = axes[2];
-      inputState.gamepadAxes[3] = axes[3];
+      inputState.controllerAxes[2] = axes[2];
+      inputState.controllerAxes[3] = axes[3];
     }
   }
 
   private buttonToKeyCode(buttonIndex: number): number | null {
-    // Standard XR gamepad button mapping:
+    // Standard XR controller button mapping:
     // 0 = trigger, 1 = squeeze, 2 = thumbstick press, 3 = A/X, 4 = B/Y
     switch (buttonIndex) {
       case 0: return null; // trigger → mapped to mouse button 0

@@ -1,13 +1,13 @@
 {
   "name": "downdraft-engine",
   "version": "0.8.0",
-  "description": "AI-Driven Game Engine — native winit + wgpu runtime (Bun, Node, or Deno host)",
+  "description": "AI-Driven App Engine — native winit + wgpu runtime (Bun, Node, or Deno host)",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "test": "bun test --isolate --conditions=downdraft-source --path-ignore-patterns \"**/node-mobile/build/**\" packages/ examples/plugin-tester/src/*.spec.ts",
-    "draft:test": "draft test --game=packaging-smoke",
-    "draft:test-cpu": "draft test --game=packaging-smoke",
+    "draft:test": "draft test --app=packaging-smoke",
+    "draft:test-cpu": "draft test --app=packaging-smoke",
     "test:e2e": "bun test tests/e2e/packaging-smoke-smoke.spec.ts",
     "test:e2e:headless": "DOWNDRAFT_GPU=swiftshader bun test tests/e2e/packaging-smoke-smoke.spec.ts",
     "test:e2e:local": "bun test tests/e2e/packaging-smoke-smoke.spec.ts",
@@ -18,7 +18,7 @@
     "build:dist": "node scripts/build-dist.mjs",
     "gen:deno-import-map": "node scripts/gen-deno-import-map.mjs",
     "gen:engine-exports": "node scripts/gen-engine-exports.mjs",
-    "link:games": "node scripts/link-games.mjs",
+    "link:apps": "node scripts/link-apps.mjs",
     "lint": "oxlint"
   },
   "workspaces": [

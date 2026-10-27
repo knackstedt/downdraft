@@ -6,12 +6,12 @@
 // read-only storage buffer shared across all entity pipelines, plus optional
 // debug gizmo rendering.
 //
-// Games declare `libraries: [LightingLib]` in their GameModule. The host
+// Apps declare `libraries: [LightingLib]` in their AppModule. The host
 // creates the LightSystem (renderer-side) during renderer init and exposes it
-// via the LightingTok token. Games inject LightingTok to call
+// via the LightingTok token. Apps inject LightingTok to call
 // getLightingParams(), addPointLight(), upload(), etc.
 //
-// Games that need full control can still import LightSystem directly
+// Apps that need full control can still import LightSystem directly
 // (escape hatch). Note: init() must be called after construction to allocate
 // the GPU storage buffer + bind group.
 // ============================================================================

@@ -1,8 +1,8 @@
 // ============================================================================
 // MCP automation tools for the plugin system.
 //
-// Games call `createPluginMcpTools(pluginHost)` in their MCP setup to register
-// tools that let the in-game MCP harness (and `draft test` e2e specs) inspect
+// Apps call `createPluginMcpTools(pluginHost)` in their MCP setup to register
+// tools that let the in-app MCP harness (and `draft test` e2e specs) inspect
 // and control plugins:
 //   - plugin_list: list all discovered plugins with status.
 //   - plugin_get_info: get detailed info for a single plugin.
@@ -37,7 +37,7 @@ function errorResult(msg: string): { content: [{ type: "text"; text: string }] }
 
 /**
  * Create MCP tool registrations for plugin management.
- * Games pass these to `createMcpHarness({ tools: [...] })`.
+ * Apps pass these to `createMcpHarness({ tools: [...] })`.
  */
 export function createPluginMcpTools(pluginHost: PluginHost): McpToolRegistration[] {
   return [
@@ -157,8 +157,8 @@ export function createPluginMcpTools(pluginHost: PluginHost): McpToolRegistratio
         if (!info) return errorResult(`Plugin "${id}" not found`);
         // The PluginHost doesn't expose the per-plugin state store directly,
         // but the snapshot includes the manifest. For full state access, the
-        // game would need to expose the context backing. This is a stub.
-        return jsonResult({ id, stateKeys: [], note: "State access requires game-side wiring" });
+        // app would need to expose the context backing. This is a stub.
+        return jsonResult({ id, stateKeys: [], note: "State access requires app-side wiring" });
       },
     },
   ];

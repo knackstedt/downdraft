@@ -162,13 +162,13 @@ describe("WebDevtoolsMirror over WS", () => {
   });
 
   it("snapshot RPC returns registered provider data", async () => {
-    mirror.registerProvider("game", () => ({
+    mirror.registerProvider("app", () => ({
       sections: [
         { kind: "kv", name: "Test", rows: [{ key: "hp", value: "42" }] },
         { kind: "controls", name: "", controls: [{ type: "button", id: "go", label: "Go" }] },
       ],
     }));
-    const snap = await client.call("snapshot", { panel: "game" }) as { sections: { kind: string; rows?: { value: string }[] }[] };
+    const snap = await client.call("snapshot", { panel: "app" }) as { sections: { kind: string; rows?: { value: string }[] }[] };
     expect(snap.sections.length).toBe(2);
     expect(snap.sections[0].rows?.[0].value).toBe("42");
   });
@@ -180,16 +180,16 @@ describe("WebDevtoolsMirror over WS", () => {
 
   it("command RPC dispatches to registered handlers", async () => {
     const got: { action: string; payload: string }[] = [];
-    mirror.registerCommandHandler("game", (cmd) => { got.push({ action: cmd.action, payload: cmd.payload }); });
-    expect(await client.call("command", { panel: "game", action: "go", payload: "x1" })).toBe(true);
+    mirror.registerCommandHandler("app", (cmd) => { got.push({ action: cmd.action, payload: cmd.payload }); });
+    expect(await client.call("command", { panel: "app", action: "go", payload: "x1" })).toBe(true);
     expect(got[0]).toEqual({ action: "go", payload: "x1" });
   });
 
   it("command 'refresh' re-pushes the provider snapshot", async () => {
     const waiter = client.waitFor("snapshot");
-    await client.call("command", { panel: "game", action: "refresh" });
+    await client.call("command", { panel: "app", action: "refresh" });
     const d = await waiter as { panel: string; snap: { sections: unknown[] } };
-    expect(d.panel).toBe("game");
+    expect(d.panel).toBe("app");
     expect(d.snap.sections.length).toBe(2);
   });
 

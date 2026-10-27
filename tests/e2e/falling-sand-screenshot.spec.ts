@@ -1,22 +1,22 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
     captureAndSaveScreenshot,
-    gameAvailable,
-    launchGame,
+    appAvailable,
+    launchApp,
     parseJsonContent,
     sleep,
-    type GameProcess,
+    type AppProcess,
     type McpToolResult
 } from "./harness";
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
 
-describe.skipIf(!gameAvailable("falling-sand"))("falling-sand screenshot", () => {
-  let game: GameProcess | null = null;
+describe.skipIf(!appAvailable("falling-sand"))("falling-sand screenshot", () => {
+  let app: AppProcess | null = null;
 
   beforeAll(async () => {
-    game = await launchGame({
-      game: "falling-sand",
+    app = await launchApp({
+      app: "falling-sand",
       mcpPort: MCP_PORT,
       gpu: (process.env.DOWNDRAFT_GPU as "swiftshader" | undefined) ?? "swiftshader",
       deterministic: true,
@@ -30,11 +30,11 @@ describe.skipIf(!gameAvailable("falling-sand"))("falling-sand screenshot", () =>
   }, 180000);
 
   afterAll(async () => {
-    await game?.kill();
+    await app?.kill();
   }, 30000);
 
   it("reports UI state via get_ui_state", async () => {
-    const result = (await game!.mcpClient.callTool("get_ui_state", {})) as McpToolResult;
+    const result = (await app!.mcpClient.callTool("get_ui_state", {})) as McpToolResult;
     const state = parseJsonContent(result) as {
       paused: boolean;
       selectedMaterial: number;
@@ -49,7 +49,7 @@ describe.skipIf(!gameAvailable("falling-sand"))("falling-sand screenshot", () =>
 
   it("captures a non-empty screenshot", async () => {
     await sleep(2000);
-    const meta = await captureAndSaveScreenshot(game!, "falling-sand-smoke.png", true);
+    const meta = await captureAndSaveScreenshot(app!, "falling-sand-smoke.png", true);
     expect(meta.width).toBeGreaterThan(0);
     expect(meta.height).toBeGreaterThan(0);
   }, 30000);

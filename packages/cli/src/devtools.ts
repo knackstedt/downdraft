@@ -4,9 +4,9 @@
 //
 // The viewer is the @downdraft/devtools package — it ships its own
 // src/native-entry.ts + downdraft.config.json, so the standard dev-shell path
-// can run its directory as a "game". The viewer discovers targets over the
+// can run its directory as a "app". The viewer discovers targets over the
 // ~/.downdraft/devtools-agent/ + feed contract and attaches to running or
-// flaky games (launch them with `draft dev --devtools-agent`, or
+// flaky apps (launch them with `draft dev --devtools-agent`, or
 // DD_DEVTOOLS_AGENT=1, or an explicit devtools-agent.mjs import).
 // ============================================================================
 

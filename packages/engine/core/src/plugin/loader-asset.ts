@@ -3,12 +3,12 @@
 //
 // An asset plugin has no code entry. Its manifest declares an `assets`
 // section listing files (textures, audio, meshes, data) that the loader
-// registers into the game's `AssetManager`:
+// registers into the app's `AssetManager`:
 //   - adds the plugin directory as a search path (so `load("bronze.png")`
 //     resolves to the plugin's file),
 //   - registers per-extension loaders if not already registered,
 //   - eagerly loads the declared textures/audio/meshes so they're available
-//     when the game queries them,
+//     when the app queries them,
 //   - exposes data files via `AssetManager.get(uri)`.
 //
 // On dispose, the loader removes the search path and unloads the assets.

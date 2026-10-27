@@ -3,7 +3,7 @@
 // ============================================================================
 //
 // Used by procedural generation (Perlin noise, terrain, ore veins) and any
-// system that needs deterministic randomness from a seed. Games should import
+// system that needs deterministic randomness from a seed. Apps should import
 // from here instead of redefining mulberry32 locally.
 
 export type RngFn = () => number;

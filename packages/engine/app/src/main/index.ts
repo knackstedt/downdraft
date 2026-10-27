@@ -2,7 +2,7 @@
 // @downdraft/engine/app/main — typed accessor for globalThis.downdraft
 // ============================================================================
 //
-// Import `downdraft` from this module in game/bootstrap code instead of
+// Import `downdraft` from this module in app/bootstrap code instead of
 // casting `(globalThis as any).downdraft`. The host installs the HostAPI
 // object on `globalThis.downdraft`; this module provides a typed view.
 //
@@ -30,9 +30,9 @@ function noop(): void {}
 
 const stubBridge: Host = {
   isAvailable: false,
-  saveGameState: () => Promise.resolve(false),
-  loadGameState: () => Promise.resolve(null),
-  deleteGameState: () => Promise.resolve(false),
+  saveAppState: () => Promise.resolve(false),
+  loadAppState: () => Promise.resolve(null),
+  deleteAppState: () => Promise.resolve(false),
   listSaveSlots: () => Promise.resolve([]),
   listSaveGenerations: () => Promise.resolve([]),
   deleteSaveGeneration: () => Promise.resolve(false),
@@ -99,22 +99,22 @@ export const downdraft: Host = new Proxy({} as Host, {
 export { createHostImportCache } from "./import-cache";
 
 // Bootstrap orchestrator + composable hooks
-export type { GameRendererLike } from "@downdraft/engine";
-export { bootstrapGame } from "./bootstrap";
-export type { BootstrapAutosaveOptions, BootstrapDevToolsOptions, BootstrapGameOptions } from "./bootstrap";
-export { startGame } from "./game-module";
+export type { AppRendererLike } from "@downdraft/engine";
+export { bootstrapApp } from "./bootstrap";
+export type { BootstrapAutosaveOptions, BootstrapDevToolsOptions, BootstrapAppOptions } from "./bootstrap";
+export { startApp } from "./app-module";
 export type {
-    GameContext,
-    GameModule,
-    GameSaveConfig,
-    GameSaveSource,
-    GameSimWorker, GameUiHandle,
+    AppContext,
+    AppModule,
+    SaveConfig,
+    SaveSource,
+    SimWorker, UiHandle,
     PluginRuntimeConfig,
     RendererFactory,
     SimEventMap,
     SimWorkerFactory,
     SimWorkerSeed
-} from "./game-module";
+} from "./app-module";
 export { useDeterministicRenderPause, useDisplayInfo, useFpsPolling, useHotReloadDispose } from "./hooks";
 export { installSimHotReload, restoreHotReloadState } from "./hot-reload";
 export type { HotReloadableSim, SimHotReloadDeps } from "./hot-reload";
@@ -125,14 +125,14 @@ export type { SimBridge, SimBridgeDeps, SimBridgeWorker } from "./sim-bridge";
 export { createSaveStore, type CreateSaveStoreOptions, type CreateSaveStoreResult, type SaveBridge, type SaveStoreMode } from "./save-store-factory";
 
 /**
- * Create the default ISaveStore for a game.
+ * Create the default ISaveStore for an app.
  *
  * When the host exposes a typed save store (`downdraft.saveStore` — the
  * native host's HostSaveStore over FileSaveStore), defaults to "host" mode —
  * disk persistence, stable across sessions, not origin-scoped. Otherwise
  * falls back to a DirectorySaveStore (node-fs-backed on native).
  *
- * Games that want a specific backend should call `createSaveStore` directly
+ * Apps that want a specific backend should call `createSaveStore` directly
  * with an explicit `mode` rather than relying on this default.
  */
 export async function createDefaultSaveStore(engineVersion: string): Promise<import("@downdraft/engine").ISaveStore> {
@@ -155,9 +155,9 @@ export { AutosaveManager, type AutosaveManagerOptions } from "@downdraft/engine/
 // MCP automation harness factory + shared tool helpers
 export { blobToBase64, createMcpHarness, errorResult, jsonResult } from "./mcp-harness";
 export type { McpHarnessOptions, McpRequest, McpResponse, McpToolDef, McpToolRegistration } from "./mcp-harness";
-export { createGameMcp, createStandardAutomationTools } from "./standard-automation-tools";
+export { createAppMcp, createStandardAutomationTools } from "./standard-automation-tools";
 export type {
-    GameMcpOptions,
+    AppMcpOptions,
     InjectedInputFrame,
     StandardAutomationContext,
     StandardInputInjector,
@@ -183,7 +183,7 @@ export type { CombinedFeatureLog, RendererFeatureLogOptions } from "./feature-lo
  * `createNativeHost`) and the DOM `<canvas>` element on browser hosts (which
  * satisfies `RenderSurface` structurally).
  *
- * Layer 0 is the primary game surface. On native, layer 0 is the only
+ * Layer 0 is the primary app surface. On native, layer 0 is the only
  * surface — requesting any other layer throws (multi-canvas layering is a
  * DOM-host concept).
  */

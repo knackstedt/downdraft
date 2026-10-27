@@ -35,8 +35,8 @@ export interface HostServicesApi {
   /** Construct/open the underlying stores. Called once before first use. */
   init(opts: { saveDir: string; cacheDbPath: string; engineVersion: string }): Promise<void>;
 
-  saveGame(slot: string, stateJson: string, saveOpts?: SaveOptions): Promise<boolean>;
-  loadGame(slot: string, loadOpts?: LoadOptions): Promise<string | null>;
+  saveApp(slot: string, stateJson: string, saveOpts?: SaveOptions): Promise<boolean>;
+  loadApp(slot: string, loadOpts?: LoadOptions): Promise<string | null>;
   /** Typed save/load — the native path. No JSON boundary: the caller hands
    *  over a real SaveState and gets the FileSaveStore's real SaveResult
    *  (bytes, gen) / LoadResult (meta, gen, blobs) back. Structured-cloneable
@@ -91,7 +91,7 @@ export function createInlineServices(emitWarning: (w: SaveWarning) => void): Hos
       importCache = createImportCacheStore(opts.cacheDbPath);
     },
 
-    async saveGame(slot, stateJson, saveOpts) {
+    async saveApp(slot, stateJson, saveOpts) {
       try {
         const components = JSON.parse(stateJson);
         const result = await store().save(slot, {
@@ -105,7 +105,7 @@ export function createInlineServices(emitWarning: (w: SaveWarning) => void): Hos
         return false;
       }
     },
-    async loadGame(slot, loadOpts) {
+    async loadApp(slot, loadOpts) {
       try {
         const result = await store().load(slot, loadOpts);
         return result.state ? JSON.stringify(result.state.components) : null;
@@ -268,8 +268,8 @@ export function scopeServicesForPlugin(api: HostServicesApi, namespace: string):
   };
   return {
     init: unscoped("init"),
-    saveGame: (slot, json, opts) => api.saveGame(ns(slot), json, opts),
-    loadGame: (slot, opts) => api.loadGame(ns(slot), opts),
+    saveApp: (slot, json, opts) => api.saveApp(ns(slot), json, opts),
+    loadApp: (slot, opts) => api.loadApp(ns(slot), opts),
     saveState: (slot, state, opts) => api.saveState(ns(slot), state, opts),
     loadState: (slot, opts) => api.loadState(ns(slot), opts),
     deleteSave: (slot) => api.deleteSave(ns(slot)),

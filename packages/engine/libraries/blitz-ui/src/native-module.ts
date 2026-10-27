@@ -11,7 +11,7 @@
 // window-level event polyfills feed the engine's InputManager → BlitzUiRouter
 // → ui_pointer/ui_key, and store snapshots flow through ui_set_state.
 //
-// Frame cadence: the module hooks "afterFrame" (runs after the game's custom
+// Frame cadence: the module hooks "afterFrame" (runs after the app's custom
 // render, before present). ui_tick() drains queued input/snapshots and
 // reports dirtiness; only then is ui_frame() rasterized + uploaded. The blit
 // itself runs every frame — the swapchain is re-cleared each frame while the
@@ -28,7 +28,7 @@ import { UiBlitPass } from "./ui-blit-pass";
 
 const log = createLogger("info");
 
-/** The wasm-bindgen module surface a game's generated pkg must provide. */
+/** The wasm-bindgen module surface an app's generated pkg must provide. */
 export interface BlitzWasmModule extends BlitzWasmInput {
     initSync(input: { module: Uint8Array }): unknown;
     ui_init_headless(width: number, height: number, scale: number, onAction: (action: string, payload: string) => void): void;
@@ -40,7 +40,7 @@ export interface BlitzWasmModule extends BlitzWasmInput {
     ui_dump(): string;
 }
 
-/** Structural subset of the game renderer the module touches. */
+/** Structural subset of the app renderer the module touches. */
 export interface BlitzHostRenderer {
     getUIInputRouter(): UIInputRouter | null;
     getInputManager(): { setUIInputRouter(router: UIInputRouter): void };
@@ -50,17 +50,17 @@ export interface BlitzHostRenderer {
 export interface BlitzUiNativeOptions<S> {
     /** Module name (defaults to "blitz-ui-native"). */
     name?: string;
-    /** Dynamic import of the game's wasm-bindgen JS glue. */
+    /** Dynamic import of the app's wasm-bindgen JS glue. */
     loadModule(): Promise<BlitzWasmModule>;
     /** URL of the generated `*_bg.wasm` binary. */
     wasmUrl: URL;
-    /** The game renderer (owns the input manager + router slot). */
+    /** The app renderer (owns the input manager + router slot). */
     renderer: BlitzHostRenderer;
     /** Zustand-shaped store — snapshots are pushed on subscribe. */
     store: { getState(): S; subscribe(cb: () => void): () => void };
-    /** Serialize a store snapshot into the game's UiSnapshot object. */
+    /** Serialize a store snapshot into the app's UiSnapshot object. */
     snapshot(state: S): unknown;
-    /** Route a UI action back into the game (button clicks etc.). */
+    /** Route a UI action back into the app (button clicks etc.). */
     dispatch(action: string, payload: string): void;
     /** Escape-key handler (menus etc.). */
     onEscape?(): void;
@@ -170,7 +170,7 @@ export function createBlitzUiNativeModule<S>(options: BlitzUiNativeOptions<S>): 
                 const view = ensureTexture(device);
                 const context = ctx.getSurface().getContext("webgpu");
                 // Join the in-flight frame, never start one: on a frame the
-                // game skipped (dirty-tracking), acquiring the surface here
+                // app skipped (dirty-tracking), acquiring the surface here
                 // would present the UI blit over a blank swapchain image.
                 const peek = (context as { peekCurrentTexture?: () => GPUTexture | null } | null)
                     ?.peekCurrentTexture;

@@ -2,15 +2,15 @@
 // TransientStateRegistry — framework-level registry for transient state that
 // must be stripped during hot-reload serialization and reset after restore.
 //
-// Games register two kinds of concerns:
+// Apps register two kinds of concerns:
 //   1. Transient flags — bit masks applied to fields in serialized state arrays
 //      (e.g., player flags like PILOTING, CLIMBING) that depend on unserialized
 //      system internal state and must be cleared during save.
 //   2. Reset callbacks — functions that clear system-internal Maps/Sets/state
 //      that accumulate during runtime but aren't part of the serialized state.
 //
-// Defense in depth: if a game forgets to register a transient flag, the reset
-// callback still clears dependent system state. If a game forgets a reset
+// Defense in depth: if an app forgets to register a transient flag, the reset
+// callback still clears dependent system state. If an app forgets a reset
 // callback, transient flags are still stripped. Both together prevent frozen
 // state after hot-reload.
 // ============================================================================

@@ -9,7 +9,7 @@
 //
 // Absent a backend (no cdylib staged, DD_WEBUI_BACKEND=none, or a platform
 // without a backend), mount() returns null and the module stays a no-op —
-// games can gate on ui.available / ui.backend at build time.
+// apps can gate on ui.available / ui.backend at build time.
 // ============================================================================
 
 import { downdraft } from "@downdraft/engine/app/main";

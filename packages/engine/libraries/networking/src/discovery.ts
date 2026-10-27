@@ -4,7 +4,7 @@
 // Two complementary mechanisms:
 //
 //   LanDiscovery — DownDraft-native beacon: JSON announce/query packets on
-//   a UDP multicast group. Games advertise a session, joiners browse.
+//   a UDP multicast group. Apps advertise a session, joiners browse.
 //   Zero external interop; both ends run this code.
 //
 //   MdnsBrowser — real mDNS/DNS-SD browse (PTR query → SRV/TXT/A via

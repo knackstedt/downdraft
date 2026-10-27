@@ -12,11 +12,11 @@ import { resolveOptions } from "./config";
 const REPO = join(import.meta.dir, "..", "..", "..", "..");
 const MODEL_DIR = join(
   REPO,
-  "games/to-the-ocean/src/assets/models/human/Universal Base Characters[Standard]/Hairstyles/Origin at 0/glTF (Godot)",
+  "apps/to-the-ocean/src/assets/models/human/Universal Base Characters[Standard]/Hairstyles/Origin at 0/glTF (Godot)",
 );
 const MODEL = join(MODEL_DIR, "Eyebrows_Regular.gltf");
 
-// MODEL lives in a separate game repo (games/ is gitignored) — skip when absent.
+// MODEL lives in a separate app repo (apps/ is gitignored) — skip when absent.
 describe.skipIf(!existsSync(MODEL))("e2e: bake glTF round-trip", () => {
   it("bakes a real glTF into a GLB with meshopt + basisu extensions", async () => {
     const opts = resolveOptions();

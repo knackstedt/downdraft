@@ -3,48 +3,48 @@ title: Testing & Automation
 description: MCP automation harness, e2e smoke specs, deterministic mode, env vars, gotchas
 ---
 
-## Game automation & headless testing
+## App automation & headless testing
 
 ### MCP automation harness
 
-Games register a renderer-side MCP automation harness wired to the in-process MCP HTTP endpoint (my-game: `games/my-game/src/mcp/setup.ts`) built on `createStandardAutomationTools()` — exposing the standard tool set plus game-specific tools without importing the Node-only `@downdraft/engine/mcp` server bundle into the renderer. Injected input is merged with real input in `processInput()` so the game loop can't tell human from test.
+Apps register a renderer-side MCP automation harness wired to the in-process MCP HTTP endpoint (my-app: `apps/my-app/src/mcp/setup.ts`) built on `createStandardAutomationTools()` — exposing the standard tool set plus app-specific tools without importing the Node-only `@downdraft/engine/mcp` server bundle into the renderer. Injected input is merged with real input in `processInput()` so the app loop can't tell human from test.
 
-### Connecting an MCP client to the game
+### Connecting an MCP client to the app
 
-The game's MCP HTTP transport (`packages/engine/mcp/src/http-transport.ts`) supports both Streamable HTTP and HTTP+SSE transports. By default it binds to an **ephemeral OS-assigned port** (port 0) so multiple game instances never collide. **The endpoint is dev/test infrastructure only — `scripts/package-native.mjs` (`draft release`) defines `__DD_MCP_STRIP__` so it's compiled out of distributed binaries; `--mcp` retains it (still runtime-gated by `DOWNDRAFT_MCP=1`).** Local MCP clients (e.g. IDE integrations) typically use stdio, so `draft mcp stdio` forwards JSON-RPC messages from stdin/stdout to the game's HTTP endpoint.
+The app's MCP HTTP transport (`packages/engine/mcp/src/http-transport.ts`) supports both Streamable HTTP and HTTP+SSE transports. By default it binds to an **ephemeral OS-assigned port** (port 0) so multiple app instances never collide. **The endpoint is dev/test infrastructure only — `scripts/package-native.mjs` (`draft release`) defines `__DD_MCP_STRIP__` so it's compiled out of distributed binaries; `--mcp` retains it (still runtime-gated by `DOWNDRAFT_MCP=1`).** Local MCP clients (e.g. IDE integrations) typically use stdio, so `draft mcp stdio` forwards JSON-RPC messages from stdin/stdout to the app's HTTP endpoint.
 
-**Instance discovery:** Each running game writes `~/.downdraft/port/<pid>` (content = the bound port number; `<pid>.token` holds the bearer token when auth is required). `GameClient.connect()` / `draft mcp` / the stdio bridge all read this directory, prune dead-PID files, and connect to the newest live instance. A game that registers `createMcpModule({ transport: "http" })` additionally serves the full editor toolset (`MCPServer` — tools + resources + prompts) on a second port via `McpHttpTransport` direct mode, advertised as `<pid>.editor` (+ `<pid>.editor.token`); reach it with `draft mcp --editor` or `GameClient.connect({ endpoint: "editor" })`. Optional env vars:
-- `MCP_APP_ID=<appId>` — narrow to instances of a specific game (matches `--user-data-dir=<path>` basename on Linux; e.g. `downdraft-my-game`).
+**Instance discovery:** Each running app writes `~/.downdraft/port/<pid>` (content = the bound port number; `<pid>.token` holds the bearer token when auth is required). `AppClient.connect()` / `draft mcp` / the stdio bridge all read this directory, prune dead-PID files, and connect to the newest live instance. An app that registers `createMcpModule({ transport: "http" })` additionally serves the full editor toolset (`MCPServer` — tools + resources + prompts) on a second port via `McpHttpTransport` direct mode, advertised as `<pid>.editor` (+ `<pid>.editor.token`); reach it with `draft mcp --editor` or `AppClient.connect({ endpoint: "editor" })`. Optional env vars:
+- `MCP_APP_ID=<appId>` — narrow to instances of a specific app (matches `--user-data-dir=<path>` basename on Linux; e.g. `downdraft-my-app`).
 - `MCP_PID=<pid>` — connect to a specific PID.
 - `DOWNDRAFT_MCP_URL` / `MCP_HTTP_URL=<url>` — explicit URL override (skips discovery; used by the e2e test harness and `draft mcp run`).
 - `DOWNDRAFT_MCP_ENDPOINT=editor` — connect to the instance's editor endpoint instead of the automation endpoint.
 - `MCP_EDITOR_PORT=<port>` — pin the editor endpoint's port (createMcpModule http transport; default ephemeral).
 
 To connect:
-1. Start the game: `cd games/my-game && DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 draft dev`
+1. Start the app: `cd apps/my-app && DOWNDRAFT_GPU=swiftshader DOWNDRAFT_DETERMINISTIC=1 draft dev`
 2. The MCP config (`.devin/mcp_config.json`) runs `bun packages/cli/src/index.ts mcp stdio`.
 3. The bridge discovers the port from `~/.downdraft/port/<pid>` and forwards `initialize`, `tools/list`, `tools/call` to `http://localhost:<port>/mcp`.
 4. Notifications (messages without an `id` field, like `notifications/initialized`) are silently ignored by the bridge.
-5. `resources/list` and `prompts/list` return empty lists (the game doesn't expose resources or prompts).
+5. `resources/list` and `prompts/list` return empty lists (the app doesn't expose resources or prompts).
 
-**Multiple instances:** Launch as many games as you like — each gets its own ephemeral port and PID file. Clients connect to the newest by default; use `--app`/`--pid` (or `MCP_APP_ID`/`MCP_PID`) to target a specific game.
+**Multiple instances:** Launch as many apps as you like — each gets its own ephemeral port and PID file. Clients connect to the newest by default; use `--app`/`--pid` (or `MCP_APP_ID`/`MCP_PID`) to target a specific app.
 
 **Programmatic client (`@downdraft/engine/mcp/client`):** the single implementation of discovery + handshake + envelope unwrapping — used by `draft mcp`, the stdio bridge, and the e2e harness. Node- and Bun-compatible.
 
 ```ts
-import { GameClient, launchGame } from "@downdraft/engine/mcp/client";
+import { AppClient, launchApp } from "@downdraft/engine/mcp/client";
 
-const client = await GameClient.connect();          // PID-file discovery
+const client = await AppClient.connect();          // PID-file discovery
 const tools = await client.listTools();
 const state = await client.callJson("get_world_state");
 await client.screenshot("shot.png");
 
-const game = await launchGame({ game: "my-game", deterministic: true });
-await game.client.callText("get_player_state");
-await game.kill();                                   // process-tree kill
+const app = await launchApp({ app: "my-app", deterministic: true });
+await app.client.callText("get_player_state");
+await app.kill();                                   // process-tree kill
 ```
 
-**One-shot shell access:** `draft mcp` calls game MCP tools directly from bash (replaces the old `scripts/mcp-call.mjs`). Output contract: payload on stdout, diagnostics on stderr, text capped at `--max-bytes` (256 KiB), image blocks never inline — `--out <file>` writes them to disk, `--json` prints the raw envelope with `data` elided to `{bytes}`.
+**One-shot shell access:** `draft mcp` calls app MCP tools directly from bash (replaces the old `scripts/mcp-call.mjs`). Output contract: payload on stdout, diagnostics on stderr, text capped at `--max-bytes` (256 KiB), image blocks never inline — `--out <file>` writes them to disk, `--json` prints the raw envelope with `data` elided to `{bytes}`.
 
 ```bash
 draft mcp instances                              # live instances (pid, port, appId)
@@ -53,7 +53,7 @@ draft mcp tools --schema get_world_state         # one tool's inputSchema
 draft mcp call get_world_state                   # tools/call, no args
 draft mcp call set_test_state '{"weather":1}'    # tools/call with JSON args
 draft mcp screenshot shot.png                    # capture_screenshot → file
-draft mcp run script.ts --game my-game      # launch game → run script (gets DOWNDRAFT_MCP_URL) → kill
+draft mcp run script.ts --app my-app      # launch app → run script (gets DOWNDRAFT_MCP_URL) → kill
 ```
 
 Key bridge fixes:
@@ -62,16 +62,16 @@ Key bridge fixes:
 
 ### Running the smoke test
 
-**No game repo?** The `tests/e2e/<game>-smoke.spec.ts` specs require a local
-clone under `games/<name>` (games are separate repositories, not shipped in
+**No app repo?** The `tests/e2e/<app>-smoke.spec.ts` specs require a local
+clone under `apps/<name>` (apps are separate repositories, not shipped in
 this repo). A self-contained e2e path exists for contributors:
 `bun test tests/e2e/packaging-smoke-smoke.spec.ts` launches the tracked
 `examples/packaging-smoke` fixture headless and asserts its worker/asset
 pipeline completes; `.github/workflows/packaging.yml` exercises the full
-package matrix against the same fixture. `draft test --game=packaging-smoke`
+package matrix against the same fixture. `draft test --app=packaging-smoke`
 also resolves it via `examples/`.
 
-The `draft test` CLI command (`packages/cli/src/test.ts`) sets `DOWNDRAFT_DETERMINISTIC=1` (fixed seed, paused render loop, no autosave, no window) and `DOWNDRAFT_GPU=swiftshader` by default, then spawns `bun test <spec>`. It does **not** launch the game or wait for the MCP endpoint itself — that is the spec's job (via the harness). The default smoke specs (`tests/e2e/<game>-smoke.spec.ts`) use the in-game MCP RPC harness to launch and drive the game, but `--spec` can point at any `bun:test` file; the MCP harness is not required.
+The `draft test` CLI command (`packages/cli/src/test.ts`) sets `DOWNDRAFT_DETERMINISTIC=1` (fixed seed, paused render loop, no autosave, no window) and `DOWNDRAFT_GPU=swiftshader` by default, then spawns `bun test <spec>`. It does **not** launch the app or wait for the MCP endpoint itself — that is the spec's job (via the harness). The default smoke specs (`tests/e2e/<app>-smoke.spec.ts`) use the in-app MCP RPC harness to launch and drive the app, but `--spec` can point at any `bun:test` file; the MCP harness is not required.
 
 ```bash
 # CPU rendering (SwiftShader, headless) — default, for CI
@@ -86,13 +86,13 @@ bun run draft:test-cpu -- --headed
 
 # Direct CLI usage
 draft test --renderer=gpu --headed
-draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
+draft test --renderer=cpu --spec tests/e2e/my-app.spec.ts
 ```
 
 **CLI flags:**
 - `--renderer <gpu|cpu>` — WebGPU backend. `cpu` = SwiftShader software (default), `gpu` = hardware Vulkan.
 - `--headed` — Show the native winit window instead of running headless. Sets `DOWNDRAFT_HEADED=1`.
-- `--game <name>` — Game to test. Resolves `games/<name>` or `examples/<name>` from the engine root, or the game dir from cwd. Resolves spec to `tests/e2e/<game>-smoke.spec.ts`.
+- `--app <name>` — App to test. Resolves `apps/<name>` or `examples/<name>` from the engine root, or the app dir from cwd. Resolves spec to `tests/e2e/<app>-smoke.spec.ts`.
 - `--spec <path>` — Override the spec file path.
 - `--port <n>` — MCP port (default: `0` = auto-assign a free port).
 - `--no-deterministic` — Disable fixed seed / render loop pause / window hiding.
@@ -103,13 +103,13 @@ draft test --renderer=cpu --spec tests/e2e/my-game.spec.ts
 
 **Legacy scripts** (still available, bypass the CLI): `bun run test:e2e` (raw `bun test`, inherits env), `test:e2e:headless` (forces `DOWNDRAFT_GPU=swiftshader`), `test:e2e:local` (hardware GPU).
 
-`tests/e2e/harness.ts` launches `bun games/<game>/src/native-entry.ts`, waits for the native MCP HTTP health endpoint, and drives the game through MCP tool calls. The smoke test (`tests/e2e/<game>-smoke.spec.ts`) verifies that the tool surface exists, the simulation ticks, injected input advances the world, and a screenshot can be captured.
+`tests/e2e/harness.ts` launches `bun apps/<app>/src/native-entry.ts`, waits for the native MCP HTTP health endpoint, and drives the app through MCP tool calls. The smoke test (`tests/e2e/<app>-smoke.spec.ts`) verifies that the tool surface exists, the simulation ticks, injected input advances the world, and a screenshot can be captured.
 
 **Build mode:** `draft release --stage=build` (or `--build-only`) compiles the native binary without packaging. Production-build e2e uses `draft release`.
 
 **Dynamic ports:** `draft test` and the harness auto-allocate a free MCP port via `findFreePort()` (binds port 0 — OS-assigned), enabling parallel spec execution. Specs read the port from `process.env.MCP_PORT` (set by `draft test --port` or the auto-allocated default). To run multiple specs simultaneously, omit `--port` and let each spec pick its own.
 
-**Process cleanup:** The harness kills the entire process group (the game process and its worker threads) on test completion. It uses `process.kill(-pid, SIGTERM)` with a SIGKILL fallback after 5s.
+**Process cleanup:** The harness kills the entire process group (the app process and its worker threads) on test completion. It uses `process.kill(-pid, SIGTERM)` with a SIGKILL fallback after 5s.
 
 **Retry logic:** The harness `callToolWithRetry()` method retries MCP operations on transport errors (connection refused, timeouts) with exponential backoff. Tool-level errors (isError: true) are not retried.
 
@@ -123,8 +123,8 @@ The CLI reads and sets a number of environment variables. This is the complete l
 |---|---|---|
 | `MCP_PORT` | `<port>` | MCP HTTP transport port (unset = ephemeral, auto-discovered via `~/.downdraft/port/<pid>`; `draft test` auto-allocates a free port via `findFreePort()`) |
 | `MCP_TIMEOUT_MS` | `120000` | MCP proxy IPC round-trip timeout (ms) — must exceed the longest `wait_for_condition` call |
-| `DOWNDRAFT_GPU` | `swiftshader` \| `hardware` \| `auto` | Read by the GPU adapter policy (`platform-native/src/gpu/adapter-policy.ts`): `swiftshader` forces wgpu's fallback/software adapter (SwiftShader/lavapipe/llvmpipe), `hardware` insists on the real adapter (no software failover), `auto` tries hardware first and falls back when the driver is denied/fails (default for `draft dev`). Also forwarded to the game env as the harness's `gpu:` launch option |
-| `DOWNDRAFT_DETERMINISTIC` | `1` | Skip autosave, no devtools auto-open/error dialogs, paused render loop (on-demand via `set_test_state`/`capture_screenshot`). Reaches the game as `downdraft.deterministic` on the bridge; sim seed stays game-supplied (`simConfig.seed`) |
+| `DOWNDRAFT_GPU` | `swiftshader` \| `hardware` \| `auto` | Read by the GPU adapter policy (`platform-native/src/gpu/adapter-policy.ts`): `swiftshader` forces wgpu's fallback/software adapter (SwiftShader/lavapipe/llvmpipe), `hardware` insists on the real adapter (no software failover), `auto` tries hardware first and falls back when the driver is denied/fails (default for `draft dev`). Also forwarded to the app env as the harness's `gpu:` launch option |
+| `DOWNDRAFT_DETERMINISTIC` | `1` | Skip autosave, no devtools auto-open/error dialogs, paused render loop (on-demand via `set_test_state`/`capture_screenshot`). Reaches the app as `downdraft.deterministic` on the bridge; sim seed stays app-supplied (`simConfig.seed`) |
 | `DOWNDRAFT_HEADED` | `1` | Show the winit window in deterministic mode (without it `window.ts` suppresses `win.show()`) |
 | `DOWNDRAFT_TEST_BUILT` | `1` | Launch the built app instead of the dev server |
 
@@ -144,23 +144,23 @@ The CLI reads and sets a number of environment variables. This is the complete l
 | `DOWNDRAFT_STRICT_DIAGNOSTICS` | `packages/engine/core/src/module/diagnostics.ts` | `0`/`1` force-disable/enable module DI validation (else = Vite dev mode) |
 | `DOWNDRAFT_MCP` | `packages/engine/core/src/util/logger.ts` | `1` routes logs to stderr (keeps stdout clean for MCP JSON-RPC) |
 | `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/cli/src/debug.ts` | `1` disables the devtools UI entirely — forces `devtools.ui` to `"none"` (set by `draft debug --no-devtools`) |
-| `DOWNDRAFT_MULTI_INSTANCE` | `packages/platform-native/src/host-lifecycle.ts` | `1` opts out of the per-game `singleton.lock` |
+| `DOWNDRAFT_MULTI_INSTANCE` | `packages/platform-native/src/host-lifecycle.ts` | `1` opts out of the per-app `singleton.lock` |
 | `DOWNDRAFT_GPU_TIMESTAMPS` | `packages/platform-native/src/native-host.ts` | `1` enables the extended wgpu timestamp features (`timestamp-query-inside-passes`) on non-CPU adapters — off by default due to device-loss on lavapipe-class rasterizers and some discrete Vulkan drivers |
 | `DOWNDRAFT_GPU_BACKEND` | `packages/platform-native/src/gpu/adapter-policy.ts` | `auto` \| `vulkan` \| `gl` \| `metal` \| `dx12` — restricts the wgpu instance to one backend at creation. `gl` selects the GLES backend (virgl under virglrenderer) — experimental: Wayland presentation works but with caveats (no view-format reinterpretation → gamma shift on srgb views, no `COPY_SRC` on the surface → `captureScreenshot` unavailable, narrower feature coverage) |
-| `DOWNDRAFT_GPU_MODE` | `packages/platform-native/src/gpu/adapter-policy.ts` | `performance` \| `stability` — graphics-mode preset (same as `"gpu": { "mode" }` in downdraft.config.json). `performance` = hardware-only, no fallback (games); `stability` = graceful chain vulkan → gl(virgl) → software (desktop apps) |
+| `DOWNDRAFT_GPU_MODE` | `packages/platform-native/src/gpu/adapter-policy.ts` | `performance` \| `stability` — graphics-mode preset (same as `"gpu": { "mode" }` in downdraft.config.json). `performance` = hardware-only, no fallback (apps); `stability` = graceful chain vulkan → gl(virgl) → software (desktop apps) |
 | `DOWNDRAFT_GPU_FALLBACK` | `packages/platform-native/src/gpu/adapter-policy.ts` | `0`/`1` — enables/disables the automatic software-adapter failover in `auto` adapter mode (default `1`) |
 | `DOWNDRAFT_GPU_DENY` | `packages/platform-native/src/gpu/adapter-policy.ts` | Comma-separated substrings (matched against adapter driver/name/backend) extending the built-in denylist (`venus`, `gfxstream`) of drivers that abort the process inside `requestDevice` |
 
 ### E2E test verification — checking for JS errors
 
-**Do NOT rely solely on test pass/fail to verify correctness.** The e2e tests drive the game through MCP tool calls and assert on returned state, but uncaught JS errors in the game process (uncaught Promise rejections, TypeError from polyfill gaps) will NOT cause test failures unless explicitly checked.
+**Do NOT rely solely on test pass/fail to verify correctness.** The e2e tests drive the app through MCP tool calls and assert on returned state, but uncaught JS errors in the app process (uncaught Promise rejections, TypeError from polyfill gaps) will NOT cause test failures unless explicitly checked.
 
-The harness (`tests/e2e/harness.ts`) captures console output from the game process and exposes it via `game.getConsoleErrors()`. Tests should include a final assertion that no JS errors occurred:
+The harness (`tests/e2e/harness.ts`) captures console output from the app process and exposes it via `app.getConsoleErrors()`. Tests should include a final assertion that no JS errors occurred:
 
 ```ts
 it("no uncaught JS errors during the test run", async () => {
   await sleep(500); // wait for pending async errors to surface
-  const errors = game!.getConsoleErrors();
+  const errors = app!.getConsoleErrors();
   if (errors.length > 0) console.error("Console errors:\n" + errors.join("\n"));
   expect(errors).toEqual([]);
 });
@@ -176,7 +176,7 @@ Common false positives to filter out: GTK module warnings, WebSocket connection 
 
 ### E2E test gotchas
 
-- **MCP port conflicts**: Ports are ephemeral by default, so this only bites if you pinned `--port`. Find the stuck instance via `draft mcp instances` / `~/.downdraft/port/`, free it with `fuser -k <port>/tcp`, or kill **only that game instance** as described in "Killing game processes" above — do NOT use a generic `pkill -9 bun` (it will kill unrelated Bun processes).
+- **MCP port conflicts**: Ports are ephemeral by default, so this only bites if you pinned `--port`. Find the stuck instance via `draft mcp instances` / `~/.downdraft/port/`, free it with `fuser -k <port>/tcp`, or kill **only that app instance** as described in "Killing app processes" above — do NOT use a generic `pkill -9 bun` (it will kill unrelated Bun processes).
 - **Save store hangs in test environments**: `createSaveStore()` can hang when OPFS is not available (SwiftShader/headless). The MCP harness must be registered BEFORE the save store init so e2e tests can connect.
 - **`requestPointerLock()` may return a Promise**: `RenderSurface.requestPointerLock?()` is typed `Promise<void> | void` — when it returns a promise it can reject (detached surface, ESC cooldown). Always `.catch()` the return value to avoid uncaught rejections.
 

@@ -128,7 +128,7 @@ async function runPlugin(init: SandboxInitMessage): Promise<void> {
   }
 }
 
-/** Permissions that map to host-call methods (game mutation API). */
+/** Permissions that map to host-call methods (app mutation API). */
 const HOST_CALL_PERMS: PluginPermission[] = ["assets", "ecs", "physics"];
 const HOST_CALL_METHODS = [
   "spawnProp",

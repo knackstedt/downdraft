@@ -222,7 +222,7 @@ export class World {
       } catch (err) {
         log.error("world", `Command at index ${i} threw: ${err}`);
         // In debug mode, re-throw to surface command errors immediately.
-        // In production, log and continue for game-loop resilience.
+        // In production, log and continue for update-loop resilience.
         if (isDebug()) throw err;
       }
     }
@@ -236,7 +236,7 @@ export class World {
 
   /**
    * Reclaim archetypes with no live entities. `allArchetypes` only ever grew —
-   * a game that churns through many component combinations (spawn/despawn
+   * an app that churns through many component combinations (spawn/despawn
    * variety) accumulated dead archetypes that `updateQueryArchetypes` rescanned
    * on every structural flush. Hysteresis: only prune when the list is large
    * AND mostly dead, so spawn/despawn oscillation between two archetypes

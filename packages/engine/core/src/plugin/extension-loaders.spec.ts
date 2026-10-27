@@ -30,7 +30,7 @@ function modManifest(overrides: Partial<PluginManifest> = {}): PluginManifest {
     name: "Test Mod",
     version: "1.0.0",
     engineVersion: "^0.1.0",
-    game: "test-game",
+    app: "test-app",
     format: "worker-js",
     tier: "native",
     thread: "sim",
@@ -235,7 +235,7 @@ describe("extension loaders", () => {
     const mapReg = fakeMapRegistry();
     const physReg = fakePhysicsRegistry();
     const host = new PluginHost({
-      gameId: "test-game",
+      appId: "test-app",
       engineVersion: "0.1.0",
       moduleHost: new ModuleHost(new World()),
     });

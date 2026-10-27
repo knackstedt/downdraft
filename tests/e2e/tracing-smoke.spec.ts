@@ -1,6 +1,6 @@
 // ============================================================================
 // Tracing toolkit e2e test — verifies the main-process tracing tools work
-// against a real running game via the MCP HTTP transport.
+// against a real running app via the MCP HTTP transport.
 //
 // Exercises:
 //   - tools/list includes the tracing tools (trace_start, trace_stop, etc.)
@@ -13,16 +13,16 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, statSync } from "node:fs";
-import { gameAvailable, launchGame, parseJsonContent, type GameProcess } from "./harness";
+import { appAvailable, launchApp, parseJsonContent, type AppProcess } from "./harness";
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
 
-describe.skipIf(!gameAvailable("to-the-ocean"))("tracing toolkit e2e (main-process MCP tools)", () => {
-  let game: GameProcess | null = null;
+describe.skipIf(!appAvailable("to-the-ocean"))("tracing toolkit e2e (main-process MCP tools)", () => {
+  let app: AppProcess | null = null;
 
   beforeAll(async () => {
-    game = await launchGame({
-      game: "to-the-ocean",
+    app = await launchApp({
+      app: "to-the-ocean",
       mcpPort: MCP_PORT,
       gpu: (process.env.DOWNDRAFT_GPU as "swiftshader" | undefined) ?? "swiftshader",
       deterministic: true,
@@ -30,11 +30,11 @@ describe.skipIf(!gameAvailable("to-the-ocean"))("tracing toolkit e2e (main-proce
   }, 180000);
 
   afterAll(async () => {
-    await game?.kill();
+    await app?.kill();
   }, 30000);
 
   it("exposes the tracing tools in tools/list", async () => {
-    const tools = await game!.mcpClient.listTools();
+    const tools = await app!.mcpClient.listTools();
     const names = new Set(tools.map((t) => t.name));
     expect(names.has("trace_start")).toBe(true);
     expect(names.has("trace_stop")).toBe(true);
@@ -47,7 +47,7 @@ describe.skipIf(!gameAvailable("to-the-ocean"))("tracing toolkit e2e (main-proce
   });
 
   it("trace_categories returns real tracing categories", async () => {
-    const result = await game!.mcpClient.callTool("trace_categories", {});
+    const result = await app!.mcpClient.callTool("trace_categories", {});
     const data = parseJsonContent(result) as { categories: string[] };
     expect(Array.isArray(data.categories)).toBe(true);
     // Engine's in-engine instrumentation categories (TraceEventWriter)
@@ -56,14 +56,14 @@ describe.skipIf(!gameAvailable("to-the-ocean"))("tracing toolkit e2e (main-proce
   });
 
   it("trace_status reports not recording when idle", async () => {
-    const result = await game!.mcpClient.callTool("trace_status", {});
+    const result = await app!.mcpClient.callTool("trace_status", {});
     const data = parseJsonContent(result) as { recording: boolean };
     expect(data.recording).toBe(false);
   });
 
   it("trace_start + trace_stop produces a real trace file", async () => {
     // Start a perf trace
-    const startResult = await game!.mcpClient.callTool("trace_start", {
+    const startResult = await app!.mcpClient.callTool("trace_start", {
       preset: "perf",
       recordingMode: "record-until-full",
     });
@@ -77,7 +77,7 @@ describe.skipIf(!gameAvailable("to-the-ocean"))("tracing toolkit e2e (main-proce
     expect(startData.categories.length).toBeGreaterThan(0);
 
     // Confirm status shows recording
-    const statusResult = await game!.mcpClient.callTool("trace_status", {});
+    const statusResult = await app!.mcpClient.callTool("trace_status", {});
     const statusData = parseJsonContent(statusResult) as { recording: boolean };
     expect(statusData.recording).toBe(true);
 
@@ -85,7 +85,7 @@ describe.skipIf(!gameAvailable("to-the-ocean"))("tracing toolkit e2e (main-proce
     await new Promise((r) => setTimeout(r, 500));
 
     // Stop and write to disk
-    const stopResult = await game!.mcpClient.callTool("trace_stop", {});
+    const stopResult = await app!.mcpClient.callTool("trace_stop", {});
     const stopData = parseJsonContent(stopResult) as {
       stopped: boolean;
       path: string;
@@ -124,13 +124,13 @@ describe.skipIf(!gameAvailable("to-the-ocean"))("tracing toolkit e2e (main-proce
     expect(contentLength).toBe(stopData.sizeBytes);
 
     // Status should now show not recording
-    const statusAfter = await game!.mcpClient.callTool("trace_status", {});
+    const statusAfter = await app!.mcpClient.callTool("trace_status", {});
     const statusAfterData = parseJsonContent(statusAfter) as { recording: boolean };
     expect(statusAfterData.recording).toBe(false);
   });
 
   it("process_snapshot returns real main-process memory stats", async () => {
-    const result = await game!.mcpClient.callTool("process_snapshot", {
+    const result = await app!.mcpClient.callTool("process_snapshot", {
       target: "main",
     });
     const data = parseJsonContent(result) as {
@@ -153,7 +153,7 @@ describe.skipIf(!gameAvailable("to-the-ocean"))("tracing toolkit e2e (main-proce
   });
 
   it("heap_snapshot (main) produces a real .heapsnapshot file", async () => {
-    const result = await game!.mcpClient.callTool("heap_snapshot", {
+    const result = await app!.mcpClient.callTool("heap_snapshot", {
       target: "main",
     });
     const data = parseJsonContent(result) as {
@@ -178,12 +178,12 @@ describe.skipIf(!gameAvailable("to-the-ocean"))("tracing toolkit e2e (main-proce
   });
 
   it("trace_start errors when starting twice without stopping", async () => {
-    await game!.mcpClient.callTool("trace_start", { preset: "v8" });
-    const result = await game!.mcpClient.callTool("trace_start", { preset: "perf" });
+    await app!.mcpClient.callTool("trace_start", { preset: "v8" });
+    const result = await app!.mcpClient.callTool("trace_start", { preset: "perf" });
     const r = result as { isError?: boolean; content?: Array<{ text?: string }> };
     expect(r.isError).toBe(true);
     expect(r.content?.[0]?.text).toContain("already in progress");
     // Clean up
-    await game!.mcpClient.callTool("trace_stop", {});
+    await app!.mcpClient.callTool("trace_stop", {});
   });
 });

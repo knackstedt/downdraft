@@ -4,7 +4,7 @@
 //
 // A single large triangle covering the clip space, with UV output at
 // @location(0). Used by fullscreen/post-process render passes that sample a
-// texture across the whole screen. Games should import this instead of
+// texture across the whole screen. Apps should import this instead of
 // maintaining their own copies.
 
 export const FULLSCREEN_VS = /* wgsl */ `

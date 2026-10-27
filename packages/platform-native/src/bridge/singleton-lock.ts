@@ -48,7 +48,7 @@ export function acquireSingleInstanceLock(appId: string): boolean {
     heldLockPath = lockPath;
     return true;
   } catch {
-    return true; // filesystem failure shouldn't block the game
+    return true; // filesystem failure shouldn't block the app
   }
 }
 

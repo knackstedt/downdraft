@@ -5,7 +5,7 @@ import type { ToolRegistration } from "../types";
 import { errorResult, jsonResult } from "../types";
 
 /** Base directory used for path confinement. Falls back to cwd. */
-const GAME_ROOT = process.cwd();
+const APP_ROOT = process.cwd();
 
 export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
   const tools: ToolRegistration[] = [
@@ -26,7 +26,7 @@ export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
       handler: async (params) => {
         const path = params.path as string;
         try {
-          const safePath = confinePath(GAME_ROOT, path);
+          const safePath = confinePath(APP_ROOT, path);
           const data = await ctx.assetManager.load(safePath);
           return jsonResult({ imported: true, path: safePath, type: typeof data });
         } catch (e) {
@@ -69,7 +69,7 @@ export function createAssetTools(ctx: EngineContext): ToolRegistration[] {
         };
 
         try {
-          const safePath = confinePath(GAME_ROOT, path);
+          const safePath = confinePath(APP_ROOT, path);
           const { promises: fs } = await import("node:fs");
           const buf = await fs.readFile(safePath);
           const fileData = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);

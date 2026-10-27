@@ -1,13 +1,13 @@
 // ============================================================================
 // NetworkingLib — declarative engine library descriptor for @downdraft/engine/libraries/networking
 //
-// Games declare `libraries: [NetworkingLib]` (or with config override) in their
-// GameModule. The host creates the ConnectionManager (sim-side only — networking
+// Apps declare `libraries: [NetworkingLib]` (or with config override) in their
+// AppModule. The host creates the ConnectionManager (sim-side only — networking
 // state is simulated on the sim thread) and exposes it via the NetworkClientTok
 // typed token.
 //
-// The platform adapter (Epic EOS, RCS, Mock, etc.) is game-specific, so games
-// pass it via the config. Games that need full control can still import
+// The platform adapter (Epic EOS, RCS, Mock, etc.) is app-specific, so apps
+// pass it via the config. Apps that need full control can still import
 // ConnectionManager / SessionManager / ReplicationManager directly (escape hatch).
 // ============================================================================
 
@@ -54,8 +54,8 @@ export const NetworkingLib: EngineLibrary<NetworkingLibConfig> = {
       // ConnectionManager has no destroy() — disconnectAll() tears down peers.
       (client as ConnectionManager).disconnectAll();
     },
-    // tick is game-specific (calls client.updatePeerRTTs(), processes
-    // replication snapshots, dispatches RPCs, etc.) — games wire this via
+    // tick is app-specific (calls client.updatePeerRTTs(), processes
+    // replication snapshots, dispatches RPCs, etc.) — apps wire this via
     // onReady or a sim system.
   },
 

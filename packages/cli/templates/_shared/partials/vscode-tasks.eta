@@ -3,7 +3,7 @@
   "tasks": [
     {
       "label": "Dev",
-      "detail": "Start the game in dev mode with hot reload",
+      "detail": "Start the app in dev mode with hot reload",
       "type": "shell",
       "command": "draft dev",
       "options": {
@@ -35,7 +35,7 @@
     },
     {
       "label": "Build Only",
-      "detail": "Bundle the game with Vite (no packaging)",
+      "detail": "Bundle the app with Vite (no packaging)",
       "type": "shell",
       "command": "draft release --stage=build --mode=${input:buildMode}",
       "options": {

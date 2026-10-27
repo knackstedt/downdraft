@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
     captureAndSaveScreenshot,
-    gameAvailable,
-    launchGame,
+    appAvailable,
+    launchApp,
     parseJsonContent,
     sleep,
-    type GameProcess,
+    type AppProcess,
     type McpToolResult
 } from "./harness";
 
@@ -31,31 +31,31 @@ interface WorldState {
     count: number;
 }
 
-describe.skipIf(!gameAvailable("andrews-sandbox"))("andrews-sandbox gameplay parity", () => {
-  let game: GameProcess | null = null;
+describe.skipIf(!appAvailable("andrews-sandbox"))("andrews-sandbox gameplay parity", () => {
+  let app: AppProcess | null = null;
 
   const uiState = async (): Promise<UiState> => {
-    const result = (await game!.mcpClient.callTool("get_ui_state", {})) as McpToolResult;
+    const result = (await app!.mcpClient.callTool("get_ui_state", {})) as McpToolResult;
     return parseJsonContent(result) as UiState;
   };
 
   const worldState = async (): Promise<WorldState> => {
-    const result = (await game!.mcpClient.callTool("get_world_state", {})) as McpToolResult;
+    const result = (await app!.mcpClient.callTool("get_world_state", {})) as McpToolResult;
     return parseJsonContent(result) as WorldState;
   };
 
   const key = async (k: string, code: string, type: "keydown" | "keyup" | "press" = "press"): Promise<void> => {
     if (type === "press") {
-      await game!.mcpClient.callTool("dispatch_key", { key: k, code, type: "keydown" });
-      await game!.mcpClient.callTool("dispatch_key", { key: k, code, type: "keyup" });
+      await app!.mcpClient.callTool("dispatch_key", { key: k, code, type: "keydown" });
+      await app!.mcpClient.callTool("dispatch_key", { key: k, code, type: "keyup" });
       return;
     }
-    await game!.mcpClient.callTool("dispatch_key", { key: k, code, type });
+    await app!.mcpClient.callTool("dispatch_key", { key: k, code, type });
   };
 
   beforeAll(async () => {
-    game = await launchGame({
-      game: "andrews-sandbox",
+    app = await launchApp({
+      app: "andrews-sandbox",
       mcpPort: MCP_PORT,
       gpu: (process.env.DOWNDRAFT_GPU as "swiftshader" | undefined) ?? "swiftshader",
       deterministic: true,
@@ -70,7 +70,7 @@ describe.skipIf(!gameAvailable("andrews-sandbox"))("andrews-sandbox gameplay par
   }, 180000);
 
   afterAll(async () => {
-    await game?.kill();
+    await app?.kill();
   }, 30000);
 
   it("moves the camera while W is held (keydown/keyup state)", async () => {
@@ -88,7 +88,7 @@ describe.skipIf(!gameAvailable("andrews-sandbox"))("andrews-sandbox gameplay par
     await key("b", "KeyB");
     await sleep(400);
     expect((await uiState()).showContentBrowser).toBe(true);
-    const meta = await captureAndSaveScreenshot(game!, "andrews-sandbox-browser.png", true);
+    const meta = await captureAndSaveScreenshot(app!, "andrews-sandbox-browser.png", true);
     expect(meta.width).toBeGreaterThan(0);
     await key("b", "KeyB");
     await sleep(400);
@@ -99,7 +99,7 @@ describe.skipIf(!gameAvailable("andrews-sandbox"))("andrews-sandbox gameplay par
     await key("Escape", "Escape");
     await sleep(400);
     expect((await uiState()).showEscMenu).toBe(true);
-    await captureAndSaveScreenshot(game!, "andrews-sandbox-escmenu.png", true);
+    await captureAndSaveScreenshot(app!, "andrews-sandbox-escmenu.png", true);
     await key("Escape", "Escape");
     await sleep(400);
     expect((await uiState()).showEscMenu).toBe(false);
@@ -132,7 +132,7 @@ describe.skipIf(!gameAvailable("andrews-sandbox"))("andrews-sandbox gameplay par
     // as down/up pairs); send all three so both handler styles see the press.
     const click = async (x: number, y: number) => {
       for (let _i = 0, _it = ["mousedown", "mouseup", "click"], _n = _it.length; _i < _n; _i++) { const type = _it[_i];
-        await game!.mcpClient.callTool("dispatch_click", { x, y, type });
+        await app!.mcpClient.callTool("dispatch_click", { x, y, type });
       }
     };
     await key("Escape", "Escape");
@@ -158,7 +158,7 @@ describe.skipIf(!gameAvailable("andrews-sandbox"))("andrews-sandbox gameplay par
     const dy = cam.target[1] - cam.position[1];
     const dz = cam.target[2] - cam.position[2];
     const dl = Math.hypot(dx, dy, dz) || 1;
-    await game!.mcpClient.callTool("sandbox_command", {
+    await app!.mcpClient.callTool("sandbox_command", {
       type: "spawn",
       contentId: "builtin:cube",
       position: [
@@ -173,7 +173,7 @@ describe.skipIf(!gameAvailable("andrews-sandbox"))("andrews-sandbox gameplay par
   }, 30000);
 
   it("reports no console errors during gameplay", () => {
-    const errors = game!.getConsoleErrors();
+    const errors = app!.getConsoleErrors();
     expect(errors).toEqual([]);
   });
 });

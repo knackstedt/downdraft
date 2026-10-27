@@ -5,11 +5,11 @@
 // model. The ModelRenderer manages per-draw uniform data, GPU vertex/index
 // buffers, skinning resources, and bindless material/texture registration.
 //
-// Games declare `libraries: [EntitiesLib]` in their GameModule. The host
+// Apps declare `libraries: [EntitiesLib]` in their AppModule. The host
 // creates the ModelRenderer (renderer-side) during renderer init and exposes
 // it via the ModelRendererTok token.
 //
-// Games that need full control can still import ModelRenderer directly
+// Apps that need full control can still import ModelRenderer directly
 // (escape hatch). Note: setBindlessDeps() must be called before init().
 // ============================================================================
 
@@ -45,7 +45,7 @@ export const EntitiesLib: EngineLibrary<EntitiesLibConfig> = {
       const renderer = new ModelRenderer(ctx.device, ctx.format);
       // init() is async (creates pipelines, buffers, shaders). The host
       // awaits this during renderer setup. setBindlessDeps() must be called
-      // by the game (in onReady) before init() for bindless materials.
+      // by the app (in onReady) before init() for bindless materials.
       void renderer.init();
       ctx.provide(ModelRendererTok, renderer);
       return renderer;

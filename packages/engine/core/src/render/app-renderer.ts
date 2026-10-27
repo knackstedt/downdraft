@@ -1,0 +1,1821 @@
+// ============================================================================
+// AppRenderer — generic WebGPU render loop infrastructure
+// Extracted from WebGPURenderer: device init, surface config, rAF loop,
+// frame rate limiter, viewport management, telemetry, GPU UI pass, depth cache.
+// Apps register render passes via FrameGraph slots and provide app-specific
+// logic through callback hooks.
+// ============================================================================
+
+import { UIInputRouter } from "../input/ui-router";
+import type { RendererModule } from "../module/renderer-module";
+import type { RenderSurface, RenderSurfaceContext } from "../platform/render-surface";
+import { getNativeHost } from "../platform/runtime";
+import { TelemetryCollector } from "../telemetry/collector";
+import type { GPUAdapterInfo as GPUAdapterInfoData } from "../telemetry/gpu-profiler";
+import { GPUProfiler, type FrameGraphData, type GPUInfo } from "../telemetry/gpu-profiler";
+import { GPUResourceTracker } from "../telemetry/gpu-resource-tracker";
+import { createLogger } from "../util/logger";
+import { CanvasResizeWatcher, type CanvasResizeHandler } from "./canvas-resize-watcher";
+import { GPUDeviceManager } from "./device";
+import type { RenderContext } from "./frame-graph";
+import { FrameGraph, SlotRegistry, type TextureHandle } from "./frame-graph";
+import { InputManager } from "./input-manager";
+import { ResolutionScaleOffscreen } from "./offscreen-scale";
+import { RendererModuleHost } from "./renderer-module-host";
+import { installShaderValidationGuard } from "./shader-validator";
+
+const log = createLogger();
+
+export interface ViewportRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * The structural contract engine bootstrap code relies on (`startApp`,
+ * `startNativeApp`, `runNativeAppModule`, MCP automation). `AppRenderer`
+ * satisfies it; apps with bespoke renderers should too. Everything is
+ * optional except `init`/`start`/`stop` — the methods that every consumer
+ * must be able to call.
+ *
+ * `renderOnce` is the canonical one-shot-frame name (deterministic capture,
+ * screenshots). Do not define a parallel `renderOneFrame` — override
+ * `renderOnce` instead.
+ */
+export interface AppRendererLike {
+  init(): boolean | Promise<boolean>;
+  start(): void;
+  stop(): void;
+  isRunning?(): boolean;
+  onResize?(cssWidth: number, cssHeight: number, dpr: number): void;
+  /** Render one frame on demand while the loop is stopped (or running). */
+  renderOnce?(): void;
+  getSurface?(): RenderSurface;
+  /** @deprecated Use getSurface — the surface is not necessarily a DOM canvas. */
+  getCanvas?(): RenderSurface;
+  getDevice?(): GPUDevice | null;
+  getFormat?(): GPUTextureFormat;
+  getFPS?(): number;
+  useRendererModule?(module: RendererModule): void;
+  /**
+   * The renderer's module host, when the renderer supports renderer modules.
+   * `startApp()` uses it to wire EngineLibrary DI provides — renderers
+   * that omit it silently drop library-provided resources (a warning is
+   * logged when libraries are declared but no host exists).
+   */
+  getRendererModuleHost?(): RendererModuleHost | null;
+  getWorkerHost?(): unknown;
+}
+
+export interface AppRendererConfig {
+  /**
+   * Pre-created device/adapter to borrow instead of requesting new ones.
+   * On the native host a single wgpu device is shared between the host and
+   * the renderer — this path avoids a second requestDevice() on the same
+   * surface. When omitted, init() falls back to the native host's device
+   * (getNativeHost()) before self-acquiring via navigator.gpu.
+   */
+  device?: GPUDevice;
+  adapter?: GPUAdapter;
+  /**
+   * Configure the surface context at init. Defaults to true — set false
+   * when the surface was already configured by the device owner (e.g. the
+   * native host configures it at window creation). Automatically skipped
+   * when the device was borrowed from the native host.
+   */
+  configureSurface?: boolean;
+  depthFormat?: GPUTextureFormat;
+  msaaSampleCount?: number;
+  /** Max number of cached depth textures (per resolution). Older entries are evicted. Default: 3. */
+  depthTextureCacheSize?: number;
+  /**
+   * Whether clicking the canvas auto-requests pointer lock (hides + confines
+   * the cursor). Default: false.
+   *
+   * Pointer lock is an opt-in FPS-style concern. 2D click-based apps must
+   * leave this off so the cursor stays visible and free-moving for
+   * click-to-dig / click-to-place interactions. 3D apps that want pointer
+   * lock can either enable this or manage pointer lock themselves (e.g.
+   * an app using its own input handler leaves this off).
+   */
+  enablePointerLock?: boolean;
+  /**
+   * Renderer mode:
+   * - "3d" (default): Camera-based rendering with viewports. Each viewport
+   *   requires camera info from onViewport callback or renderer plugins.
+   * - "2d": No camera required. A default orthographic camera is used.
+   *   The onViewport callback can return null (the default camera is used).
+   *   Render passes receive a full-screen viewport with an identity-like
+   *   camera. Depth texture is still provided but may be ignored by 2D passes.
+   *   Set viewportCount to 0 and use the afterFrame callback for fully custom
+   *   2D rendering (the FrameGraph viewport loop is skipped entirely).
+   */
+  mode?: "2d" | "3d";
+  /**
+   * Clear color for the canvas when viewportCount is 0 (2D mode with custom
+   * rendering in afterFrame). Default: { r: 0, g: 0, b: 0, a: 1 }.
+   * If null, the canvas is not cleared (the afterFrame callback must clear it).
+   */
+  clearColor?: GPUColor | null;
+  /**
+   * Emit console warnings when a renderFrame / getCurrentTexture call exceeds
+   * 20ms. Off by default — the warnings themselves cause jank (console I/O in
+   * the frame loop is self-amplifying). Enable when profiling.
+   */
+  debugTimingWarnings?: boolean;
+  /**
+   * Enable the TelemetryCollector (frame/draw/graph stats for the profiling
+   * overlay + devtools). Default: true — set false in production builds that
+   * never surface telemetry to skip the per-frame recording overhead.
+   */
+  enableTelemetry?: boolean;
+  /**
+   * Damage-driven rendering: when true, renderFrame() skips the entire GPU
+   * block (surface acquire, pass encoding, submit, present) on ticks where
+   * nothing reported damage — an idle app burns ~no render thread instead
+   * of compositing the same frame at display refresh. While skipped ticks
+   * continue, the rAF chain also disarms and the loop drops to a low-rate
+   * keepalive timer (damageIdleFps): the platform's rAF wait is what keeps
+   * the native event pump hot, so disarming is what lets it sleep. Damage
+   * sources re-arm the chain immediately via requestFrame(): UI compositors
+   * reporting takeDirty(), pointer/wheel/key events on the surface, resize,
+   * worker GPU passes, device recovery, renderOnce(), and explicit calls
+   * from apps or renderer modules (ctx.requestFrame()). Frame hooks still
+   * run on every keepalive tick — they are damage producers — so periodic
+   * producers keep working at the reduced rate rather than freezing.
+   * Intended for UI-style apps whose content is event-driven; leave off
+   * for apps.
+   */
+  damageOnly?: boolean;
+  /**
+   * Keepalive tick rate (Hz) while damageOnly is idle — the loop re-arms
+   * on a plain timer instead of rAF so the event pump can sleep between
+   * ticks while frame hooks still get a low-rate cadence. Default 20.
+   * Set 0 to sleep fully: the chain only wakes on requestFrame() marks
+   * (input, compositor damage, resize, module calls) — use when every
+   * producer is event-driven and none rely on per-tick hooks.
+   */
+  damageIdleFps?: number;
+  /**
+   * GPU device-loss handling:
+   * - "auto" (default): attempt in-place recovery — re-request the adapter/
+   *   device, reconfigure the canvas, re-prepare UI + all registered frame
+   *   graph passes, and recompile the graph's transient textures. Falls back
+   *   to a page reload if recovery fails.
+   * - "reload": reload the page after a short delay (legacy behavior). Use
+   *   for apps whose passes/modules can't recreate their GPU resources.
+   *
+   * Note: recovery recreates everything AppRenderer owns plus every
+   * registered pass's `prepare()`. Renderer modules that cached
+   * `ctx.getDevice()` at register time hold stale devices — modules should
+   * call `getDevice()` lazily or re-create resources in a pass's `prepare()`.
+   * Apps can also hook `callbacks.onDeviceRecovered` for custom resources.
+   */
+  deviceLossRecovery?: "auto" | "reload";
+}
+
+export interface FrameCallbacks {
+  beforeFrame?: (dt: number, elapsedTime: number) => void;
+  beforeViewports?: (dt: number, elapsedTime: number) => void;
+  onViewport?: (viewportIdx: number, dt: number, elapsedTime: number) => CameraViewportInfo | null;
+  afterViewports?: (dt: number, elapsedTime: number) => void;
+  afterFrame?: (dt: number, elapsedTime: number) => void;
+  onResize?: (cssWidth: number, cssHeight: number, dpr: number) => void;
+  getPostProcessInfo?: () => { pixelationEnabled: boolean; pixelSize: number; postProcessEffects: string[] };
+  /** Fired when the GPU device is lost, before recovery is attempted. */
+  onDeviceLost?: (info: GPUDeviceLostInfo) => void;
+  /**
+   * Fired after the engine re-acquired a device and re-prepared its own
+   * resources (context, UI, frame-graph passes). Recreate any app-owned GPU
+   * resources not held by a registered RenderPass here. Throwing (or a
+   * rejected promise) aborts recovery and falls back to a page reload.
+   */
+  onDeviceRecovered?: (device: GPUDevice) => void | Promise<void>;
+}
+
+export interface CameraViewportInfo {
+  camera: {
+    position: [number, number, number];
+    target: [number, number, number];
+    up: [number, number, number];
+    fov: number;
+    near: number;
+    far: number;
+    aspect: number;
+    projectionMatrix?: Float32Array;
+    viewMatrix?: Float32Array;
+  };
+  viewport: ViewportRect;
+}
+
+export interface OffscreenMode {
+  type: "none" | "pixelation" | "postprocess";
+  getColorView: () => GPUTextureView;
+  getDepthView: () => GPUTextureView;
+  scaleViewport?: (v: ViewportRect) => ViewportRect;
+  applyPostprocess?: (encoder: GPUCommandEncoder, canvasView: GPUTextureView, w: number, h: number) => void;
+  ensureTargets?: (w: number, h: number) => void;
+  getSceneColorView?: () => GPUTextureView;
+  getSceneDepthView?: () => GPUTextureView;
+}
+
+export interface RenderTargetProvider {
+  getColorView(viewportIdx: number): GPUTextureView;
+  getDepthView(viewportIdx: number, w: number, h: number): GPUTextureView;
+  getViewportCount(): number;
+  getViewportRect(idx: number, screenW: number, screenH: number): ViewportRect;
+  beginFrame(): void;
+  endFrame(encoder: GPUCommandEncoder): void;
+}
+
+export type RAFSource = (callback: (time: number) => void) => number;
+export type CancelRAF = (id: number) => void;
+
+export class AppRenderer implements CanvasResizeHandler {
+  private canvas: RenderSurface;
+  private device: GPUDevice | null = null;
+  private adapter: GPUAdapter | null = null;
+  private context: RenderSurfaceContext | null = null;
+  private format: GPUTextureFormat = "bgra8unorm";
+  private config: AppRendererConfig;
+
+  private depthFormat: GPUTextureFormat = "depth32float";
+  private msaaSampleCount: number = 1;
+  private mode: "2d" | "3d" = "3d";
+
+  // Infrastructure
+  private deviceManager: GPUDeviceManager;
+  private resizeWatcher: CanvasResizeWatcher | null = null;
+  private inputManager: InputManager;
+  private frameGraph: FrameGraph;
+  private rendererModuleHost: RendererModuleHost | null = null;
+
+  // Telemetry & profiling
+  gpuProfiler: GPUProfiler | null = null;
+  gpuResourceTracker: GPUResourceTracker | null = null;
+  telemetryCollector: TelemetryCollector | null = null;
+
+  /** Input router for the active UI stack (html-ui via Blitz, or none). */
+  uiInputRouter: UIInputRouter | null = null;
+  /** Screen-space compositors (html-ui panels etc.) drawn in the UI pass. */
+  private uiCompositors = new Set<import("../module/renderer-module").ScreenUiCompositor>();
+  /** uiCompositors as a pre-sorted array — rebuilt on add/remove so the
+   *  frame loop doesn't spread+sort the set every frame. */
+  private uiCompositorOrder: import("../module/renderer-module").ScreenUiCompositor[] = [];
+
+  // Render loop state
+  private running = false;
+  private deviceLost = false;
+  /** True when init() borrowed the native host's device — the surface was
+   *  already configured by the host, so the renderer must not reconfigure. */
+  private hostConfiguredSurface = false;
+  private lastTime = 0;
+  private elapsedTime = 0;
+  private fps = 0;
+  private frameCount = 0;
+  private fpsTimer = 0;
+  private lastResourceStatsTime = 0;
+  private static readonly RESOURCE_STATS_INTERVAL = 1000;
+
+  // Frame rate limiter
+  private targetFrameTime = 0;
+  private limiterActive = false;
+  private frameAccum = 0;
+  private lastLimiterTick = 0;
+  private rafInterval = 0;
+  private rafSum = 0;
+  private rafCount = 0;
+  private lastRafTime = 0;
+
+  // Damage gate (config.damageOnly) — renderFrame() skips all GPU work on
+  // ticks where nothing marked damage since the last presented frame.
+  private damageOnly: boolean;
+  /** Set by requestFrame(), input events, resize, renderOnce, recovery. */
+  private frameDamage = true;
+  /** Forced-render ticks after enabling or device recovery — covers the
+   *  settle window where producers (fonts, late texture binds, first
+   *  rasters) haven't reported damage yet. */
+  private damageWarmup = 0;
+  private damageInputUnsub: Array<() => void> = [];
+  /** True when the last renderFrame() skipped its GPU block — render()'s
+   *  tail reads this to park the chain on the keepalive timer. */
+  private frameSkipped = false;
+  /** Interval (ms) for the damage-mode keepalive tick; 0 = full sleep. */
+  private damageIdleMs = 0;
+  private damageIdleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Gate observability — presented vs skipped ticks since boot, exposed on
+   *  `globalThis.__ddDamageStats` while damageOnly is on (debug_eval). */
+  private damageStats = { rendered: 0, skipped: 0, compositorHits: 0, idleTicks: 0 };
+
+  // Viewport management
+  private viewportCount = 1;
+  private viewports: ViewportRect[] = [];
+
+  // Transient surface/depth handles (imported into the frame graph each frame)
+  private colorHandle: TextureHandle | null = null;
+  private depthHandle: TextureHandle | null = null;
+  private graphCompiled = false;
+
+  // Reusable per-frame RenderContext (mutated per viewport — see renderViewport)
+  private frameCtx: RenderContext | null = null;
+
+  // Depth texture cache (used when the graph does not own depth)
+  // LRU: Map insertion order = access order (delete + re-set on access).
+  // Numeric key packs (w,h) — a `${w}x${h}` string key allocated a fresh
+  // string per lookup per viewport per frame. The view is cached alongside
+  // so same-size viewports don't pay a createView() FFI call per frame.
+  private depthTextures = new Map<number, { texture: GPUTexture; view: GPUTextureView }>();
+  private depthTextureCacheSize: number;
+
+  // Per-frame swapchain view — all non-XR viewports share the frame's
+  // surface texture, so getCurrentTexture()/createView() run once per frame
+  // instead of once per viewport. undefined = not yet acquired this frame.
+  private frameSurfaceView: GPUTextureView | null | undefined;
+
+  // Frame stats
+  private frameDrawCalls = 0;
+  private frameTriangles = 0;
+
+  // Per-frame submit interception: while non-null, queue.submit() calls
+  // (app callbacks, render-target providers, helpers) append their buffers
+  // here in call order instead of crossing into wgpu — the whole frame then
+  // lands in ONE queue.submit at end-of-frame. Apps legitimately submit
+  // inside afterFrame callbacks (2D renderers, overlays), so folding the UI
+  // composite into the main batch requires capturing those submits rather
+  // than submitting early or reordering.
+  private frameSubmitSink: GPUCommandBuffer[] | null = null;
+  private submitInterceptorDevice: GPUDevice | null = null;
+
+  // Callbacks
+  private callbacks: FrameCallbacks = {};
+
+  // Offscreen mode (set by app for postprocessing)
+  private offscreenMode: OffscreenMode | null = null;
+  /** Internal pixelation-style offscreen mode driven by resolutionScale.
+   *  An externally-installed offscreenMode takes precedence while set. */
+  private scaleOffscreen: ResolutionScaleOffscreen | null = null;
+
+  // XR render target provider (overrides canvas surface when set)
+  private renderTargetProvider: RenderTargetProvider | null = null;
+
+  // rAF source override (for XR sessions)
+  private rafSource: RAFSource | null = null;
+  private cancelRaf: CancelRAF | null = null;
+  private currentRafId: number = 0;
+  // Dedup for the render chain: exactly one pending rAF may exist at a time.
+  // renderFrame() is also called outside the loop by renderOnce() (native
+  // screenshots, deterministic steps); letting it re-schedule leaked a
+  // permanent second (third, ...) render chain per call — each chain ran
+  // renderFrame() every pump tick, multiplying both real render work and the
+  // FPS counter (the "1100 fps" badge after MCP screenshot calls).
+  private rafPending = false;
+
+  // Dpr
+  private dpr = 1;
+
+  constructor(canvas: RenderSurface, config: AppRendererConfig = {}) {
+    this.canvas = canvas;
+    this.config = config;
+    this.depthFormat = config.depthFormat ?? "depth32float";
+    this.msaaSampleCount = config.msaaSampleCount ?? 1;
+    this.depthTextureCacheSize = config.depthTextureCacheSize ?? 3;
+    this.mode = config.mode ?? "3d";
+    this.damageOnly = config.damageOnly ?? false;
+    this.damageIdleMs = config.damageIdleFps === undefined ? 50
+      : config.damageIdleFps > 0 ? 1000 / config.damageIdleFps : 0;
+    if (this.damageOnly) {
+      this.damageWarmup = 8;
+      (globalThis as Record<string, unknown>).__ddDamageStats = this.damageStats;
+    }
+    this.deviceManager = new GPUDeviceManager();
+    this.inputManager = new InputManager(canvas, config.enablePointerLock ?? false);
+    this.frameGraph = new FrameGraph();
+
+    // Damage-mode input wake — a gesture must produce a frame even before
+    // the doc's raster lands (hover/press feedback, wheel steps). Attached
+    // unconditionally; the mark is a no-op unless damageOnly is on. The
+    // native surface dispatches pointer*/wheel on the canvas and key
+    // events on window (matching DOM parity).
+    const mark = () => { if (this.damageOnly) this.requestFrame(); };
+    if (typeof canvas.addEventListener === "function") {
+      ["pointermove", "pointerdown", "pointerup", "wheel"].forEach((t) => {
+        canvas.addEventListener(t, mark);
+        this.damageInputUnsub.push(() => canvas.removeEventListener(t, mark));
+      });
+    }
+    if (typeof window !== "undefined") {
+      ["keydown", "keyup"].forEach((t) => {
+        window.addEventListener(t, mark);
+        this.damageInputUnsub.push(() => window.removeEventListener(t, mark));
+      });
+    }
+  }
+
+  /** Build requiredLimits for the bindless binding model (clamped to adapter). */
+  private buildRequiredLimits(adapter: GPUAdapter): Record<string, number> {
+    const a = adapter.limits as unknown as Record<string, number>;
+    const clamp = (key: string, want: number): [string, number] | null => {
+      const have = a[key];
+      if (have === undefined) return null;
+      return [key, Math.min(want, Number(have))];
+    };
+    const entries: Array<[string, number]> = [];
+    [
+      clamp("maxTextureArrayLayers", 512),
+      clamp("maxStorageBuffersPerShaderStage", 8),
+      clamp("maxStorageBufferBindingSize", 64 * 1024 * 1024),
+      clamp("maxSampledTexturesPerShaderStage", 16),
+    ].forEach((e) => {
+      if (e) entries.push(e);
+    });
+    return Object.fromEntries(entries);
+  }
+
+  async init(): Promise<boolean> {
+    try {
+      // Device resolution order: explicit config → native host's device →
+      // self-acquire. On native the host owns the only wgpu device and the
+      // surface context — borrowing it avoids a second requestDevice() and
+      // a reconfigure race on the same surface. In-process there is
+      // exactly one device.
+      const nativeHost = getNativeHost();
+      const borrowedDevice = this.config.device ?? nativeHost?.device;
+      const borrowedAdapter = this.config.adapter ?? nativeHost?.adapter;
+      // An adapter is only required when we must acquire the device ourselves;
+      // a borrowed device is already usable (adapter.info is null-tolerated
+      // below).
+      const adapter = borrowedAdapter ?? await this.requestAdapterWithFallback();
+      if (!adapter && !borrowedDevice) {
+        log.error("app-renderer", "No GPU adapter found — check GPU drivers and /dev/dri permissions");
+        return false;
+      }
+      this.device = borrowedDevice ?? await this.requestDeviceFromAdapter(adapter!);
+      this.installQueueSubmitInterceptor(this.device);
+      this.adapter = adapter;
+      // The host configured the surface with its own usage set at creation —
+      // reconfiguring here would tear down the swapchain and race the host's
+      // readback hook. Skip when borrowing the host's device.
+      this.hostConfiguredSurface =
+        borrowedDevice !== undefined && borrowedDevice === nativeHost?.device;
+
+      // Install the shader validation guard so all createShaderModule calls
+      // route through getCompilationInfo() validation.
+      installShaderValidationGuard(this.device);
+
+      // Wrap device with GPU resource tracker for VRAM visibility
+      this.gpuResourceTracker = new GPUResourceTracker();
+      this.gpuResourceTracker.wrapDevice(this.device);
+
+      // GPU profiler
+      const adapterInfo = adapter?.info ?? null;
+      this.context = this.canvas.getContext("webgpu")!;
+      this.format = navigator.gpu.getPreferredCanvasFormat();
+      this.gpuProfiler = new GPUProfiler();
+      this.gpuProfiler.init(this.device, adapterInfo, this.format, 32);
+      // A resolutionScale set before init becomes active now that the
+      // device + surface format exist.
+      this.applyScaleOffscreen();
+      log.debug("app-renderer", `GPU timer pool supported: ${this.gpuProfiler.isGpuTimerSupported()} features: ${Array.from(this.device.features).join(", ")}`);
+
+      // Device lost handler
+      this.device.lost.then((info: GPUDeviceLostInfo) => {
+        this.handleDeviceLost(info);
+      });
+
+      // Configure surface — skipped when the surface was already configured
+      // by the device owner (native host) or the caller opted out. A borrowed
+      // host surface is never reconfigured: the host's usage set and
+      // pre-present readback hook are bound to its configure call.
+      if (!this.hostConfiguredSurface && (this.config.configureSurface ?? true)) {
+        this.context.configure({
+          device: this.device,
+          format: this.format,
+          alphaMode: "premultiplied",
+        });
+      }
+
+      // UI input router — the active UI stack (html-ui via Blitz) replaces
+      // this with its own router when its module registers.
+      this.uiInputRouter = new UIInputRouter();
+      this.inputManager.setUIInputRouter(this.uiInputRouter);
+
+      // Telemetry
+      this.telemetryCollector = new TelemetryCollector(this.config.enableTelemetry ?? true);
+
+      // Canvas resize watcher
+      this.resizeWatcher = new CanvasResizeWatcher(this.canvas, this);
+
+      // Input listeners
+      this.inputManager.setupListeners();
+
+      // Renderer plugin host — owns renderer-thread plugins (camera
+      // controllers, gizmos, XR frame loops, OSR). Created after InputManager
+      // so the host's input bus coexists with the FPS/pointer-lock layer.
+      this.rendererModuleHost = new RendererModuleHost(this.canvas, {
+        getSurface: () => this.canvas,
+        getDevice: () => this.device!,
+        getFormat: () => this.format,
+        getGraph: () => this.frameGraph,
+        getSlotRegistry: () => this.frameGraph.getSlotRegistry(),
+        setOffscreenMode: (mode) => this.setOffscreenMode(mode),
+        setRenderTargetProvider: (provider) => this.setRenderTargetProvider(provider),
+        setRAFSource: (src, cancel) => {
+          if (src && cancel) this.setRAFSource(src, cancel);
+          else this.clearRAFSource();
+        },
+        setViewportCount: (count) => this.setViewportCount(count),
+        getUIInputRouter: () => this.uiInputRouter,
+        requestFrame: () => this.requestFrame(),
+        registerUiCompositor: (c) => {
+          const isNew = !this.uiCompositors.has(c);
+          this.uiCompositors.add(c);
+          if (isNew) {
+            this.uiCompositorOrder = [...this.uiCompositors].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+          }
+          return () => {
+            if (this.uiCompositors.delete(c)) {
+              this.uiCompositorOrder = [...this.uiCompositors].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+            }
+          };
+        },
+      });
+
+      // Clicks consumed by the module input bus (webui panels, gizmos) must
+      // not re-acquire pointer lock — the bus records them for InputManager.
+      this.inputManager.setUiConsumedCheck(
+        () => this.rendererModuleHost?.getInputBus().wasPointerDownConsumed() ?? false,
+      );
+
+      // Initial viewport layout
+      this.updateViewports(1);
+
+      log.info("app-renderer", "initialized");
+      return true;
+    } catch (err) {
+      log.error("app-renderer", `Init failed: ${err}`);
+      return false;
+    }
+  }
+
+  // --- Device acquisition + loss recovery ---
+
+  /** Adapter fallback chain: high-performance → low-power → any. */
+  private async requestAdapterWithFallback(): Promise<GPUAdapter | null> {
+    let adapter = await navigator.gpu.requestAdapter({
+      powerPreference: "high-performance",
+    });
+    if (!adapter) {
+      log.warn("app-renderer", "No high-performance GPU adapter, trying low-power...");
+      adapter = await navigator.gpu.requestAdapter({
+        powerPreference: "low-power",
+      });
+    }
+    if (!adapter) {
+      log.warn("app-renderer", "No low-power adapter, trying any...");
+      adapter = await navigator.gpu.requestAdapter({});
+    }
+    return adapter;
+  }
+
+  private async requestDeviceFromAdapter(adapter: GPUAdapter): Promise<GPUDevice> {
+    // Request timestamp-query features for GPU-side per-pass timing
+    const requiredFeatures: GPUFeatureName[] = [];
+    if (adapter.features.has("timestamp-query")) {
+      requiredFeatures.push("timestamp-query");
+    }
+    // Texture compression lets the asset pipeline upload BC7/ASTC/ETC2
+    // directly instead of transcoding basisu KTX2 to RGBA32.
+    (["texture-compression-bc", "texture-compression-astc", "texture-compression-etc2"] as const).forEach((f) => {
+      if (adapter.features.has(f as GPUFeatureName)) {
+        requiredFeatures.push(f as GPUFeatureName);
+      }
+    });
+    return adapter.requestDevice({
+      requiredFeatures,
+      requiredLimits: this.buildRequiredLimits(adapter),
+    });
+  }
+
+  private recoveringDevice = false;
+
+  private handleDeviceLost(info: GPUDeviceLostInfo): void {
+    if (this.deviceLost || this.recoveringDevice) return; // already handled
+    this.deviceLost = true;
+    log.error("app-renderer", `WebGPU device lost: ${info?.reason ?? "unknown"} — ${info?.message ?? ""}`);
+    try { this.callbacks.onDeviceLost?.(info); } catch (err) {
+      log.error("app-renderer", `onDeviceLost callback threw: ${err}`);
+    }
+
+    if (
+      (this.config.deviceLossRecovery ?? "auto") === "reload" ||
+      info?.reason === "destroyed" ||
+      this.hostConfiguredSurface
+    ) {
+      // "destroyed" = device.destroy() was called deliberately — a new device
+      // can't help, the app is tearing down or opted out. A borrowed host
+      // device can't be recovered in place either: the host's surface
+      // configure and readback hook are bound to the dead device, and every
+      // other holder of it (bridge, devtools hosts) would still point at
+      // the old handle. Restart instead.
+      this.reloadForDeviceLoss();
+      return;
+    }
+    this.recoverDevice();
+  }
+
+  private reloadForDeviceLoss(): void {
+    setTimeout(() => {
+      // Host already tearing down (host.destroy() destroys the device,
+      // which resolves .lost with reason "destroyed") — restarting now
+      // would respawn a session on top of a dead window.
+      if ((globalThis as any).__nativeHost?.destroyed) return;
+      // Native runtime: window.location.reload() is a no-op. Route through
+      // the host's first-class restart hook (detached self-respawn — the
+      // real reload equivalent), then fall back to a dialog + clean quit if
+      // the restart budget is exhausted.
+      const req = (globalThis as any).downdraft?.requestRestart;
+      if (typeof req === "function" && req("GPU device lost")) return;
+      const nativeWin = (globalThis as any).__nativeWindow;
+      if (nativeWin?.showMessageBox) {
+        try {
+          nativeWin.showMessageBox(
+            "GPU Device Lost",
+            "The GPU device was lost and could not be recovered. The application will now close.",
+          );
+        } catch { /* window may be gone */ }
+        try { nativeWin.requestQuit?.(); } catch { /* best-effort */ }
+        return;
+      }
+      log.warn("app-renderer", "Attempting page reload for GPU recovery...");
+      window.location.reload();
+    }, 2000);
+  }
+
+  /**
+   * Attempt in-place device recovery: re-acquire adapter+device, reconfigure
+   * the surface, re-prepare UI/profiler and every registered frame-graph
+   * pass, then recompile the graph (transient textures get fresh allocations
+   * on the new device). Falls back to a page reload on any failure.
+   */
+  private async recoverDevice(): Promise<void> {
+    this.recoveringDevice = true;
+    try {
+      const adapter = await this.requestAdapterWithFallback();
+      if (!adapter) throw new Error("no GPU adapter after device loss");
+      const device = await this.requestDeviceFromAdapter(adapter);
+      device.lost.then((info) => this.handleDeviceLost(info));
+      this.device = device;
+      this.installQueueSubmitInterceptor(device);
+      this.adapter = adapter;
+
+      installShaderValidationGuard(device);
+      this.gpuResourceTracker = new GPUResourceTracker();
+      this.gpuResourceTracker.wrapDevice(device);
+
+      this.context!.configure({
+        device,
+        format: this.format,
+        alphaMode: "premultiplied",
+      });
+
+      const adapterInfo = adapter.info ?? null;
+      this.gpuProfiler?.init(device, adapterInfo, this.format, 32);
+
+      // Re-prepare every registered pass — pipelines/bind groups built on the
+      // dead device are invalid. Passes that can't recreate resources should
+      // throw here so we fall back to reload.
+      for (const pass of this.frameGraph.getPasses()) {
+        pass.prepare(device);
+      }
+
+      // Force graph recompile so transient textures are re-allocated on the
+      // new device — pooled physical textures and cached views all belong to
+      // the dead device and must not be reused.
+      this.frameGraph.invalidatePhysicalResources();
+      this.graphCompiled = false;
+      // The depth-texture cache and per-frame surface view also hold
+      // dead-device resources — drop them (destroy() on a lost device is a
+      // no-op in wgpu, but clears the JS-side stale handles either way).
+      for (const entry of this.depthTextures.values()) {
+        try { entry.texture.destroy(); } catch { /* dead-device resource */ }
+      }
+      this.depthTextures.clear();
+      this.frameSurfaceView = undefined;
+
+      // Rebuild the resolution-scale targets on the new device (the old
+      // textures died with the previous device).
+      this.applyScaleOffscreen();
+
+      await this.onDeviceRecovered(device);
+      await this.callbacks.onDeviceRecovered?.(device);
+
+      this.deviceLost = false;
+      this.damageWarmup = 8; // redraw unconditionally while resources settle
+      if (this.damageOnly && this.running) this.scheduleRender();
+      log.warn("app-renderer", "GPU device recovered — rendering resumed without reload");
+    } catch (err) {
+      log.error("app-renderer", `Device recovery failed: ${err}`);
+      this.reloadForDeviceLoss();
+    } finally {
+      this.recoveringDevice = false;
+    }
+  }
+
+  /**
+   * Subclass hook — called during device-loss recovery after the engine has
+   * re-prepared its own resources and all registered passes. Recreate
+   * subclass-owned GPU resources here. Throwing aborts recovery → reload.
+   */
+  protected async onDeviceRecovered(_device: GPUDevice): Promise<void> {}
+
+  // --- CanvasResizeHandler ---
+
+  private resolutionScale = 1;
+  private lastCssW = 0;
+  private lastCssH = 0;
+  private lastRawDpr = 1;
+
+  /**
+   * Render-resolution scale [0.25..1]. Multiplies the effective DPR so the
+   * swap chain renders fewer pixels (performance) and the compositor
+   * upscales. Re-applies the last known canvas size immediately.
+   */
+  setResolutionScale(scale: number): void {
+    this.resolutionScale = Math.max(0.25, Math.min(1, scale));
+    // On the native host the swapchain extent must equal the window's
+    // real size — wgpu compares the configured size against the surface's
+    // currentExtent at acquire time and returns Outdated forever when
+    // they differ. Shrinking canvas.width/height would also corrupt
+    // clientWidth (UI layout + input coords). Resolution scaling therefore
+    // runs through an offscreen "pixelation" mode: the scene renders into
+    // a scale×canvas target and a blit upscales it onto the swapchain.
+    this.applyScaleOffscreen();
+    if (this.lastCssW > 0) this.onResize(this.lastCssW, this.lastCssH, this.lastRawDpr);
+  }
+
+  /**
+   * Create/refresh/teardown the internal resolution-scale offscreen mode.
+   * Safe to call before init — it no-ops until a device exists, so a scale
+   * set pre-init takes effect once the device is ready. Also called on
+   * device recovery to rebuild targets against the new device.
+   */
+  private applyScaleOffscreen(): void {
+    if (this.scaleOffscreen && (this.resolutionScale >= 1 || this.scaleOffscreen.boundDevice !== this.device)) {
+      this.scaleOffscreen.destroy();
+      this.scaleOffscreen = null;
+    }
+    if (this.resolutionScale < 1 && this.device && !this.scaleOffscreen) {
+      this.scaleOffscreen = new ResolutionScaleOffscreen({
+        device: this.device,
+        surfaceFormat: this.format,
+        depthFormat: this.depthFormat,
+        scale: this.resolutionScale,
+      });
+    }
+    this.scaleOffscreen?.setScale(this.resolutionScale);
+  }
+
+  getResolutionScale(): number {
+    return this.resolutionScale;
+  }
+
+  onResize(cssWidth: number, cssHeight: number, dpr: number): void {
+    this.requestFrame();
+    this.lastCssW = cssWidth;
+    this.lastCssH = cssHeight;
+    this.lastRawDpr = dpr;
+    // Render at the display's real DPR — resolutionScale is the opt-in
+    // performance knob when fill rate is a concern. On native the
+    // swapchain is window-sized (see setResolutionScale) so the scale is
+    // never applied to the backing store.
+    const cappedDpr = dpr;
+    this.dpr = cappedDpr;
+    const w = Math.round(cssWidth * cappedDpr);
+    const h = Math.round(cssHeight * cappedDpr);
+    if (this.canvas.width !== w) this.canvas.width = w;
+    if (this.canvas.height !== h) this.canvas.height = h;
+    this.updateViewports(this.viewportCount);
+    this.callbacks.onResize?.(cssWidth, cssHeight, dpr);
+    this.rendererModuleHost?.dispatchResize(cssWidth, cssHeight, dpr);
+  }
+
+  // --- Viewport management ---
+
+  setViewportCount(count: number): void {
+    this.updateViewports(count);
+  }
+
+  getViewportCount(): number {
+    return this.viewportCount;
+  }
+
+  getViewport(idx: number): ViewportRect | null {
+    return this.viewports[idx] ?? null;
+  }
+
+  getViewports(): ViewportRect[] {
+    return this.viewports;
+  }
+
+  private updateViewports(count: number): void {
+    this.viewportCount = count;
+    this.viewports = [];
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+
+    if (count === 1) {
+      this.viewports.push({ x: 0, y: 0, w, h });
+    } else if (count === 2) {
+      this.viewports.push({ x: 0, y: 0, w: w / 2, h });
+      this.viewports.push({ x: w / 2, y: 0, w: w / 2, h });
+    } else if (count === 3) {
+      this.viewports.push({ x: 0, y: 0, w, h: h / 2 });
+      this.viewports.push({ x: 0, y: h / 2, w: w / 2, h: h / 2 });
+      this.viewports.push({ x: w / 2, y: h / 2, w: w / 2, h: h / 2 });
+    } else if (count >= 4) {
+      this.viewports.push({ x: 0, y: 0, w: w / 2, h: h / 2 });
+      this.viewports.push({ x: w / 2, y: 0, w: w / 2, h: h / 2 });
+      this.viewports.push({ x: 0, y: h / 2, w: w / 2, h: h / 2 });
+      this.viewports.push({ x: w / 2, y: h / 2, w: w / 2, h: h / 2 });
+    }
+  }
+
+  // --- Frame rate limiter ---
+
+  setFrameRateLimit(refreshRate: number): void {
+    if (refreshRate > 0) {
+      this.targetFrameTime = 1000 / refreshRate;
+      this.updateLimiterState();
+    } else {
+      this.targetFrameTime = 0;
+      this.limiterActive = false;
+    }
+  }
+
+  private updateLimiterState(): void {
+    if (this.targetFrameTime <= 0 || this.rafInterval <= 0) {
+      this.limiterActive = this.targetFrameTime > 0;
+      return;
+    }
+    this.limiterActive = this.rafInterval < this.targetFrameTime * 0.85;
+  }
+
+  // --- Damage gate (config.damageOnly) ---
+
+  /** Mark the next frame damaged — the damage gate lets it through — and
+   *  re-arm the render chain when it is parked on the idle keepalive. Public
+   *  so apps and renderer modules (ctx.requestFrame()) can force a present
+   *  when they changed GPU-visible state outside compositor reporting. */
+  requestFrame(): void {
+    this.frameDamage = true;
+    if (this.running) this.scheduleRender();
+  }
+
+  /** Runtime toggle for damage-driven rendering (see config.damageOnly).
+   *  Enabling warms up for a few frames so producers settle; disabling
+   *  resumes continuous rendering immediately. */
+  setDamageOnly(on: boolean): void {
+    if (on === this.damageOnly) return;
+    this.damageOnly = on;
+    if (on) this.damageWarmup = 8;
+    else this.frameSkipped = false;
+    if (this.running) this.scheduleRender();
+  }
+
+  /** True when the next frame should present: anything marked damage, a
+   *  warmup tick is pending, or any UI compositor reports dirty output.
+   *  Compositors that don't implement takeDirty() are treated as
+   *  always-dirty — a missing signal must not starve a compositor. */
+  private consumeFrameDamage(): boolean {
+    let d = this.frameDamage;
+    this.frameDamage = false;
+    if (this.damageWarmup > 0) { this.damageWarmup--; d = true; }
+    const cs = this.uiCompositorOrder;
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i];
+      if (c.takeDirty === undefined || c.takeDirty()) { this.damageStats.compositorHits++; d = true; }
+    }
+    if (d) this.damageStats.rendered++; else this.damageStats.skipped++;
+    return d;
+  }
+
+  // --- Render loop ---
+
+  start(): void {
+    this.running = true;
+    this.lastTime = performance.now();
+    // Go through scheduleRender() rather than invoking render() inline — a
+    // pending rAF (loop already primed) would otherwise survive alongside the
+    // new registration and double the chain.
+    this.scheduleRender();
+  }
+
+  stop(): void {
+    this.running = false;
+    this.cancelIdleTick();
+    // cancelRaf only exists when a rAF source override (XR) is installed —
+    // fall back to the global so the pending callback is actually removed.
+    const cancel = this.cancelRaf ?? (typeof cancelAnimationFrame === "function" ? cancelAnimationFrame : null);
+    if (cancel && this.currentRafId) {
+      cancel(this.currentRafId);
+      this.currentRafId = 0;
+    }
+    this.rafPending = false;
+  }
+
+  /** True while the render loop is started (frames are being scheduled). */
+  isRunning(): boolean {
+    return this.running;
+  }
+
+  /** Render a single frame on demand — deterministic/test mode and native
+   *  screenshot capture call this while the loop is stopped. Bypasses the
+   *  frame limiter; safe to call with the loop running or stopped. */
+  renderOnce(): void {
+    if (!this.device || !this.context || this.deviceLost) return;
+    const savedLimiter = this.limiterActive;
+    this.limiterActive = false;
+    try {
+      this.frameDamage = true; // one-shot capture must clear the damage gate
+      this.prepareForcedFrame();
+      this.renderFrame();
+    } finally {
+      this.limiterActive = savedLimiter;
+    }
+  }
+
+  /** Subclass hook: clear internal dirty-tracking so renderOnce() actually
+   *  draws. Renderers that skip unchanged frames (e.g. MiningRenderer's
+   *  forceDirty check) override this to force the next frame out. */
+  protected prepareForcedFrame(): void {}
+
+  /** Schedule the next render() invocation. Centralized here so renderFrame()
+   *  stays scheduling-free — renderOnce() and test paths call renderFrame()
+   *  directly and must never grow a parallel loop. An armed rAF supersedes
+   *  a pending damage-idle keepalive. */
+  private scheduleRender(): void {
+    this.cancelIdleTick();
+    if (this.rafPending) return;
+    this.rafPending = true;
+    this.currentRafId = this.rafSource ? this.rafSource(this.render) : requestAnimationFrame(this.render);
+  }
+
+  /** Park the loop on the damage-mode keepalive timer — a skipped tick
+   *  disarms rAF so the platform's event pump drops to its idle backoff,
+   *  and this timer gives frame hooks a low-rate cadence until a damage
+   *  source re-arms the chain via requestFrame(). */
+  private scheduleIdleTick(): void {
+    if (this.damageIdleTimer !== null || this.rafPending) return;
+    this.damageStats.idleTicks++;
+    this.damageIdleTimer = setTimeout(() => {
+      this.damageIdleTimer = null;
+      if (this.running && !this.rafPending) this.render();
+    }, this.damageIdleMs);
+  }
+
+  private cancelIdleTick(): void {
+    if (this.damageIdleTimer !== null) {
+      clearTimeout(this.damageIdleTimer);
+      this.damageIdleTimer = null;
+    }
+  }
+
+  private render = (): void => {
+    this.rafPending = false;
+    this.currentRafId = 0;
+    if (!this.running) return;
+    if (!this.device || !this.context) {
+      // init() hasn't finished — keep the chain alive until it has.
+      this.scheduleRender();
+      return;
+    }
+
+    // Measure rAF interval (rolling average over 60 samples)
+    const rafNow = performance.now();
+    if (this.lastRafTime > 0) {
+      this.rafSum += rafNow - this.lastRafTime;
+      this.rafCount++;
+      if (this.rafCount >= 60) {
+        this.rafInterval = this.rafSum / this.rafCount;
+        this.rafSum = 0;
+        this.rafCount = 0;
+        this.updateLimiterState();
+      }
+    }
+    this.lastRafTime = rafNow;
+
+    if (this.deviceLost) {
+      // Keep the loop alive while the device is lost — handleDeviceLost()
+      // re-creates the device and clears this flag; returning without
+      // re-scheduling would permanently stop rendering after a transient
+      // GPU crash.
+      this.scheduleRender();
+      return;
+    }
+
+    try {
+      this.renderFrame();
+    } catch (err) {
+      log.error("app-renderer", `Render loop error: ${(err as Error).message}\n${(err as Error).stack}`);
+      // No per-error device.lost.then here: the device already has exactly
+      // one lost subscription (init + reinit paths), and on native each
+      // .lost access mints a fresh promise — per-error attaches accumulated
+      // duplicate watchers during an error storm.
+    }
+    // A damage-gated skip parks the chain: no rAF re-arm means the native
+    // event pump drops to its deep-sleep backoff instead of staying hot at
+    // frame cadence. Damage marks (requestFrame, input, compositor dirty,
+    // resize) re-arm on demand; the keepalive timer (when configured) keeps
+    // frame-hook producers ticking at a low rate in between.
+    if (this.damageOnly && this.frameSkipped) {
+      if (this.damageIdleMs > 0) this.scheduleIdleTick();
+      // damageIdleMs === 0: sleep until a damage source calls requestFrame().
+    } else {
+      this.scheduleRender();
+    }
+  };
+
+  /**
+   * Redirect queue.submit() into frameSubmitSink while a frame is in
+   * flight. Submission order is preserved — buffers land in the sink in
+   * the order submit() was called — so mid-frame submits (uploads in
+   * beforeFrame, an app's afterFrame pass, endFrame hooks) still execute
+   * ahead of work recorded later, just inside the single end-of-frame
+   * queue.submit rather than as extra queue-lock + driver calls.
+   */
+  private installQueueSubmitInterceptor(device: GPUDevice): void {
+    if (this.submitInterceptorDevice === device) return;
+    this.submitInterceptorDevice = device;
+    const queue = device.queue as any;
+    if (queue.__ddSubmitIntercepted) return;
+    queue.__ddSubmitIntercepted = true;
+    const origSubmit: GPUQueue["submit"] = queue.submit.bind(queue);
+    queue.submit = (commandBuffers: Iterable<GPUCommandBuffer>) => {
+      const sink = this.frameSubmitSink;
+      if (!sink) {
+        origSubmit(commandBuffers);
+        return;
+      }
+      // oxlint-disable-next-line downdraft/no-for-of -- iterates Iterable<GPUCommandBuffer>; for..of required
+      for (const cb of commandBuffers) sink.push(cb);
+    };
+  }
+
+  private renderFrame(): void {
+    const now = performance.now();
+
+    // Frame rate limiter: phase accumulator (skip during XR — XR drives its own cadence)
+    // Accumulate real elapsed time in frame units — NOT rafInterval ratios.
+    // The ratio variant starved on hosts with a faster-than-vsync rAF pump
+    // (native pump loop ticks at ~µs cadence): updateLimiterState() resets
+    // frameAccum every 60 rAF samples, and 60 × rafInterval/targetFrameTime
+    // never reached 1, so present() was never called.
+    if (!this.renderTargetProvider && this.limiterActive && this.targetFrameTime > 0) {
+      if (this.lastLimiterTick === 0) this.lastLimiterTick = now;
+      this.frameAccum += (now - this.lastLimiterTick) / this.targetFrameTime;
+      this.lastLimiterTick = now;
+      if (this.frameAccum < 1) {
+        // render() owns re-scheduling — just skip the frame's work.
+        return;
+      }
+      // Cap carry at one frame — a stale lastLimiterTick (limiter toggled
+      // off→on) would otherwise burst-render to drain a huge accumulator.
+      this.frameAccum = Math.min(this.frameAccum - 1, 1);
+    }
+    const dt = Math.min(0.1, (now - this.lastTime) / 1000);
+    this.lastTime = now;
+    this.elapsedTime += dt;
+
+    // FPS counter
+    this.frameCount++;
+    this.fpsTimer += dt;
+    if (this.fpsTimer >= 1) {
+      this.fps = this.frameCount;
+      this.frameCount = 0;
+      this.fpsTimer = 0;
+    }
+
+    // Before frame callback (app-specific: camera updates, input processing)
+    this.callbacks.beforeFrame?.(dt, this.elapsedTime);
+    this.rendererModuleHost?.dispatchFrame("beforeFrame", dt, this.elapsedTime);
+
+    // Before viewports callback (app-specific: particle ticks, pre-viewport setup)
+    this.callbacks.beforeViewports?.(dt, this.elapsedTime);
+    this.rendererModuleHost?.dispatchFrame("beforeViewports", dt, this.elapsedTime);
+
+    // Damage gate — nothing marked damage since the last presented frame:
+    // skip the entire GPU block (acquire/encode/submit/present). The
+    // remaining frame hooks still tick because they are damage producers
+    // (html-ui onUpdate writes, animation timers) — stopping them would
+    // freeze self-sustaining animation. A skipped tick isn't a rendered
+    // frame, so the FPS meter doesn't count it.
+    if (this.damageOnly && !this.consumeFrameDamage()) {
+      this.frameCount--;
+      this.frameSkipped = true;
+      this.callbacks.afterViewports?.(dt, this.elapsedTime);
+      this.rendererModuleHost?.dispatchFrame("afterViewports", dt, this.elapsedTime);
+      this.callbacks.afterFrame?.(dt, this.elapsedTime);
+      this.rendererModuleHost?.dispatchFrame("afterFrame", dt, this.elapsedTime);
+      return;
+    }
+    this.frameSkipped = false;
+
+    // If an uncaptured GPU error has fired, skip all GPU work this frame to
+    // avoid the per-frame cascade of native "is invalid due to a previous
+    // error" validation warnings. App logic callbacks still run so the
+    // simulation stays responsive. The flag is cleared by recovery code that
+    // recreates the invalid resources.
+    const gpuError = this.gpuProfiler?.hasUncapturedError() ?? false;
+
+    // Collect command buffers from all phases and submit once at the end
+    // of the frame — one queue.submit per frame instead of 2-4. The sink
+    // is armed BEFORE beginFrame so submit() calls from hooks and app
+    // callbacks (beforeFrame uploads, afterFrame render passes, the XR
+    // endFrame encoder) are captured in call order into the same batch
+    // rather than crossing into wgpu individually.
+    const frameCommandBuffers: GPUCommandBuffer[] = [];
+    this.frameSubmitSink = frameCommandBuffers;
+    this.frameSurfaceView = undefined;
+
+    // XR render target provider beginFrame hook
+    if (this.renderTargetProvider && !gpuError) {
+      this.renderTargetProvider.beginFrame();
+    }
+
+    // Render each viewport — an externally-installed offscreen mode takes
+    // precedence over the internal resolution-scale mode.
+    const offscreen = this.offscreenMode ?? this.scaleOffscreen;
+    const useOffscreen = offscreen && offscreen.type !== "none";
+
+    if (offscreen && useOffscreen && offscreen.ensureTargets && !gpuError) {
+      offscreen.ensureTargets(this.canvas.width, this.canvas.height);
+    }
+
+    if (!gpuError) {
+      // 2D mode with viewportCount=0: clear the canvas if a clearColor is
+      // configured, then let the afterFrame callback do custom rendering.
+      if (this.viewportCount === 0 && this.device && this.context && this.config.clearColor !== null) {
+        const clearTex = this.getSurfaceTexture();
+        if (clearTex) {
+          const clearEncoder = this.device.createCommandEncoder();
+          const clearPass = clearEncoder.beginRenderPass({
+            colorAttachments: [{
+              view: clearTex.createView(),
+              clearValue: this.config.clearColor ?? { r: 0, g: 0, b: 0, a: 1 },
+              loadOp: "clear" as GPULoadOp,
+              storeOp: "store" as GPUStoreOp,
+            }],
+          });
+          clearPass.end();
+          frameCommandBuffers.push(clearEncoder.finish());
+        }
+      }
+
+      for (let v = 0; v < this.viewportCount; v++) {
+        const cb = this.renderViewport(v, dt, offscreen);
+        if (cb) frameCommandBuffers.push(cb);
+      }
+
+      // Apply postprocessing
+      if (offscreen && useOffscreen && offscreen.applyPostprocess) {
+        const canvasView = this.getFrameSurfaceView();
+        if (canvasView) {
+          const postEncoder = this.device!.createCommandEncoder();
+          offscreen.applyPostprocess(postEncoder, canvasView, this.canvas.width, this.canvas.height);
+          frameCommandBuffers.push(postEncoder.finish());
+        }
+      }
+    }
+
+    // After viewports callback
+    this.callbacks.afterViewports?.(dt, this.elapsedTime);
+    this.rendererModuleHost?.dispatchFrame("afterViewports", dt, this.elapsedTime);
+
+    // Worker-produced passes (postPass → "preSubmit" slot on the native
+    // host's GpuPassMailbox) join this frame's submit batch — refs that
+    // arrived since the last drain execute after the owner's buffers.
+    // Stale-tolerant by design: a worker that misses the drain lands next
+    // frame instead of rendezvousing the render thread.
+    const passMailbox = getNativeHost()?.passMailbox;
+    if (passMailbox) {
+      // Worker passes arriving while the damage chain sleeps must re-arm
+      // it — wired once, onPush is a no-op when the loop is already armed.
+      if (passMailbox.onPush === undefined) passMailbox.onPush = () => this.requestFrame();
+      frameCommandBuffers.push(...passMailbox.drain("preSubmit"));
+    }
+
+    // Record telemetry
+    if (this.telemetryCollector) {
+      this.telemetryCollector.recordFrame(dt * 1000);
+      this.telemetryCollector.recordDrawStats(this.frameDrawCalls, this.frameTriangles);
+      this.telemetryCollector.recordGraphSample(dt * 1000);
+
+      if (this.gpuProfiler) {
+        for (const timing of this.gpuProfiler.getPassTimings()) {
+          this.telemetryCollector.recordPassTiming(timing);
+        }
+      }
+
+      if (this.gpuResourceTracker && now - this.lastResourceStatsTime > AppRenderer.RESOURCE_STATS_INTERVAL) {
+        this.lastResourceStatsTime = now;
+        const resStats = this.gpuResourceTracker.getStats();
+        this.telemetryCollector.recordResourceStats({
+          textureCount: resStats.textureCount,
+          bufferCount: resStats.bufferCount,
+          totalBytes: resStats.totalBytes,
+          textureBytes: resStats.textureBytes,
+          bufferBytes: resStats.bufferBytes,
+          resources: resStats.resources.map((r) => ({
+            id: r.id,
+            type: r.type,
+            label: r.label,
+            size: r.size,
+            callsite: r.callsite,
+            width: r.width,
+            height: r.height,
+            format: r.format,
+          })),
+        });
+      }
+
+      this.frameDrawCalls = 0;
+      this.frameTriangles = 0;
+    }
+
+    try {
+      // XR render target provider endFrame hook (skip on GPU error). Its
+      // submits are captured by frameSubmitSink and join the batch.
+      if (!gpuError && this.renderTargetProvider && this.device) {
+        this.renderTargetProvider.endFrame(this.device.createCommandEncoder());
+      }
+
+      // After frame callback — app submits here append to the batch in
+      // order, still ahead of the UI composite below.
+      this.callbacks.afterFrame?.(dt, this.elapsedTime);
+      this.rendererModuleHost?.dispatchFrame("afterFrame", dt, this.elapsedTime);
+
+      // Composite registered screen-space UI (html-ui panels) on top of the
+      // final image (skip on GPU error to avoid cascade). This must run AFTER
+      // afterFrame — 2D apps (viewportCount=0) do their custom rendering in
+      // the afterFrame callback, so drawing UI earlier would put it underneath
+      // their clear pass. The texture comes from peek: a frame the app
+      // skipped must not be started just to draw UI on a blank swapchain.
+      if (!gpuError && this.device && this.context) {
+        const compositors = this.uiCompositorOrder.filter((c) => c.hasContent());
+        const uiCanvasView = compositors.length > 0
+          ? (this.frameSurfaceView ?? this.getFrameSurfaceTexture()?.createView())
+          : undefined;
+        if (uiCanvasView) {
+          const uiEncoder = this.device.createCommandEncoder();
+          const uiPass = uiEncoder.beginRenderPass({
+            colorAttachments: [{
+              view: uiCanvasView,
+              clearValue: { r: 0, g: 0, b: 0, a: 0 },
+              loadOp: "load" as GPULoadOp,
+              storeOp: "store" as GPUStoreOp,
+            }],
+          });
+          // Panel rects are input-space (backing-buffer px — the same space
+          // NativeWindow.mapX/Y emits and hit-testing uses), so the surface
+          // size goes in buffer px too — a CSS-px denominator draws every
+          // buffer rect zoom× oversized and bleeds it off the right edge at
+          // scaleFactor ≠ 1.
+          compositors.forEach((c) => { c.render(uiPass, this.canvas.width, this.canvas.height); });
+          uiPass.end();
+          // "preUi" slot — worker passes ordered ahead of the UI-composite
+          // buffer inside the end-of-frame submit.
+          frameCommandBuffers.push(...(passMailbox?.drain("preUi") ?? []), uiEncoder.finish());
+        }
+      }
+    } finally {
+      // End of frame: disarm the submit sink and flush everything recorded
+      // this frame — engine passes, captured callback submits, mailbox
+      // passes, the UI composite — in a single queue.submit(). Runs even on
+      // a callback throw so already-recorded work still lands.
+      this.frameSubmitSink = null;
+      if (frameCommandBuffers.length > 0 && this.device) {
+        try {
+          this.device.queue.submit(frameCommandBuffers);
+        } catch (err) {
+          log.error("app-renderer", `queue.submit failed: ${(err as Error).message ?? err}`);
+        }
+      }
+    }
+
+    // Read GPU timer results asynchronously (1-frame latency).
+    // Must be called AFTER queue.submit() — readGpuTimers() calls mapAsync on
+    // the read buffer, and a mapped/mapping-pending buffer cannot be used in a
+    // submitted command buffer (the copy-to-readBuffer was encoded above).
+    if (this.gpuProfiler) {
+      this.gpuProfiler.readGpuTimers().then(() => {
+        // Results available for next frame
+      }).catch(() => {});
+    }
+
+    // Present the surface (native wgpu requires explicit presentation;
+    // in browsers this is automatic at the end of the frame). Must be last —
+    // all submissions targeting the surface texture happen above.
+    if (this.context && (this.context as any).present) {
+      (this.context as any).present();
+    }
+
+    const __rfTotal = performance.now() - now;
+    if (this.config.debugTimingWarnings && __rfTotal > 20) log.warn("app-renderer", `renderFrame took ${__rfTotal.toFixed(1)}ms`);
+    // NOTE: renderFrame() intentionally does NOT schedule the next frame —
+    // render() owns the rAF chain so one-shot callers (renderOnce, MCP
+    // screenshot capture) can't leak parallel loops.
+  }
+
+  /**
+   * Acquire this frame's swapchain texture. May return null on the native
+   * runtime while the surface can't produce a frame (in-flight resize,
+   * occluded window, transient swapchain failure) — callers must skip the
+   * canvas-targeted GPU work for that frame instead of crashing on
+   * `null.createView()`.
+   */
+  private getSurfaceTexture(): GPUTexture | null {
+    try {
+      return (this.context?.getCurrentTexture() as unknown as GPUTexture | null) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The frame's swapchain color view, acquired once per frame — every
+   * non-XR viewport renders into the same surface texture, so per-viewport
+   * getCurrentTexture()+createView() was duplicated FFI/allocation work.
+   */
+  private getFrameSurfaceView(): GPUTextureView | null {
+    if (this.frameSurfaceView === undefined) {
+      this.frameSurfaceView = this.getSurfaceTexture()?.createView() ?? null;
+    }
+    return this.frameSurfaceView;
+  }
+
+  /**
+   * The surface texture already acquired for the in-flight frame, or null
+   * when nothing has acquired one yet. End-of-frame overlays (the UI
+   * composite) use this so they join a frame rather than start one: on
+   * hosts with frame retention (native), acquiring here would fabricate a
+   * frame the app deliberately skipped (dirty-tracking) and present the
+   * overlay over a blank swapchain image — a full-screen flash. Falls
+   * back to acquiring on contexts without peek (DOM semantics:
+   * getCurrentTexture is idempotent within a frame and present is
+   * implicit, so there is nothing to defeat).
+   */
+  private getFrameSurfaceTexture(): GPUTexture | null {
+    const peek = (this.context as { peekCurrentTexture?: () => GPUTexture | null } | null)?.peekCurrentTexture;
+    if (typeof peek === "function") {
+      try { return peek.call(this.context) ?? null; } catch { return null; }
+    }
+    return this.getSurfaceTexture();
+  }
+
+  private renderViewport(viewportIdx: number, dt: number, offscreen: OffscreenMode | null): GPUCommandBuffer | null {
+    if (!this.device || !this.context) return null;
+
+    const xrProvider = this.renderTargetProvider;
+    const useOffscreen = !xrProvider && offscreen && offscreen.type !== "none";
+
+    const origViewport = xrProvider
+      ? xrProvider.getViewportRect(viewportIdx, this.canvas.width, this.canvas.height)
+      : this.viewports[viewportIdx];
+    if (!origViewport) return null;
+
+    const viewport = (useOffscreen && offscreen?.scaleViewport)
+      ? offscreen.scaleViewport(origViewport)
+      : origViewport;
+
+    // Get camera info: viewport camera provider (XR) takes priority, then
+    // app callback, then renderer plugin host's camera controller fallback.
+    // The app callback is always called (even when the provider returns
+    // non-null) so side effects like per-eye uniform updates still run.
+    const providerInfo = this.rendererModuleHost?.getViewportCameraInfo(viewportIdx, dt, this.elapsedTime) ?? null;
+    const appInfo = this.callbacks.onViewport?.(viewportIdx, dt, this.elapsedTime) ?? null;
+    let camInfo = providerInfo ?? appInfo;
+    if (!camInfo && this.rendererModuleHost) {
+      const camState = this.rendererModuleHost.getCameraState(viewportIdx);
+      if (camState) {
+        camInfo = { camera: camState, viewport };
+      }
+    }
+    // 2D mode: if no camera info was provided, use a default orthographic
+    // camera that covers the full viewport. This allows 2D-only renderers
+    // (sand apps, tile apps) to use AppRenderer without a camera system.
+    if (!camInfo && this.mode === "2d") {
+      camInfo = {
+        camera: {
+          position: [0, 0, 1],
+          target: [0, 0, 0],
+          up: [0, 1, 0],
+          fov: 90,
+          near: 0.1,
+          far: 100,
+          aspect: viewport.w / viewport.h,
+        },
+        viewport,
+      };
+    }
+    if (!camInfo) return null;
+
+    const isFirst = viewportIdx === 0;
+    const isLast = viewportIdx === this.viewportCount - 1;
+
+    // Determine color/depth views — XR provider takes precedence, then offscreen, then canvas
+    const __ctStart = performance.now();
+    const colorView = xrProvider
+      ? xrProvider.getColorView(viewportIdx)
+      : (useOffscreen && offscreen)
+      ? (offscreen.type === "pixelation"
+        ? offscreen.getColorView()
+        : offscreen.type === "postprocess"
+        ? (offscreen.getSceneColorView?.() ?? this.getFrameSurfaceView())
+        : this.getFrameSurfaceView())
+      : this.getFrameSurfaceView();
+    const __ctMs = performance.now() - __ctStart;
+    // Swapchain couldn't produce a frame (native resize in flight, occluded
+    // window, transient failure) — skip this viewport's GPU work; app
+    // callbacks already ran above and the loop stays alive for next frame.
+    if (!colorView) return null;
+    if (this.config.debugTimingWarnings && __ctMs > 20) log.warn("app-renderer", `getCurrentTexture took ${__ctMs.toFixed(1)}ms`);
+
+    const depthView = xrProvider
+      ? xrProvider.getDepthView(viewportIdx, origViewport.w, origViewport.h)
+      : (useOffscreen && offscreen)
+      ? (offscreen.type === "pixelation"
+        ? offscreen.getDepthView()
+        : offscreen.type === "postprocess"
+        ? (offscreen.getSceneDepthView?.() ?? this.createDepthTexture(origViewport.w, origViewport.h))
+        : this.createDepthTexture(origViewport.w, origViewport.h))
+      : this.createDepthTexture(origViewport.w, origViewport.h);
+
+    // Ensure graph handles exist for the imported color/depth views.
+    if (!this.colorHandle) {
+      this.colorHandle = this.frameGraph.importTextureView("color", null);
+      this.frameGraph.markDirty();
+    }
+    if (!this.depthHandle) {
+      this.depthHandle = this.frameGraph.importTextureView("depth", null);
+      this.frameGraph.markDirty();
+    }
+    this.frameGraph.setImportedTextureView(this.colorHandle, colorView);
+    this.frameGraph.setImportedTextureView(this.depthHandle, depthView);
+
+    if (isFirst) {
+      this.gpuProfiler!.beginFrame();
+    }
+
+    if (this.frameGraph.isDirty() || !this.graphCompiled) {
+      this.frameGraph.compile(this.device, this.canvas.width, this.canvas.height);
+      this.graphCompiled = true;
+    }
+
+    const encoder = this.device.createCommandEncoder();
+
+    // Reuse a single RenderContext across viewports/frames — allocating the
+    // ~35-field literal per viewport per frame was pure GC churn. Fields that
+    // vary per viewport are reassigned below; the closures capture `this` and
+    // are created once.
+    if (!this.frameCtx) {
+      this.frameCtx = {
+        device: this.device,
+        encoder,
+        pass: null,
+        camera: camInfo.camera,
+        viewport,
+        viewportIdx,
+        viewportCount: this.viewportCount,
+        dt,
+        elapsedTime: this.elapsedTime,
+        isFirstViewport: isFirst,
+        isLastViewport: isLast,
+        width: viewport.w,
+        height: viewport.h,
+        viewProj: undefined,
+        invViewProj: undefined,
+        prevViewProj: undefined,
+        cameraPos: camInfo.camera.position,
+        lightData: null,
+        lightViewProj: undefined,
+        mesh: null,
+        modelMatrix: undefined,
+        shadowsEnabled: false,
+        bloomEnabled: false,
+        shadowSampler: null,
+        debugQueue: null,
+        opaqueVertexBuffer: null,
+        opaqueIndexBuffer: null,
+        opaqueIndexCount: 0,
+        opaqueIndexFormat: "uint32",
+        getView: (h: TextureHandle) => this.frameGraph.getTextureView(h),
+        getTexture: (h: TextureHandle) => this.frameGraph.getTexture(h),
+        addDrawCalls: (n: number) => { this.frameDrawCalls += n; },
+        addTriangles: (n: number) => { this.frameTriangles += n; },
+      };
+    }
+    const ctx = this.frameCtx;
+    ctx.device = this.device;
+    ctx.encoder = encoder;
+    ctx.camera = camInfo.camera;
+    ctx.viewport = viewport;
+    ctx.viewportIdx = viewportIdx;
+    ctx.viewportCount = this.viewportCount;
+    ctx.dt = dt;
+    ctx.elapsedTime = this.elapsedTime;
+    ctx.isFirstViewport = isFirst;
+    ctx.isLastViewport = isLast;
+    ctx.width = viewport.w;
+    ctx.height = viewport.h;
+    ctx.cameraPos = camInfo.camera.position;
+
+    this.frameGraph.execute(ctx);
+
+    // Resolve GPU timestamp queries on first viewport.
+    // NOTE: readGpuTimers() (which calls mapAsync on the read buffer) must NOT
+    // be called here — the command buffer containing the copy-to-readBuffer
+    // hasn't been submitted yet. Calling mapAsync before submit puts the buffer
+    // in a mapped-pending state, and the subsequent queue.submit() fails with
+    // "Buffer used in submit while mapped." readGpuTimers() is called after
+    // submit in renderFrame().
+    if (isFirst) {
+      this.gpuProfiler!.resolveGpuTimers(encoder);
+    }
+
+    return encoder.finish();
+  }
+
+  // --- Depth texture cache ---
+
+  private createDepthTexture(w: number, h: number): GPUTextureView {
+    if (!this.device) throw new Error("No device");
+    const key = w * 65536 + h;
+    let entry = this.depthTextures.get(key);
+    if (entry) {
+      // LRU: move to most-recently-used by re-inserting.
+      this.depthTextures.delete(key);
+      this.depthTextures.set(key, entry);
+    } else {
+      const texture = this.device.createTexture({
+        size: [w, h],
+        format: this.depthFormat,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+      entry = { texture, view: texture.createView() };
+      this.depthTextures.set(key, entry);
+      // Evict oldest entries if over cap.
+      while (this.depthTextures.size > this.depthTextureCacheSize) {
+        const oldestKey = this.depthTextures.keys().next().value;
+        if (oldestKey === undefined) break;
+        const oldest = this.depthTextures.get(oldestKey);
+        this.depthTextures.delete(oldestKey);
+        oldest?.texture.destroy();
+      }
+    }
+    return entry.view;
+  }
+
+  // --- UI ---
+
+  // --- Offscreen mode ---
+
+  setOffscreenMode(mode: OffscreenMode | null): void {
+    this.offscreenMode = mode;
+  }
+
+  /** The offscreen mode actually in effect — an externally-installed mode if
+   *  set, otherwise the internal resolution-scale mode when scale < 1. */
+  getOffscreenMode(): OffscreenMode | null {
+    return this.offscreenMode ?? this.scaleOffscreen;
+  }
+
+  // --- XR render target provider ---
+
+  setRenderTargetProvider(provider: RenderTargetProvider | null): void {
+    this.renderTargetProvider = provider;
+  }
+
+  getRenderTargetProvider(): RenderTargetProvider | null {
+    return this.renderTargetProvider;
+  }
+
+  // --- rAF source override (for XR sessions) ---
+
+  setRAFSource(request: RAFSource, cancel: CancelRAF): void {
+    this.rafSource = request;
+    this.cancelRaf = cancel;
+  }
+
+  clearRAFSource(): void {
+    this.rafSource = null;
+    this.cancelRaf = null;
+  }
+
+  // --- Callbacks ---
+
+  setCallbacks(callbacks: FrameCallbacks): void {
+    this.callbacks = callbacks;
+  }
+
+  /** Get the current frame callbacks (for wrapping/extending). */
+  getCallbacks(): FrameCallbacks {
+    return this.callbacks;
+  }
+
+  // --- Renderer plugins ---
+
+  useRendererModule(plugin: RendererModule): void {
+    if (!this.rendererModuleHost) {
+      throw new Error("RendererModuleHost not initialized — call init() first");
+    }
+    this.rendererModuleHost.registerModule(plugin);
+  }
+
+  getRendererModuleHost(): RendererModuleHost | null {
+    return this.rendererModuleHost;
+  }
+
+  /**
+   * Composite registered screen-space UI (html-ui panels via
+   * ctx.registerUiCompositor) onto the current surface texture.
+   *
+   * Renderers with a custom drawFrame()/present path that bypass
+   * renderFrame() must call this at end-of-frame — after post-processing
+   * lands on the surface, before present — or module-registered UI will
+   * never be drawn. renderFrame() itself uses the equivalent block inline;
+   * this helper only runs the compositors.
+   */
+  protected renderScreenUiCompositors(): void {
+    const compositors = this.uiCompositorOrder.filter((c) => c.hasContent());
+    if (compositors.length === 0 || !this.device || !this.context) return;
+    const canvasView = this.frameSurfaceView ?? this.getFrameSurfaceTexture()?.createView();
+    if (!canvasView) return;
+    const uiEncoder = this.device.createCommandEncoder();
+    const uiPass = uiEncoder.beginRenderPass({
+      colorAttachments: [{
+        view: canvasView,
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        loadOp: "load" as GPULoadOp,
+        storeOp: "store" as GPUStoreOp,
+      }],
+    });
+    // Panel rects are input-space (backing-buffer px) — see the main UI
+    // composite block above.
+    compositors.forEach((c) => { c.render(uiPass, this.canvas.width, this.canvas.height); });
+    uiPass.end();
+    this.device.queue.submit([uiEncoder.finish()]);
+  }
+
+  // --- Getters ---
+
+  getDevice(): GPUDevice | null {
+    return this.device;
+  }
+
+  getAdapter(): GPUAdapter | null {
+    return this.adapter;
+  }
+
+  getContext(): RenderSurfaceContext | null {
+    return this.context;
+  }
+
+  getFormat(): GPUTextureFormat {
+    return this.format;
+  }
+
+  getDepthFormat(): GPUTextureFormat {
+    return this.depthFormat;
+  }
+
+  getMSAASampleCount(): number {
+    return this.msaaSampleCount;
+  }
+
+  /** The render surface this renderer draws into. Canonical accessor. */
+  getSurface(): RenderSurface {
+    return this.canvas;
+  }
+
+  /** @deprecated Use getSurface() — the surface is not necessarily a DOM canvas. */
+  getCanvas(): RenderSurface {
+    return this.canvas;
+  }
+
+  getCanvasWidth(): number {
+    return this.canvas.width;
+  }
+
+  getCanvasHeight(): number {
+    return this.canvas.height;
+  }
+
+  getFPS(): number {
+    return this.fps;
+  }
+
+  getElapsedTime(): number {
+    return this.elapsedTime;
+  }
+
+  getInputManager(): InputManager {
+    return this.inputManager;
+  }
+
+  getGraph(): FrameGraph {
+    return this.frameGraph;
+  }
+
+  getSlotRegistry(): SlotRegistry {
+    return this.frameGraph.getSlotRegistry();
+  }
+
+  getUIInputRouter(): UIInputRouter | null {
+    return this.uiInputRouter;
+  }
+
+  getTelemetryCollector(): TelemetryCollector | null {
+    return this.telemetryCollector;
+  }
+
+  getGPUProfiler(): GPUProfiler | null {
+    return this.gpuProfiler;
+  }
+
+  getFrameGraph(): FrameGraphData | null {
+    if (!this.gpuProfiler) return null;
+    const passTimings = this.gpuProfiler.getPassTimings();
+    const ppInfo = this.callbacks.getPostProcessInfo?.() ?? {
+      pixelationEnabled: false, pixelSize: 4, postProcessEffects: [],
+    };
+    const passNames = this.frameGraph.getPassOrder();
+    return GPUProfiler.buildFrameGraphData(passTimings, ppInfo, passNames);
+  }
+
+  getGPUResourceTracker(): GPUResourceTracker | null {
+    return this.gpuResourceTracker;
+  }
+
+  getGPUInfo(): GPUInfo | null {
+    if (!this.gpuProfiler) return null;
+    return this.gpuProfiler.getGPUInfo(this.canvas, this.msaaSampleCount);
+  }
+
+  getAdapterInfo(): GPUAdapterInfoData | null {
+    return this.gpuProfiler?.getAdapterInfo() ?? null;
+  }
+
+  getGPUErrors(): Array<{ timestamp: number; message: string; label?: string }> {
+    return this.gpuProfiler?.getGPUErrors() ?? [];
+  }
+
+  clearGPUErrors(): void {
+    this.gpuProfiler?.clearGPUErrors();
+  }
+
+  getDpr(): number {
+    return this.dpr;
+  }
+
+  // --- Frame stats (for app passes to update) ---
+
+  addDrawCalls(n: number): void {
+    this.frameDrawCalls += n;
+  }
+
+  addTriangles(n: number): void {
+    this.frameTriangles += n;
+  }
+
+  // --- Destroy ---
+
+  destroy(): void {
+    this.running = false;
+    this.resizeWatcher?.destroy();
+    this.resizeWatcher = null;
+    this.rendererModuleHost?.disposeAll();
+    this.rendererModuleHost = null;
+    this.inputManager.destroy();
+    this.damageInputUnsub.forEach((u) => u());
+    this.damageInputUnsub = [];
+    this.gpuProfiler?.destroy();
+    this.gpuProfiler = null;
+    this.telemetryCollector = null;
+    this.scaleOffscreen?.destroy();
+    this.scaleOffscreen = null;
+    // Pass buffers + transient render targets (HDR, GBuffer, shadow maps)
+    // are renderer-owned — release them rather than waiting for GC/device
+    // teardown.
+    for (const pass of this.frameGraph.getPasses()) {
+      try { pass.destroy(); } catch { /* teardown is best-effort */ }
+    }
+    this.frameGraph.destroy();
+    this.device = null;
+    for (const entry of this.depthTextures.values()) {
+      entry.texture.destroy();
+    }
+    this.depthTextures.clear();
+  }
+}

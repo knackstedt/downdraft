@@ -447,8 +447,8 @@ fn pump_create_window(el: &winit::event_loop::ActiveEventLoop) {
         .with_inner_size(LogicalSize::new(req.w.max(1) as f64, req.h.max(1) as f64))
         .with_resizable(true)
         .with_visible(true)
-        // Never request focus at map time — a freshly spawned game window
-        // must not steal activation. Games that want launch focus call
+        // Never request focus at map time — a freshly spawned app window
+        // must not steal activation. Apps that want launch focus call
         // dd_window_focus; the WM may still focus per its own policy.
         .with_active(false);
     // Desktop-entry identity. DD_APP_ID is the packaged app's desktop id
@@ -899,9 +899,9 @@ pub extern "C" fn dd_window_create(title: *const c_char, width: c_int, height: c
                 .with_inner_size(LogicalSize::new(width.max(1) as f64, height.max(1) as f64))
                 .with_resizable(true)
                 .with_visible(true)
-                // Never request focus at map time — a freshly spawned game
+                // Never request focus at map time — a freshly spawned app
                 // window must not steal activation (e.g. dev-shell restarts
-                // while the user is typing elsewhere). Games that want
+                // while the user is typing elsewhere). Apps that want
                 // launch focus call dd_window_focus (focused: true in
                 // NativeWindowConfig); the WM may still focus the window per
                 // its own policy — that's not stealing, it's the WM's call.
@@ -1390,7 +1390,7 @@ pub extern "C" fn dd_window_wait_event(out_data: *mut c_void, timeout_ms: u32) -
 }
 
 /// Opt-in window activation — windows map inactive (see create_window); a
-/// game that wants focus on launch calls this right after creating it.
+/// app that wants focus on launch calls this right after creating it.
 /// Best-effort: WMs are free to ignore activation requests.
 #[no_mangle]
 pub extern "C" fn dd_window_focus() {
@@ -1815,7 +1815,7 @@ pub extern "C" fn dd_window_destroy() {
             w.set_visible(false);
         }
         // Keep the event loop alive — winit allows exactly one EventLoop
-        // per process, and the wire semantics let games destroy + recreate the
+        // per process, and the wire semantics let apps destroy + recreate the
         // window.
     });
 }

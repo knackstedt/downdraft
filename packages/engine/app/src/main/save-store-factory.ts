@@ -1,6 +1,6 @@
 // ============================================================================
 // Save Store Factory — creates the appropriate ISaveStore based on
-// environment capabilities and game configuration.
+// environment capabilities and app configuration.
 // ============================================================================
 //
 // Mode selection:
@@ -12,8 +12,8 @@
 //               DirectorySaveStore created inside the worker). The factory
 //               returns a null store; save()/load() RPCs persist directly.
 //   "auto"    — Picks "host" when the host exposes a typed save store, else
-//               a JSON bridge wrapper when only the generic saveGameState /
-//               loadGameState methods exist (headless/test hosts).
+//               a JSON bridge wrapper when only the generic saveAppState /
+//               loadAppState methods exist (headless/test hosts).
 //
 // A sim worker that wants worker-owned persistence constructs a
 // DirectorySaveStore itself (see @downdraft/engine/libraries/persistence)
@@ -29,15 +29,15 @@ export type SaveStoreMode = "host" | "worker" | "auto";
 
 /**
  * The subset of the host bridge needed for save operations. `saveStore` is
- * the typed native path; the `saveGameState`/`loadGameState` JSON-string
+ * the typed native path; the `saveAppState`/`loadAppState` JSON-string
  * methods are the last-resort generic fallback.
  */
 export interface SaveBridge {
   saveStore?: ISaveStore;
-  saveGameState(slotName: string, stateJson: string, opts?: SaveOptions): Promise<boolean>;
-  loadGameState(slotName: string, opts?: unknown): Promise<string | null>;
+  saveAppState(slotName: string, stateJson: string, opts?: SaveOptions): Promise<boolean>;
+  loadAppState(slotName: string, opts?: unknown): Promise<string | null>;
   listSaveSlots(): Promise<SaveSlotInfo[]>;
-  deleteGameState(slotName: string): Promise<boolean>;
+  deleteAppState(slotName: string): Promise<boolean>;
   listSaveGenerations?(slotName: string): Promise<SaveGenerationInfo[]>;
   deleteSaveGeneration?(slotName: string, gen: number): Promise<boolean>;
   setThumbnail?(slotName: string, data: ArrayBuffer | Uint8Array): Promise<void>;
@@ -107,7 +107,7 @@ export async function createSaveStore(opts: CreateSaveStoreOptions): Promise<Cre
 /**
  * ISaveStore over the bridge's JSON-string save methods — the last-resort
  * "auto" backend for headless hosts (stub bridge). The wire format is the
- * components map (what host `saveGame`/`loadGame` handlers parse/return);
+ * components map (what host `saveApp`/`loadApp` handlers parse/return);
  * SaveResult metadata is unavailable across the JSON boundary.
  */
 export class BridgeJsonSaveStore implements ISaveStore {
@@ -117,7 +117,7 @@ export class BridgeJsonSaveStore implements ISaveStore {
 
   async save(slot: string, state: SaveState, opts?: SaveOptions): Promise<SaveResult> {
     try {
-      const success = await this.bridge.saveGameState(slot, JSON.stringify(state.components), opts);
+      const success = await this.bridge.saveAppState(slot, JSON.stringify(state.components), opts);
       return { success, bytes: 0 };
     } catch {
       return { success: false, bytes: 0 };
@@ -126,7 +126,7 @@ export class BridgeJsonSaveStore implements ISaveStore {
 
   async load(slot: string, opts?: LoadOptions): Promise<LoadResult> {
     try {
-      const result = await this.bridge.loadGameState(slot, opts);
+      const result = await this.bridge.loadAppState(slot, opts);
       if (!result) return { state: null };
       const components = JSON.parse(result);
       return {
@@ -149,7 +149,7 @@ export class BridgeJsonSaveStore implements ISaveStore {
   }
 
   deleteSave(slot: string): Promise<boolean> {
-    return this.bridge.deleteGameState(slot);
+    return this.bridge.deleteAppState(slot);
   }
 
   async deleteGeneration(slot: string, gen: number): Promise<boolean> {

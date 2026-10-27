@@ -1,7 +1,7 @@
 // ============================================================================
 // AutosaveManager — generic interval-based autosave for any save function.
 //
-// Extracted from a game's AutosaveManager and generalized to work with
+// Extracted from an app's AutosaveManager and generalized to work with
 // any save function (not just saveWorld). Skipped in deterministic mode.
 // ============================================================================
 
@@ -14,7 +14,7 @@ export interface AutosaveManagerOptions {
   save: () => Promise<void>;
   /**
    * Optional predicate checked before each save — return false to skip the
-   * tick cheaply (e.g. game paused, main menu open, nothing to persist).
+   * tick cheaply (e.g. app paused, main menu open, nothing to persist).
    * Skipped saves do not fire onSaved callbacks.
    */
   shouldSave?: () => boolean;

@@ -1,7 +1,7 @@
 // ============================================================================
 // RenderSurface — the engine's renderer-facing surface contract
 //
-// A RenderSurface is the thing a game renderer draws into: a WebGPU
+// A RenderSurface is the thing an app renderer draws into: a WebGPU
 // presentation target with a size, a resize event, and an input event
 // target. It is intentionally NOT a DOM type — on the native host it is
 // backed by an winit window + wgpu surface (`NativeSurface`), on a DOM host
@@ -33,7 +33,7 @@ export interface RenderSurfaceContext {
    *  WITHOUT acquiring one. Null when nothing has acquired this frame.
    *  End-of-frame overlay passes (UI composites) should join a frame via
    *  peek rather than acquire: on hosts with frame retention (native),
-   *  acquiring here fabricates a frame the game deliberately skipped and
+   *  acquiring here fabricates a frame the app deliberately skipped and
    *  presents the overlay over a blank swapchain image. Optional — DOM
    *  GPUCanvasContext has no equivalent; callers fall back to
    *  getCurrentTexture() where acquire is idempotent within a frame. */
@@ -79,7 +79,7 @@ export interface RenderSurface {
    *  object on native. Typed `any` because the two event shapes share no
    *  common supertype and both flow through the same listeners. */
   dispatchEvent(event: any): boolean;
-  /** Pointer lock (pointer-lock games). Optional — absent where the
+  /** Pointer lock (pointer-lock apps). Optional — absent where the
    *  concept doesn't exist; presence is the feature check. */
   requestPointerLock?(): Promise<void> | void;
   exitPointerLock?(): void;

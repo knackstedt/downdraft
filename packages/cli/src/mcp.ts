@@ -1,12 +1,12 @@
 // ============================================================================
-// draft mcp — one-shot client for a running game's MCP automation endpoint.
+// draft mcp — one-shot client for a running app's MCP automation endpoint.
 //
-//   draft mcp instances                     # live game instances
+//   draft mcp instances                     # live app instances
 //   draft mcp tools                         # tools/list (name<TAB>description)
 //   draft mcp tools --schema <name>         # one tool's inputSchema
 //   draft mcp call <tool> [json-args]       # tools/call, text on stdout
 //   draft mcp screenshot <file.png>         # capture_screenshot → file
-//   draft mcp run <script.ts> [-- args]     # launch game → run script → kill
+//   draft mcp run <script.ts> [-- args]     # launch app → run script → kill
 //   draft mcp stdio                         # stdio→HTTP JSON-RPC bridge
 //
 // Output contract: payload on stdout, diagnostics on stderr.
@@ -17,10 +17,10 @@
 // ============================================================================
 
 import {
-    GameClient,
-    launchGame,
-    listGameInstances,
-    type GameClientOptions,
+    AppClient,
+    launchApp,
+    listAppInstances,
+    type AppClientOptions,
     type MCPToolResult
 } from "@downdraft/engine/mcp/client";
 import { spawn } from "node:child_process";
@@ -32,7 +32,7 @@ import { getCommand } from "./usage";
 const DEFAULT_MAX_BYTES = 256 * 1024;
 
 interface McpFlags {
-    app: string;
+    appId: string;
     pid: number;
     url: string;
     token: string;
@@ -41,7 +41,7 @@ interface McpFlags {
     out: string;
     maxBytes: number;
     schema: string;
-    game: string;
+    app: string;
     entry: string;
     headed: boolean;
     gpu: string;
@@ -50,9 +50,9 @@ interface McpFlags {
     timeout: number;
 }
 
-function selectorFrom(f: McpFlags): GameClientOptions {
+function selectorFrom(f: McpFlags): AppClientOptions {
     return {
-        appId: f.app || undefined,
+        appId: f.appId || undefined,
         pid: f.pid || undefined,
         url: f.url || undefined,
         token: f.token || undefined,
@@ -124,9 +124,9 @@ function printResult(result: MCPToolResult, f: McpFlags): void {
 }
 
 /** stdio→HTTP bridge: newline-delimited JSON-RPC on stdin forwarded to the
- *  game's HTTP transport. Replaces .devin/mcp-stdio-bridge.mjs. */
-async function stdioBridge(sel: GameClientOptions): Promise<void> {
-    const client = await GameClient.connect(sel);
+ *  app's HTTP transport. Replaces .devin/mcp-stdio-bridge.mjs. */
+async function stdioBridge(sel: AppClientOptions): Promise<void> {
+    const client = await AppClient.connect(sel);
     process.stderr.write(`draft-mcp: stdio bridge → ${client.url}\n`);
 
     let buf = "";
@@ -168,12 +168,12 @@ async function stdioBridge(sel: GameClientOptions): Promise<void> {
     }
 }
 
-/** draft mcp run <script> — launch a game, run the script with a connected
+/** draft mcp run <script> — launch an app, run the script with a connected
  *  client available via env (DOWNDRAFT_MCP_URL / DOWNDRAFT_MCP_TOKEN), then
- *  kill the game. Propagates the script's exit code. */
+ *  kill the app. Propagates the script's exit code. */
 async function runScript(script: string, scriptArgs: string[], f: McpFlags): Promise<void> {
-    const launched = await launchGame({
-        game: f.game || undefined,
+    const launched = await launchApp({
+        app: f.app || undefined,
         entry: f.entry || undefined,
         headed: f.headed,
         deterministic: f.deterministic,
@@ -181,7 +181,7 @@ async function runScript(script: string, scriptArgs: string[], f: McpFlags): Pro
         port: f.port || undefined,
         mirrorOutput: true,
     });
-    process.stderr.write(`draft-mcp: game up on MCP port ${launched.port} (pid ${launched.pid})\n`);
+    process.stderr.write(`draft-mcp: app up on MCP port ${launched.port} (pid ${launched.pid})\n`);
     // NB: process.exit() must run AFTER launched.kill() — inside try/finally
     // it would terminate before the finally block executes.
     const child = spawn("bun", [script, ...scriptArgs], {
@@ -201,7 +201,7 @@ async function runScript(script: string, scriptArgs: string[], f: McpFlags): Pro
     await launched.kill();
     const errs = launched.getConsoleErrors();
     if (errs.length > 0) {
-        process.stderr.write(`draft-mcp: ${errs.length} console error(s) in game output:\n`);
+        process.stderr.write(`draft-mcp: ${errs.length} console error(s) in app output:\n`);
         for (const e of errs.slice(0, 20)) process.stderr.write(`  ${e}\n`);
     }
     process.exit(code);
@@ -216,7 +216,7 @@ export async function mcp(argv: string[]): Promise<void> {
     }
 
     const f: McpFlags = {
-        app: parsed.flags.app as string,
+        appId: parsed.flags["app-id"] as string,
         pid: parsed.flags.pid as number,
         url: parsed.flags.url as string,
         token: parsed.flags.token as string,
@@ -225,7 +225,7 @@ export async function mcp(argv: string[]): Promise<void> {
         out: parsed.flags.out as string,
         maxBytes: (parsed.flags["max-bytes"] as number) || DEFAULT_MAX_BYTES,
         schema: parsed.flags.schema as string,
-        game: parsed.flags.game as string,
+        app: parsed.flags.app as string,
         entry: parsed.flags.entry as string,
         headed: parsed.flags.headed as boolean,
         gpu: parsed.flags.gpu as string,
@@ -239,7 +239,7 @@ export async function mcp(argv: string[]): Promise<void> {
 
     switch (action) {
         case "instances": {
-            let insts = listGameInstances({ appId: f.app || undefined });
+            let insts = listAppInstances({ appId: f.appId || undefined });
             if (f.editor) insts = insts.filter((i) => i.editorPort !== undefined);
             if (insts.length === 0) {
                 process.stderr.write("draft-mcp: no running instances\n");
@@ -252,7 +252,7 @@ export async function mcp(argv: string[]): Promise<void> {
         }
 
         case "tools": {
-            const client = await GameClient.connect(selectorFrom(f));
+            const client = await AppClient.connect(selectorFrom(f));
             if (f.schema) {
                 const tools = await client.listTools();
                 const tool = tools.find((t) => t.name === f.schema);
@@ -281,7 +281,7 @@ export async function mcp(argv: string[]): Promise<void> {
                     throw new ArgError(`invalid JSON arguments: ${(e as Error).message}`);
                 }
             }
-            const client = await GameClient.connect(selectorFrom(f));
+            const client = await AppClient.connect(selectorFrom(f));
             const result = await client.call(toolName, args, { timeoutMs: f.timeout || undefined });
             printResult(result, f);
             return;
@@ -290,7 +290,7 @@ export async function mcp(argv: string[]): Promise<void> {
         case "screenshot": {
             const [file] = rest;
             if (!file) throw new ArgError("draft mcp screenshot requires <file.png>");
-            const client = await GameClient.connect(selectorFrom(f));
+            const client = await AppClient.connect(selectorFrom(f));
             let shotArgs: Record<string, unknown> = {};
             if (rest[1]) {
                 try {

@@ -12,7 +12,7 @@ import type { RealmManager } from "./realm-manager";
  * - `onReconnect(playerId, lastSeenTick)`: delta from lastSeen.
  * - `predictionMode` configures snapshot frequency + reconciliation needs.
  *
- * API surface only — no networking transport (games provide their own).
+ * API surface only — no networking transport (apps provide their own).
  */
 export class SnapshotManager {
   private realmManager: RealmManager;

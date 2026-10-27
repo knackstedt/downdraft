@@ -35,7 +35,7 @@ export interface InstrumentedWorkerHostOptions {
 /**
  * BaseWorkerHost subclass that auto-attaches the ProfilingSAB before onInit.
  *
- * Games can either extend this class directly, or use the static `wrap()`
+ * Apps can either extend this class directly, or use the static `wrap()`
  * method to instrument an existing BaseWorkerHost subclass.
  */
 export abstract class InstrumentedWorkerHost<TApi extends WorkerApi> extends BaseWorkerHost<TApi> {

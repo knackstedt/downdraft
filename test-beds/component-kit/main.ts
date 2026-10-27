@@ -74,7 +74,7 @@ function pageForm(): string {
     return kit.col(
         kit.sectionLabel("TEXT") +
         kit.row(kit.textInput({ id: "nm", label: "Callsign", value: "Rook", width: 180 }) +
-            kit.textInput({ id: "mail", label: "Email", placeholder: "you@game.dev", invalid: true, width: 200 }) +
+            kit.textInput({ id: "mail", label: "Email", placeholder: "you@app.dev", invalid: true, width: 200 }) +
             kit.numberField({ id: "qty", label: "Quantity", value: "3", min: 0, max: 99, step: 1, width: 90 })) +
         kit.textArea({ id: "bio", label: "Bio", value: "Field notes…", rows: 3 }) +
         kit.fieldError("Email is not a valid address", "mail-err") +

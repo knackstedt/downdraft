@@ -1,7 +1,7 @@
 // ============================================================================
 // EntitySimWorkerHost — shared skeleton for entity-sim worker hosts.
 //
-// Entity games (entity-driven games) manage a long-lived sim worker
+// Entity apps (entity-driven apps) manage a long-lived sim worker
 // that owns a full entity simulation. Their host classes re-implemented the
 // same skeleton on top of the raw RPC layer:
 //   - sim + input SAB allocation (allocateSimBuffer / allocateInputBuffer)
@@ -23,7 +23,7 @@
 // The init RPC is invoked as:
 //   init(simBuffer, inputBuffer, ...extraBufferValues, workerConfig)
 // where extraBufferValues are Object.values(extraBuffers) in insertion order.
-// Games whose worker init takes a different shape override onInit().
+// Apps whose worker init takes a different shape override onInit().
 // ============================================================================
 
 import { isDevMode } from "../platform/runtime";
@@ -103,7 +103,7 @@ export abstract class EntitySimWorkerHost<
     return this.inputBuffer;
   }
 
-  /** Extra SABs exposed to the renderer (e.g. via GameContext.extraBuffers). */
+  /** Extra SABs exposed to the renderer (e.g. via AppContext.extraBuffers). */
   getExtraBuffers(): Record<string, SharedArrayBuffer> {
     return this.extraBuffers;
   }
@@ -126,7 +126,7 @@ export abstract class EntitySimWorkerHost<
     this.onEvent("ready", {});
     // Session restart restore: after a dev-shell session restart, pending
     // hot-reload state (saved before teardown) is pushed onto the fresh
-    // worker here — before the game sees "ready"-driven work.
+    // worker here — before the app sees "ready"-driven work.
     if (this.ddSessionSim) {
       try {
         await (globalThis as any).__ddSession?.notifySimStarted?.(this.ddSessionSim);

@@ -1,5 +1,5 @@
 // ============================================================================
-// package-mobile.mjs — package a game's native entry into an Android APK.
+// package-mobile.mjs — package an app's native entry into an Android APK.
 //
 //   bun packages/cli/scripts/package-mobile.mjs [--abi=arm64-v8a|x86_64|all]
 //     [--mode=dev|prod] [--app-id=<id>] [--app-name=<name>] [--version=<v>]
@@ -10,7 +10,7 @@
 //   lib/<abi>/libnode.so              embedded Node (packages/node-mobile)
 //   lib/<abi>/libdowndraft_*.so       optional engine cdylibs
 //   assets/bundle/index.js            ESM entry shim
-//   assets/bundle/<repo-rel>/*.mjs    bundled game + worker modules
+//   assets/bundle/<repo-rel>/*.mjs    bundled app + worker modules
 //   assets/bundle/node_modules/koffi (+ @koromix/koffi-android-*)  FFI
 //   assets/bundle/dd-assets/          ?url/new URL/import.meta.glob payloads
 //   assets/bundle/manifest.txt        extraction manifest for the shell
@@ -51,8 +51,8 @@ const modeArg = flagValue("mode") ?? "prod";
 const doInstall = argv.includes("--install") || argv.includes("--launch");
 const doLaunch = argv.includes("--launch");
 const retainMcp = argv.includes("--mcp");
-// Games bundled for the shell run under libnode, where `import.meta.env` is
-// undefined — replace the Vite-ism statically so game code can use it.
+// Apps bundled for the shell run under libnode, where `import.meta.env` is
+// undefined — replace the Vite-ism statically so app code can use it.
 const modeDefines = {
   "import.meta.env.DEV": modeArg === "dev" ? "true" : "false",
   "import.meta.env.PROD": modeArg === "dev" ? "false" : "true",
@@ -66,7 +66,7 @@ const minSdkFlag = flagValue("min-sdk") ?? "30";
 const nodeFlavor = flagValue("node-flavor") ?? "full";
 // Optional engine cdylibs stage only when the bundle references their soname
 // ("downdraft_<lib>" token). --libs= forces inclusion, --exclude-libs=
-// forces exclusion (pair with --env=DOWNDRAFT_NO_GAMEPAD=1 so nothing tries
+// forces exclusion (pair with --env=DOWNDRAFT_NO_CONTROLLER=1 so nothing tries
 // to dlopen a lib that isn't shipped).
 const forceLibs = (flagValue("libs") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 const excludeLibs = (flagValue("exclude-libs") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -111,11 +111,11 @@ const repoRoot = process.cwd();
 const engineConds = engineConditions(argv, resolve(entry));
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const monorepoRoot = resolve(scriptDir, "../../..");
-const gameDir = dirname(dirname(resolve(entry)));
+const appDir = dirname(dirname(resolve(entry)));
 
-// Branding: flags → game package.json → defaults.
+// Branding: flags → app package.json → defaults.
 let pkg = {};
-try { pkg = JSON.parse(readFileSync(join(gameDir, "package.json"), "utf-8")); } catch { /* standalone */ }
+try { pkg = JSON.parse(readFileSync(join(appDir, "package.json"), "utf-8")); } catch { /* standalone */ }
 const titleize = (s) => String(s).replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 // Android package ids must be dot-separated Java identifiers — hyphens are
 // rejected by aapt2 ("not a valid Android package name").
@@ -125,10 +125,10 @@ const sanitizeAppId = (id) =>
     if (!/^[a-zA-Z_]/.test(s)) s = "_" + s;
     return s;
   }).join(".");
-const rawAppId = flagValue("app-id") ?? pkg.build?.appId ?? `com.downdraft.${basename(gameDir).replace(/[^a-zA-Z0-9]/g, "")}`;
+const rawAppId = flagValue("app-id") ?? pkg.build?.appId ?? `com.downdraft.${basename(appDir).replace(/[^a-zA-Z0-9]/g, "")}`;
 const appId = sanitizeAppId(rawAppId);
 if (appId !== rawAppId) console.warn(`[package-mobile] app-id "${rawAppId}" sanitized → "${appId}"`);
-const appName = flagValue("app-name") ?? pkg.productName ?? pkg.build?.productName ?? titleize(pkg.name ?? basename(gameDir));
+const appName = flagValue("app-name") ?? pkg.productName ?? pkg.build?.productName ?? titleize(pkg.name ?? basename(appDir));
 const versionName = flagValue("version") ?? pkg.version ?? "0.0.1";
 const verParts = (versionName.match(/\d+/g) ?? ["0"]).map(Number);
 const versionCode = Math.max(1, (verParts[0] ?? 0) * 10000 + (verParts[1] ?? 0) * 100 + (verParts[2] ?? 0));
@@ -532,10 +532,10 @@ writeFileSync(join(bundleDir, "package.json"), JSON.stringify({ type: "module" }
 // ── node_modules: koffi + the ABI-matched @koromix/koffi-android-* prebuild ──
 
 const { createRequire } = await import("node:module");
-const gameRequire = createRequire(resolve(entry));
+const appRequire = createRequire(resolve(entry));
 // koffi's exports map doesn't expose ./package.json — resolve the entry.
 let koffiRoot = null;
-try { koffiRoot = dirname(gameRequire.resolve("koffi")); } catch { /* not resolvable */ }
+try { koffiRoot = dirname(appRequire.resolve("koffi")); } catch { /* not resolvable */ }
 if (!koffiRoot) {
   console.warn("[package-mobile] koffi not resolvable — FFI will fail at runtime");
 } else {
@@ -623,8 +623,8 @@ if (envPairs.length) {
   writeFileSync(join(bundleDir, "dd-env.txt"), envPairs.join("\n") + "\n");
 }
 
-// Game-native addons — convention: <game>/native/dist/android-<arch>/*.node
-// are napi modules the game built itself. .node files aren't jniLibs (the OS
+// App-native addons — convention: <app>/native/dist/android-<arch>/*.node
+// are napi modules the app built itself. .node files aren't jniLibs (the OS
 // only installs lib*.so), so they ride inside the extracted bundle instead:
 // the shell unpacks them to a real path under DOWNDRAFT_BUNDLE_DIR/native/
 // and require()/process.dlopen resolves napi_* against the RTLD_GLOBAL
@@ -634,7 +634,7 @@ if (envPairs.length) {
 {
   let staged = 0;
   for (const abi of abis.values()) {
-    const platDir = join(gameDir, "native", "dist",
+    const platDir = join(appDir, "native", "dist",
       `android-${abi.startsWith("arm64") ? "arm64" : "x64"}`);
     if (!existsSync(platDir)) continue;
     const dest = join(bundleDir, "native", `android-${abi.startsWith("arm64") ? "arm64" : "x64"}`);
@@ -645,7 +645,7 @@ if (envPairs.length) {
       staged++;
     }
   }
-  if (staged) console.log(`[package-mobile] staged ${staged} game-native addon(s) into bundle/native/`);
+  if (staged) console.log(`[package-mobile] staged ${staged} app-native addon(s) into bundle/native/`);
 }
 
 // manifest.txt — the shell's extractor follows this verbatim (AAssetDir
@@ -697,7 +697,7 @@ const stripTool = (() => {
 // Which optional engine cdylibs the bundle references — scan staged .mjs
 // for the crate's base token (dlopen paths derive sonames from
 // "downdraft_<lib>"). Unreferenced libs cost only APK size (never dlopened
-// → never mapped), but pruning them keeps packages honest per game.
+// → never mapped), but pruning them keeps packages honest per app.
 const bundleText = walkDir(bundleDir)
   .filter((f) => f.endsWith(".mjs") || f.endsWith(".js"))
   .map((f) => readFileSync(f, "utf-8"))
@@ -720,7 +720,7 @@ for (const abi of abis.values()) {
   ].filter(Boolean);
   let libnode = libnodeCandidates.find(existsSync);
   if (!libnode) {
-    try { libnode = join(dirname(gameRequire.resolve(`@downdraft/native-mobile-android-${abi.startsWith("arm64") ? "arm64" : "x64"}/package.json`)), "lib/libnode.so"); } catch { /* absent */ }
+    try { libnode = join(dirname(appRequire.resolve(`@downdraft/native-mobile-android-${abi.startsWith("arm64") ? "arm64" : "x64"}/package.json`)), "lib/libnode.so"); } catch { /* absent */ }
   }
   if (!libnode || !existsSync(libnode)) {
     throw new Error(`libnode.so for ${abi} not found — build via packages/node-mobile/scripts/build-android.mjs`);
@@ -790,16 +790,16 @@ for (const abi of abis.values()) {
     if (existsSync(src)) copyFileSync(src, join(libDir, file));
   }
 
-  // Game-native cdylibs — <game>/native/dist/android-<arch>/lib*.so ride in
+  // App-native cdylibs — <app>/native/dist/android-<arch>/lib*.so ride in
   // jniLibs like the engine crates: the OS installs them to the app's native
   // lib dir, where koffi/Deno.dlopen resolves them by bare soname (same
   // mechanism lib-paths.ts's android branch relies on).
-  const gamePlatDir = join(gameDir, "native", "dist", nodePlat);
-  if (existsSync(gamePlatDir)) {
-    for (const f of readdirSync(gamePlatDir)) {
+  const appPlatDir = join(appDir, "native", "dist", nodePlat);
+  if (existsSync(appPlatDir)) {
+    for (const f of readdirSync(appPlatDir)) {
       if (f.startsWith("lib") && f.endsWith(".so")) {
-        copyFileSync(join(gamePlatDir, f), join(libDir, f));
-        console.log(`[package-mobile] staged game-native ${f} → lib/${abi}/`);
+        copyFileSync(join(appPlatDir, f), join(libDir, f));
+        console.log(`[package-mobile] staged app-native ${f} → lib/${abi}/`);
       }
     }
   }

@@ -122,8 +122,8 @@ let errorHandlersInstalled = false;
 // ── Crash-report sections ────────────────────────────────────────────────────
 // Feature-log providers register as boot progresses: installNativeErrorHandlers
 // registers a GPU-less baseline, the native bridge re-registers once adapter
-// info exists, and runNativeGameModule registers the render line (WebGPU
-// features/limits) after startGame's bootstrap collects it. Providers are
+// info exists, and runNativeAppModule registers the render line (WebGPU
+// features/limits) after startApp's bootstrap collects it. Providers are
 // deduped by scope at report time — the last registration wins.
 
 const crashFeatureLogProviders: Array<() => FeatureLogData | null> = [];

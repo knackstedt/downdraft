@@ -1,11 +1,11 @@
 // ============================================================================
 // PostfxLib — declarative engine library descriptor for the PostProcessStack
 //
-// Games declare `libraries: [PostfxLib]` (or with config override) in their
-// GameModule. The host creates a PostProcessStack (renderer-side) and exposes
+// Apps declare `libraries: [PostfxLib]` (or with config override) in their
+// AppModule. The host creates a PostProcessStack (renderer-side) and exposes
 // it via the PostProcessStackTok typed token.
 //
-// Games that need full control can still import PostProcessStack directly
+// Apps that need full control can still import PostProcessStack directly
 // (escape hatch) — this descriptor is a convenience for declarative wiring.
 // ============================================================================
 

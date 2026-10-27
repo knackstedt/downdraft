@@ -1,5 +1,5 @@
 import { resourceToken, type Module, type ModuleContext } from "@downdraft/engine";
-import { EngineContext, MCPServer, type EngineContextFromGameOptions } from "@downdraft/engine/mcp";
+import { EngineContext, MCPServer, type EngineContextFromAppOptions } from "@downdraft/engine/mcp";
 import type { McpHttpTransport } from "@downdraft/engine/mcp/http-transport";
 import { createLogger } from "@downdraft/engine/util/logger";
 
@@ -8,15 +8,15 @@ const log = createLogger("info");
 /** Token for the MCP server instance provided by the mcp plugin. */
 export const McpServerTok = resourceToken<MCPServer>("mcp:server");
 
-export interface McpModuleOptions extends EngineContextFromGameOptions {
+export interface McpModuleOptions extends EngineContextFromAppOptions {
   /**
    * Transport for the MCP JSON-RPC surface:
    *  - "stdio" (default): newline-delimited JSON-RPC on the process's own
    *    stdin/stdout — classic spawn-as-an-MCP-process mode.
    *  - "http": `McpHttpTransport` direct mode on 127.0.0.1 — a second loopback
-   *    endpoint alongside the game's automation endpoint, advertised via
+   *    endpoint alongside the app's automation endpoint, advertised via
    *    `~/.downdraft/port/<pid>.editor` and reached with `draft mcp --editor`
-   *    or `GameClient.connect({ endpoint: "editor" })`.
+   *    or `AppClient.connect({ endpoint: "editor" })`.
    */
   transport?: "stdio" | "http";
   /** HTTP port for transport:"http" (0 = ephemeral, the default).
@@ -40,7 +40,7 @@ export function createMcpModule(opts: McpModuleOptions): Module {
     requires: [],
     provides: [McpServerTok],
     register(ctx: ModuleContext) {
-      const engineContext = EngineContext.fromGame(opts);
+      const engineContext = EngineContext.fromApp(opts);
       server = new MCPServer({ engineContext });
       ctx.provide(McpServerTok, server);
 
@@ -90,5 +90,5 @@ export function createMcpModule(opts: McpModuleOptions): Module {
 }
 
 export { EngineContext, MCPServer };
-export type { EngineContextFromGameOptions };
+export type { EngineContextFromAppOptions };
 

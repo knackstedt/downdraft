@@ -2,7 +2,7 @@
 // HotReloadPipeline — framework-owned hot-reload lifecycle manager.
 //
 // Owns the full save→stop→start→restore cycle from the main thread.
-// Games provide an IWorkerManager; the pipeline handles state preservation
+// Apps provide an IWorkerManager; the pipeline handles state preservation
 // with transient flag stripping and system reset.
 // ============================================================================
 

@@ -71,7 +71,7 @@ describe("DirectorySaveStore", () => {
     await store.init();
   });
 
-  it("saves and loads a game state", async () => {
+  it("saves and loads an app state", async () => {
     const state = makeState();
     const result = await store.save("slot1", state);
     expect(result.success).toBe(true);
@@ -185,23 +185,23 @@ describe("DirectorySaveStore", () => {
 
   it("stores and retrieves properties", async () => {
     await store.save("slot1", makeState(), {
-      properties: { gameMode: "creative", playtimeSeconds: 3600, worldName: "My Ocean" },
+      properties: { appMode: "creative", playtimeSeconds: 3600, worldName: "My Ocean" },
     });
 
     const props = await store.getProperties("slot1");
-    expect(props.gameMode).toBe("creative");
+    expect(props.appMode).toBe("creative");
     expect(props.playtimeSeconds).toBe(3600);
     expect(props.worldName).toBe("My Ocean");
   });
 
   it("setProperties merges with existing properties", async () => {
     await store.save("slot1", makeState(), {
-      properties: { gameMode: "survival", playtimeSeconds: 100 },
+      properties: { appMode: "survival", playtimeSeconds: 100 },
     });
     await store.setProperties("slot1", { playtimeSeconds: 200, worldName: "Updated" });
 
     const props = await store.getProperties("slot1");
-    expect(props.gameMode).toBe("survival"); // preserved
+    expect(props.appMode).toBe("survival"); // preserved
     expect(props.playtimeSeconds).toBe(200); // updated
     expect(props.worldName).toBe("Updated"); // added
   });
@@ -227,14 +227,14 @@ describe("DirectorySaveStore", () => {
   it("listSaves includes thumbnail and properties info", async () => {
     await store.save("slot1", makeState(), {
       thumbnail: new Uint8Array([1, 2, 3]),
-      properties: { gameMode: "creative" },
+      properties: { appMode: "creative" },
     });
 
     const saves = await store.listSaves();
     expect(saves.length).toBe(1);
     expect(saves[0].hasThumbnail).toBe(true);
     expect(saves[0].properties).toBeDefined();
-    expect(saves[0].properties!.gameMode).toBe("creative");
+    expect(saves[0].properties!.appMode).toBe("creative");
   });
 
   it("deleteSave removes the entire slot", async () => {
@@ -315,13 +315,13 @@ describe("DirectorySaveStore", () => {
 
   it("preserves properties across saves when not re-specified", async () => {
     await store.save("slot1", makeState(), {
-      properties: { gameMode: "creative", level: 5 },
+      properties: { appMode: "creative", level: 5 },
     });
     // Save again without properties — should preserve existing
     await store.save("slot1", makeState(2));
 
     const props = await store.getProperties("slot1");
-    expect(props.gameMode).toBe("creative");
+    expect(props.appMode).toBe("creative");
     expect(props.level).toBe(5);
   });
 

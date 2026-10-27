@@ -46,8 +46,8 @@ export interface DevtoolsCommand {
 
 // ── Panel slot ids ──
 // Stable ids shared by every frontend (tab labels, provider registry,
-// command routing). New engine panels append at the end; game panels use
-// the "game" slot (or numeric slots ≥ 16 for bespoke panels).
+// command routing). New engine panels append at the end; app panels use
+// the "app" slot (or numeric slots ≥ 16 for bespoke panels).
 
 export const PANEL = {
   console: 0,
@@ -65,7 +65,7 @@ export const PANEL = {
   input: 12,
   postfx: 13,
   assets: 14,
-  game: 15,
+  app: 15,
 } as const;
 export type PanelName = keyof typeof PANEL;
 

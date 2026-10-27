@@ -21,8 +21,8 @@ export class InputSABBridge {
     const mouseDeltaY = data.mouseDeltaY as number;
     const mouseButtons = data.mouseButtons as number[];
     const wheelDelta = data.wheelDelta as number;
-    const gamepadButtons = data.gamepadButtons as number[];
-    const gamepadAxes = data.gamepadAxes as number[];
+    const controllerButtons = data.controllerButtons as number[];
+    const controllerAxes = data.controllerAxes as number[];
 
     // Process keyboard — diff against current state
     const incomingKeys = new Set(keys.filter((k) => k !== 0));
@@ -48,24 +48,24 @@ export class InputSABBridge {
       }
     }
 
-    // gamepadButtons is the u32 bitmask pair [lo, hi] (W3C standard order).
-    const lo = (gamepadButtons[0] ?? 0) >>> 0;
-    const hi = (gamepadButtons[1] ?? 0) >>> 0;
-    const incomingGamepad = new Set<number>();
+    // controllerButtons is the u32 bitmask pair [lo, hi] (W3C standard order).
+    const lo = (controllerButtons[0] ?? 0) >>> 0;
+    const hi = (controllerButtons[1] ?? 0) >>> 0;
+    const incomingController = new Set<number>();
     for (let b = 0; b < 32; b++) {
-      if (lo & (1 << b)) incomingGamepad.add(b);
-      if (hi & (1 << b)) incomingGamepad.add(32 + b);
+      if (lo & (1 << b)) incomingController.add(b);
+      if (hi & (1 << b)) incomingController.add(32 + b);
     }
-    for (const btn of incomingGamepad.values()) {
-      this.state.gamepadButtons.add(btn);
+    for (const btn of incomingController.values()) {
+      this.state.controllerButtons.add(btn);
     }
-    for (const btn of this.state.gamepadButtons.values()) {
-      if (!incomingGamepad.has(btn)) {
-        this.state.gamepadButtons.delete(btn);
+    for (const btn of this.state.controllerButtons.values()) {
+      if (!incomingController.has(btn)) {
+        this.state.controllerButtons.delete(btn);
       }
     }
-    for (let i = 0; i < gamepadAxes.length && i < this.state.gamepadAxes.length; i++) {
-      this.state.gamepadAxes[i] = gamepadAxes[i];
+    for (let i = 0; i < controllerAxes.length && i < this.state.controllerAxes.length; i++) {
+      this.state.controllerAxes[i] = controllerAxes[i];
     }
   }
 }

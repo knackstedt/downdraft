@@ -6,7 +6,7 @@
 //   speed < 1x: variable dt (1 tick per iteration with scaled dt)
 //   speed = 0:  paused (no ticks)
 //
-// Games provide an async tick callback and an optional event-drain callback.
+// Apps provide an async tick callback and an optional event-drain callback.
 // The loop handles speed control, tick counting, and error recovery.
 // ============================================================================
 

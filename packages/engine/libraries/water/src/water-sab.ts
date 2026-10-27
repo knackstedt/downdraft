@@ -6,7 +6,7 @@
 import { defineChannel } from "@downdraft/engine/sab/define";
 
 export const WaterChannel = defineChannel({
-  name: "game-water",
+  name: "app-water",
   magic: 0x57415452,
   version: 1,
   mode: "grid",

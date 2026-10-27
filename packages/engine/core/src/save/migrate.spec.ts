@@ -1,6 +1,6 @@
 import { component } from "../ecs/component";
 import { World } from "../ecs/world";
-import { SaveSystem } from "./migrate";
+import { WorldSaveSystem } from "./migrate";
 import { CURRENT_SCHEMA_VERSION, SchemaRegistry } from "./schema";
 import { Serializer, type SaveData } from "./serializer";
 
@@ -94,13 +94,13 @@ describe("Serializer", () => {
   });
 });
 
-describe("SaveSystem", () => {
+describe("WorldSaveSystem", () => {
   it("should save and load world state", () => {
     const world = new World();
     world.spawn(new Map([[Health.id, { hp: 42 }]]));
     world.flushCommands();
 
-    const save = new SaveSystem();
+    const save = new WorldSaveSystem();
     const data = save.save(world, "save-test");
 
     const newWorld = new World();
@@ -110,13 +110,13 @@ describe("SaveSystem", () => {
   });
 
   it("should expose schema registry for migrations", () => {
-    const save = new SaveSystem();
+    const save = new WorldSaveSystem();
     const reg = save.getSchemaRegistry();
     expect(reg).toBeInstanceOf(SchemaRegistry);
   });
 
   it("should register migrations through save system", () => {
-    const save = new SaveSystem();
+    const save = new WorldSaveSystem();
     save.registerMigration(0, (data) => ({ ...(data as Record<string, unknown>), migrated: true }));
     expect(save.getSchemaRegistry().hasMigration(0)).toBe(true);
   });

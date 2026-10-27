@@ -1,5 +1,5 @@
 // UI blit shader — fullscreen triangle that samples a UI texture and
-// alpha-blends it over the game frame. The UI texture is premultiplied
+// alpha-blends it over the app frame. The UI texture is premultiplied
 // alpha, so the blend is src*1 + dst*(1-srcAlpha).
 
 const FULLSCREEN_VS = `

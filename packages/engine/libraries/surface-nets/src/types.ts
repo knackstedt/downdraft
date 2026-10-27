@@ -3,7 +3,7 @@
 export type { ExtractedMesh, VoxelField } from "@downdraft/engine/libraries/marching-cubes";
 
 // MeshColorFn and ExtractMeshOptions mirror the MC plugin interfaces exactly
-// so the game layer can swap algorithms without changing call sites.
+// so the app layer can swap algorithms without changing call sites.
 export type MeshColorFn = (
   cx: number, cy: number, cz: number,
   nx: number, ny: number, nz: number,

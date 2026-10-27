@@ -18,8 +18,8 @@ const STATE = JSON.stringify({
 
 function saveRoundTrip(api: ReturnType<typeof createInlineServices> | HostServices["api"]) {
   return async () => {
-    expect(await api.saveGame("slot-a", STATE)).toBe(true);
-    const loaded = await api.loadGame("slot-a");
+    expect(await api.saveApp("slot-a", STATE)).toBe(true);
+    const loaded = await api.loadApp("slot-a");
     expect(JSON.parse(loaded!)).toEqual(JSON.parse(STATE));
 
     const saves = await api.listSaves();
@@ -29,7 +29,7 @@ function saveRoundTrip(api: ReturnType<typeof createInlineServices> | HostServic
     expect(await api.getProperties("slot-a")).toMatchObject({ label: "test" });
 
     expect(await api.deleteSave("slot-a")).toBe(true);
-    expect(await api.loadGame("slot-a")).toBeNull();
+    expect(await api.loadApp("slot-a")).toBeNull();
   };
 }
 
@@ -73,12 +73,12 @@ describe("HostServices", () => {
     });
     const plugin = scopeServicesForPlugin(api, "mymod");
 
-    await plugin.saveGame("quicksave", STATE);
+    await plugin.saveApp("quicksave", STATE);
     // Raw API sees the namespaced slot; plugin sees its own view.
     const rawSaves = await api.listSaves();
     expect(rawSaves.some((s) => s.slot.startsWith("plugin-mymod--"))).toBe(true);
     expect((await plugin.listSaves()).some((s) => s.slot === "quicksave")).toBe(true);
-    expect(await plugin.loadGame("quicksave")).not.toBeNull();
+    expect(await plugin.loadApp("quicksave")).not.toBeNull();
     expect(() => plugin.importCacheGet("x")).toThrow(/not available to plugins/);
     expect(() => plugin.init({} as any)).toThrow(/not available to plugins/);
     await api.dispose();

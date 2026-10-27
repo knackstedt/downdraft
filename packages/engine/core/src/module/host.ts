@@ -46,7 +46,7 @@ export class ModuleHost implements ModuleContext {
   }
 
   /**
-   * Inject the DevTools API. Called by the game bootstrap after
+   * Inject the DevTools API. Called by the app bootstrap after
    * `initDevTools()` so plugins can self-register data feeds via
    * `ctx.devtools.registerDataFeed(...)` during their `register()` lifecycle.
    */
@@ -211,7 +211,7 @@ export class ModuleHost implements ModuleContext {
       throw err;
     } finally {
       // Clear the attribution context — any provide/onDispose/registerSystem
-      // call made outside a register() lifecycle (async callbacks, game code)
+      // call made outside a register() lifecycle (async callbacks, app code)
       // must not be silently attributed to this module.
       this.currentModuleName = "";
     }

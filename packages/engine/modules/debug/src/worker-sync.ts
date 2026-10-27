@@ -49,7 +49,7 @@ export async function syncWorkerManifests(
 }
 
 /** A crashed or still-initializing worker may never answer the manifest RPC —
- *  bound the wait so devtools wiring can't wedge the whole game bootstrap. */
+ *  bound the wait so devtools wiring can't wedge the whole app bootstrap. */
 const MANIFEST_TIMEOUT_MS = 5000;
 
 async function syncOneWorker(entry: WorkerSyncEntry): Promise<void> {

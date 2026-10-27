@@ -1,14 +1,14 @@
 // ============================================================================
 // Vitals — shared health / damage / regen / death / respawn / meter tracking
 //
-// Every game in the repo used to hand-roll the same bookkeeping: clamp health
+// Every app in the repo used to hand-roll the same bookkeeping: clamp health
 // on damage, track overkill + last-damage time, transition to a dead state,
 // emit damaged/died/respawned events, regenerate after a damage-free delay,
 // and tick secondary meters (oxygen / air / energy / hunger / thirst) that
 // drain under a condition and deal damage while depleted.
 //
 // `Vitals` owns that bookkeeping while writing through to a caller-supplied
-// host object (e.g. the game's player state struct) so `p.health` stays a
+// host object (e.g. the app's player state struct) so `p.health` stays a
 // plain field that saves, SAB writers, and HUDs can keep reading directly.
 // ============================================================================
 

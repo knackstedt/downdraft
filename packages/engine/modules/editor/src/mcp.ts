@@ -6,7 +6,7 @@
 // exact same command semantics as UI clicks — plus meta tools for journal
 // inspection, diffing, and state queries.
 //
-// Games wire these into their harness:
+// Apps wire these into their harness:
 //   mcp: () => createMcpHarness({ tools: createStandardAutomationTools({
 //     ..., extraTools: createEditorMcpTools(ctx.editor) }) })
 // or standalone: the tools are plain McpToolRegistration objects.
@@ -88,7 +88,7 @@ export function createEditorMcpTools(editor: EditorContext): McpToolRegistration
   return tools;
 }
 
-/** Reach the live editor context from a game's `mcp:` hook — the module
+/** Reach the live editor context from an app's `mcp:` hook — the module
  *  stashes itself on `globalThis.__downdraftEditor` (parity with the
  *  devtools `window.__downdraftDevtools` convention). */
 export function getEditorContext(): EditorContext | null {

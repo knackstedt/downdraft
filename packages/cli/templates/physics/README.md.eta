@@ -1,6 +1,6 @@
 # <%= it.name %>
 
-<% if (it.description) { %><%= it.description %><% } else { %>A physics-based game built with the DownDraft Engine.<% } %>
+<% if (it.description) { %><%= it.description %><% } else { %>A physics-based app built with the DownDraft Engine.<% } %>
 
 ## Getting Started
 
@@ -21,9 +21,9 @@ npm run export
 ## Project Structure
 
 ```
-src/          Game source code
+src/          App source code
   native-entry.ts  Native runtime entry (draft dev)
-assets/       Game assets (models, textures, shaders)
+assets/       App assets (models, textures, shaders)
 downdraft.config.json   Engine configuration (physics-rapier plugin enabled)
 ```
 
@@ -33,4 +33,4 @@ downdraft.config.json   Engine configuration (physics-rapier plugin enabled)
 
 ## Engine
 
-Built with [DownDraft Engine](https://github.com/knackstedt/downdraft) — a TypeScript-first game engine on WebGPU — native runtime (Bun + SDL + wgpu).
+Built with [DownDraft Engine](https://github.com/knackstedt/downdraft) — a TypeScript-first app engine on WebGPU — native runtime (Bun + SDL + wgpu).

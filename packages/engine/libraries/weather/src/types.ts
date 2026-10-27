@@ -27,14 +27,14 @@ export interface WeatherState {
   isRareEvent: boolean;
 }
 
-// Biome provider interface — games implement this to supply biome data
+// Biome provider interface — apps implement this to supply biome data
 export interface BiomeProvider {
   getBiomeAt(worldX: number, worldZ: number): number;
   getBiomeName(biome: number): string;
   getTemperatureRange(biome: number): { min: number; max: number };
 }
 
-// Weather config — games can override these values
+// Weather config — apps can override these values
 export interface WeatherConfig {
   clearChance: number;
   fullClearChance: number;

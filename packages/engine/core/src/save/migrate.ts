@@ -2,7 +2,7 @@ import type { World } from "../ecs/world";
 import { SchemaRegistry } from "./schema";
 import { Serializer, type SaveData } from "./serializer";
 
-export class SaveSystem {
+export class WorldSaveSystem {
   private serializer: Serializer;
   private schemaRegistry: SchemaRegistry;
 

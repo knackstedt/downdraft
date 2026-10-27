@@ -28,11 +28,11 @@ cargo check --manifest-path packages/platform-native/native-rs/Cargo.toml
 
 `bun test` runs with `--isolate` because several suites load shared WASM/FFI
 state that is not safe to share between test files in one process. `examples/packaging-smoke` is the self-contained end-to-end packaging check (the
-`games/` e2e harness targets separate game repos and does not run in CI).
+`apps/` e2e harness targets separate app repos and does not run in CI).
 
 ## Conventions worth knowing
 
-- **Tri-runtime**: engine and game code must run under Bun, Node+tsx, and Deno.
+- **Tri-runtime**: engine and app code must run under Bun, Node+tsx, and Deno.
   Don't reach for `Bun.*`, `bun:ffi`, or `bun:test` in runtime code — use the
   `ffi-adapter.ts` / `platform/runtime.ts` abstractions.
 - **Native ABI**: all Rust cdylibs export `dd_abi_version`, checked at library

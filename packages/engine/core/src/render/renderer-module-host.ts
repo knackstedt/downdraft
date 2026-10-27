@@ -1,15 +1,15 @@
 // ============================================================================
 // RendererModuleHost — owns renderer-plugin lifecycle and dispatch
 //
-// Owned by `GameRenderer`. Holds the `RendererInputBus`, the active
+// Owned by `AppRenderer`. Holds the `RendererInputBus`, the active
 // `CameraControllerLike`, and per-phase frame/resize/render-pass hook lists.
 // Each plugin receives a per-plugin `RendererModuleContext` facade during
 // `register()` so hooks/dispose fns are tracked per-plugin and cleaned up on
 // `unloadModule`.
 //
-// Setters for offscreen/render-target/RAF are routed to the `GameRenderer`
+// Setters for offscreen/render-target/RAF are routed to the `AppRenderer`
 // via callbacks supplied at construction — the host does not import
-// `GameRenderer` directly (avoids a circular import).
+// `AppRenderer` directly (avoids a circular import).
 // ============================================================================
 
 import type { ResourceToken } from "../ecs/resource";
@@ -38,12 +38,12 @@ import type {
     OffscreenMode,
     RAFSource,
     RenderTargetProvider
-} from "./game-renderer";
+} from "./app-renderer";
 import { RendererInputBusImpl } from "./renderer-input-bus";
 
 const log = createLogger();
 
-/** Callbacks the host owner (GameRenderer) supplies so plugin setters route through it. */
+/** Callbacks the host owner (AppRenderer) supplies so plugin setters route through it. */
 export interface RendererModuleHostCallbacks {
   getSurface: () => RenderSurface;
   /** @deprecated Use getSurface — kept so existing callback objects keep compiling. */
@@ -426,7 +426,7 @@ export class RendererModuleHost {
     return out;
   }
 
-  // ── Dispatch (called by GameRenderer) ──
+  // ── Dispatch (called by AppRenderer) ──
 
   dispatchFrame(phase: FramePhase, dt: number, elapsedTime: number): void {
     const hooks = this.frameHooks[phase];
@@ -469,8 +469,8 @@ export class RendererModuleHost {
 
   /**
    * Returns the active camera controller's state for a viewport, or null if
-   * no controller is registered. `GameRenderer` uses this as a fallback when
-   * the game's `onViewport` callback returns null.
+   * no controller is registered. `AppRenderer` uses this as a fallback when
+   * the app's `onViewport` callback returns null.
    */
   getCameraState(viewportIdx: number): CameraState | null {
     if (!this.cameraController) return null;
@@ -484,8 +484,8 @@ export class RendererModuleHost {
 
   /**
    * If a viewport camera provider is installed (e.g. by XR), call it for the
-   * given viewport. Returns the provider's result or null. `GameRenderer`
-   * calls this *before* the game's `onViewport` callback — a non-null result
+   * given viewport. Returns the provider's result or null. `AppRenderer`
+   * calls this *before* the app's `onViewport` callback — a non-null result
    * takes priority.
    */
   getViewportCameraInfo(viewportIdx: number, dt: number, elapsedTime: number): CameraViewportInfo | null {

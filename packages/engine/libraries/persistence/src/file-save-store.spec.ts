@@ -44,7 +44,7 @@ describe("FileSaveStore", () => {
     await fs.rm(testDir, { recursive: true, force: true });
   });
 
-  it("saves and loads a game state", async () => {
+  it("saves and loads an app state", async () => {
     const components = {
       world: { v: 1, data: { timeOfDay: 0.5, seed: 12345 } },
       players: { v: 1, data: [{ name: "TestPlayer" }] },

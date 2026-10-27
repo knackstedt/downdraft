@@ -27,7 +27,7 @@ export class InputContextRouter {
 
   getActiveContext(): InputContext {
     if (this.currentContext === InputContext.UI) return InputContext.UI;
-    if (this.currentContext === InputContext.Game) return InputContext.Game;
+    if (this.currentContext === InputContext.App) return InputContext.App;
     return InputContext.Editor;
   }
 

@@ -3,7 +3,7 @@
 //
 //   renderer.useRendererModule(createHtmlUi({ build(ui) { ... } }));
 //   renderer.useRendererModule(createControllerUi());
-//   // game code: ui.open() from a menu action, or bind to START+SELECT, etc.
+//   // app code: ui.open() from a menu action, or bind to START+SELECT, etc.
 //
 // A full "Controllers" settings panel built on html-ui + html-ui-kit:
 // device list (name, pad type, battery), a live button/axis test diagram,
@@ -13,10 +13,10 @@
 // ============================================================================
 
 import { createLogger, resourceToken, type RendererModule } from "@downdraft/engine";
-import { GamepadHubTok, type GamepadDevice } from "@downdraft/engine/libraries/gamepad";
+import { ControllerHubTok, type ControllerDevice } from "@downdraft/engine/libraries/controller";
 import { esc, kitStyleTag, tvCss } from "@downdraft/engine/libraries/html-ui-kit";
 import { HtmlUiTok, type UiPanelHandle } from "@downdraft/engine/modules/html-ui";
-import { GP_AXIS, GP_BTN } from "@downdraft/engine/sab/gamepad-devices";
+import { GP_AXIS, GP_BTN } from "@downdraft/engine/sab/controller-devices";
 
 const log = createLogger("info");
 
@@ -81,7 +81,7 @@ export function createControllerUi(): RendererModule {
     provides: [ControllerUiTok],
     register(ctx) {
       const ui = ctx.inject(HtmlUiTok);
-      const hub = ctx.injectOptional(GamepadHubTok);
+      const hub = ctx.injectOptional(ControllerHubTok);
       let panel: UiPanelHandle | null = null;
       const api: ControllerUi = {
         get panel() { return panel; },
@@ -114,7 +114,7 @@ export function createControllerUi(): RendererModule {
       };
 
       let sel = 0;
-      function selected(): GamepadDevice | null {
+      function selected(): ControllerDevice | null {
         const devs = hub?.list() ?? [];
         return devs[Math.min(sel, Math.max(0, devs.length - 1))] ?? null;
       }
@@ -125,7 +125,7 @@ export function createControllerUi(): RendererModule {
           ? devs.map((d, i) => {
               const bat = d.batteryPercent;
               const meta = [
-                d.info.padType ?? "gamepad",
+                d.info.padType ?? "controller",
                 bat !== null ? `${bat}%${d.charging ? " ⚡" : ""}` : "wired",
               ].join(" · ");
               return `<div class="ctl-dev-row" data-nav data-action="ctlui:sel" data-i="${i}">` +
@@ -163,7 +163,7 @@ export function createControllerUi(): RendererModule {
 
       ctx.provide(ControllerUiTok, api);
       ctx.onDispose(() => api.close());
-      log.info("controller-ui", hub ? "ready" : "ready (no gamepad source — screen will show 'No controllers')");
+      log.info("controller-ui", hub ? "ready" : "ready (no controller source — screen will show 'No controllers')");
     },
   };
 }

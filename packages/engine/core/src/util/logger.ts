@@ -208,7 +208,7 @@ function linkifyModule(module: string): string {
 }
 
 /** Normalize a module tag to the lowercase-kebab convention
- *  ("GameRenderer" → "game-renderer", "SIM WORKER" → "sim-worker").
+ *  ("AppRenderer" → "app-renderer", "SIM WORKER" → "sim-worker").
  *  Only word-style names are rewritten — anything with heavier
  *  separators (paths, "plugin:x", "dev/hmr", bundle names like
  *  "chunk-5H6VXLYO.js:2419") already carries its own format and
@@ -447,7 +447,7 @@ function getTheme(): "light" | "dark" {
 
     // DD_LOG_THEME — `draft` detects the theme once (its stdout is the real
     // TTY, so the OSC-11 probe works) and stamps it into the env of every
-    // spawned child. Piped-stdout processes (dev shell, games, workers)
+    // spawned child. Piped-stdout processes (dev shell, apps, workers)
     // skip the subprocess probes — which would guess via gsettings/dbus and
     // can disagree with the actual terminal background.
     const forced = proc.env.DD_LOG_THEME;

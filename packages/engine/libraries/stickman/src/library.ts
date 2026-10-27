@@ -1,11 +1,11 @@
 // ============================================================================
 // StickmanLib — declarative engine library descriptor for @downdraft/engine/libraries/stickman
 //
-// Games declare `libraries: [StickmanLib]` in their GameModule. The host
+// Apps declare `libraries: [StickmanLib]` in their AppModule. The host
 // provides the stickman skeleton computation function (sim-side) via a typed
 // token.
 //
-// Games that need full control can still import computeSkeleton, the
+// Apps that need full control can still import computeSkeleton, the
 // thick-line geometry builders, and STICKMAN_WGSL directly (escape hatch).
 //
 // NOTE: This package does not declare a dependency on @downdraft/engine in its
@@ -47,14 +47,14 @@ export const StickmanLib: EngineLibrary<StickmanLibConfig> = {
     dispose(_system) {
       // Pure function — no resources to free.
     },
-    // tick is game-specific (calls computeSkeleton per player entity with
+    // tick is app-specific (calls computeSkeleton per player entity with
     // the entity's pose, uploads the result to a thick-line vertex buffer)
-    // — games wire this via onReady.
+    // — apps wire this via onReady.
   },
 
   tickPhase: "post-physics",
 
-  // No renderer setup — stickman rendering is game-specific (the game
+  // No renderer setup — stickman rendering is app-specific (the app
   // creates a render pass using STICKMAN_WGSL + thick-line geometry).
 
   defaultConfig: {},

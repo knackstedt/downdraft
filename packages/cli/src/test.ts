@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { basename, resolve } from "node:path";
 import { parseArgs, print, renderHelp } from "./args";
-import { findMonorepoRoot, resolveGameDir } from "./paths";
+import { findMonorepoRoot, resolveAppDir } from "./paths";
 import { getCommand } from "./usage";
 
 const log = createLogger();
@@ -26,7 +26,7 @@ function findFreePort(): Promise<number> {
 }
 
 interface TestArgs {
-  game: string;
+  app: string;
   mcpPort: number;
   spec: string | null;
   renderer: Renderer;
@@ -44,7 +44,7 @@ function parseTestArgs(args: string[]): TestArgs {
   }
   const port = parsed.flags.port as number;
   return {
-    game: parsed.flags.game as string,
+    app: parsed.flags.app as string,
     mcpPort: port,
     spec: (parsed.flags.spec as string) || null,
     renderer: parsed.flags.renderer as Renderer,
@@ -70,30 +70,30 @@ function hasXvfb(): boolean {
 export async function runTest(args: string[]): Promise<void> {
   const opts = parseTestArgs(args);
   const monorepoRoot = findMonorepoRoot();
-  const gameDir = resolveGameDir(opts.game || undefined);
+  const appDir = resolveAppDir(opts.app || undefined);
 
-  if (!opts.game && gameDir) {
-    opts.game = basename(gameDir);
+  if (!opts.app && appDir) {
+    opts.app = basename(appDir);
   }
-  if (!opts.game) {
-    log.error("test", `No game specified and none could be inferred from "${process.cwd()}".`);
-    log.error("test", `Run "draft test --game=<name>" or pass --spec=<path>.`);
+  if (!opts.app) {
+    log.error("test", `No app specified and none could be inferred from "${process.cwd()}".`);
+    log.error("test", `Run "draft test --app=<name>" or pass --spec=<path>.`);
     process.exit(1);
   }
 
-  // Default spec: <monorepo>/tests/e2e/<game>-smoke.spec.ts, or the standalone
-  // game's own tests/e2e dir. When neither exists, require --spec.
+  // Default spec: <monorepo>/tests/e2e/<app>-smoke.spec.ts, or the standalone
+  // app's own tests/e2e dir. When neither exists, require --spec.
   let specPath = opts.spec ? resolve(opts.spec) : null;
   if (!specPath) {
     const candidates = [
-      monorepoRoot ? resolve(monorepoRoot, "tests", "e2e", `${opts.game}-smoke.spec.ts`) : null,
-      gameDir ? resolve(gameDir, "tests", "e2e", `${opts.game}-smoke.spec.ts`) : null,
+      monorepoRoot ? resolve(monorepoRoot, "tests", "e2e", `${opts.app}-smoke.spec.ts`) : null,
+      appDir ? resolve(appDir, "tests", "e2e", `${opts.app}-smoke.spec.ts`) : null,
     ].filter((p): p is string => !!p);
     specPath = candidates.find((p) => existsSync(p)) ?? candidates[0];
   }
   if (!specPath || !existsSync(specPath)) {
-    log.error("test", `No test spec found for game "${opts.game}".`);
-    log.error("test", `Looked in: tests/e2e/${opts.game}-smoke.spec.ts`);
+    log.error("test", `No test spec found for app "${opts.app}".`);
+    log.error("test", `Looked in: tests/e2e/${opts.app}-smoke.spec.ts`);
     log.error("test", `Pass --spec=<path> to specify a spec file.`);
     process.exit(1);
   }
@@ -108,7 +108,7 @@ export async function runTest(args: string[]): Promise<void> {
   ╚══════════════════════════════════════════╝
   `);
 
-  log.info("test", `  Game:          ${opts.game}`);
+  log.info("test", `  App:          ${opts.app}`);
   log.info("test", `  Spec:          ${specPath}`);
   log.info("test", `  MCP port:      ${opts.mcpPort}`);
   log.info("test", `  Renderer:      ${opts.renderer === "cpu" ? "SwiftShader (software)" : "hardware GPU"}`);
@@ -150,7 +150,7 @@ export async function runTest(args: string[]): Promise<void> {
   }
 
   const child = spawn(cmd, cmdArgs, {
-    cwd: monorepoRoot ?? gameDir ?? process.cwd(),
+    cwd: monorepoRoot ?? appDir ?? process.cwd(),
     stdio: "inherit",
     env,
   });
@@ -166,8 +166,8 @@ export async function runTest(args: string[]): Promise<void> {
   process.on("SIGTERM", shutdown);
 
   // Await the child process so `draft test` blocks until the spec (and the
-  // spawned game) fully finishes + cleans up. Without this, the async
-  // function resolves immediately after spawning while the game is still
+  // spawned app) fully finishes + cleans up. Without this, the async
+  // function resolves immediately after spawning while the app is still
   // booting, and the next sequential e2e run starts concurrently — colliding
   // on the MCP port.
   const exitCode = await new Promise<number>((resolve) => {

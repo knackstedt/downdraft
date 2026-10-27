@@ -11,7 +11,7 @@ describe("LocalPlayerManager", () => {
   it("should assign devices to player slots", () => {
     const mgr = new LocalPlayerManager(4);
     const km: InputDevice = { type: "keyboard-mouse" };
-    const gp: InputDevice = { type: "gamepad", gamepadIndex: 0 };
+    const gp: InputDevice = { type: "controller", controllerIndex: 0 };
 
     mgr.assignDevice(0, km);
     mgr.assignDevice(1, gp);
@@ -52,21 +52,21 @@ describe("LocalPlayerManager", () => {
     const connectHandler = (mgr as unknown as { connectCallbacks: Array<(d: InputDevice) => void> }).connectCallbacks;
     const disconnectHandler = (mgr as unknown as { disconnectCallbacks: Array<(d: InputDevice) => void> }).disconnectCallbacks;
 
-    connectHandler[0]({ type: "gamepad", gamepadIndex: 1 });
-    expect(connected as InputDevice | null).toEqual({ type: "gamepad", gamepadIndex: 1 });
+    connectHandler[0]({ type: "controller", controllerIndex: 1 });
+    expect(connected as InputDevice | null).toEqual({ type: "controller", controllerIndex: 1 });
 
-    disconnectHandler[0]({ type: "gamepad", gamepadIndex: 1 });
-    expect(disconnected as InputDevice | null).toEqual({ type: "gamepad", gamepadIndex: 1 });
+    disconnectHandler[0]({ type: "controller", controllerIndex: 1 });
+    expect(disconnected as InputDevice | null).toEqual({ type: "controller", controllerIndex: 1 });
   });
 
   it("should return device map", () => {
     const mgr = new LocalPlayerManager(4);
     mgr.assignDevice(0, { type: "keyboard-mouse" });
-    mgr.assignDevice(2, { type: "gamepad", gamepadIndex: 0 });
+    mgr.assignDevice(2, { type: "controller", controllerIndex: 0 });
 
     const map = mgr.getDeviceMap();
     expect(map.size).toBe(2);
     expect(map.get(0)?.type).toBe("keyboard-mouse");
-    expect(map.get(2)?.type).toBe("gamepad");
+    expect(map.get(2)?.type).toBe("controller");
   });
 });

@@ -3,41 +3,41 @@ title: Module System
 description: Compile-time DI modules, typed tokens, cross-thread contract, engine libraries
 ---
 
-## Module architecture: engine vs game boundary
+## Module architecture: engine vs app boundary
 
 > **Terminology note:** **Modules** are the engine's compile-time DI units (`Module`, `RendererModule`, `ModuleHost`). **Plugins/mods** are the runtime-loadable user-authored extensions (`PluginHost`, `mod.json`) — see [Plugin Internals](/architecture/plugin-internals/). (The DI units were once called "plugins"; don't confuse the two.)
 
 The engine is a **single npm package**, `@downdraft/engine` (manifest at `packages/engine/package.json`), which exposes everything through subpath exports: `@downdraft/engine` (core index), `@downdraft/engine/<area>` for core subtrees (`/ecs`, `/material`, `/module`, `/plugin`, `/profiling`, `/render`, ...) plus a `./* → ./core/src/*.ts` wildcard for deep core imports (e.g. `@downdraft/engine/worker/instrumented-worker-host` — there is **no** `/core/` subpath prefix), `@downdraft/engine/app/<main|shared>`, `@downdraft/engine/libraries/<name>`, `@downdraft/engine/modules/<name>`, plus `shader-graph`, `mcp`, `test`, and `asset-bake` subpaths. The other published packages are `@downdraft/cli` (the `draft` binary), `@downdraft/platform-native` (native binaries + host layer), and the `@downdraft/native-<platform>-<arch>` prebuilt-cdylib packages (optional deps of platform-native). The exports map is generated — run `node scripts/gen-engine-exports.mjs` after adding/removing a library or module directory.
 
-Architecturally the engine is split into **core + libraries** (standard engine building blocks, used directly by games) vs **modules** (opt-in game features with lifecycle + typed DI + diagnostics). Core also includes animation and particles subsystems directly.
+Architecturally the engine is split into **core + libraries** (standard engine building blocks, used directly by apps) vs **modules** (opt-in app features with lifecycle + typed DI + diagnostics). Core also includes animation and particles subsystems directly.
 
-- **Engine libraries** (imported as `@downdraft/engine/libraries/<name>`, located in `packages/engine/libraries/`): directories that export classes/functions without a module lifecycle. Games can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `GameModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: asset-browser, audio-kira, blitz-ui, character, devtools, entities, gamepad, gaussian-splats, gpu-kernels, html-ui-kit, inspectable, lighting, marching-cubes, models, navmesh, networking, pathfinding-2d, persistence, physics-native, physics-rapier, postfx, recast, sand, stickman, surface-nets, water, weather, weatherfx.
+- **Engine libraries** (imported as `@downdraft/engine/libraries/<name>`, located in `packages/engine/libraries/`): directories that export classes/functions without a module lifecycle. Apps can either import and wire these directly, or declare them via `EngineLibrary` descriptors in `AppModule.libraries[]` for auto-wiring (SAB allocation, sim system creation, renderer pass creation, typed DI tokens). Engine libraries: asset-browser, audio-kira, blitz-ui, character, devtools, entities, controller, gaussian-splats, gpu-kernels, html-ui-kit, inspectable, lighting, marching-cubes, models, navmesh, networking, pathfinding-2d, persistence, physics-native, physics-rapier, postfx, recast, sand, stickman, surface-nets, water, weather, weatherfx.
 - **Engine modules** (imported as `@downdraft/engine/modules/<name>`, located in `packages/engine/modules/`): directories that implement the `Module` or `RendererModule` interface with a `register()` lifecycle + typed DI. Engine modules: camera-controls, controller-ui, devtools, editor, html-ui, mcp, movement-2d, movement-3d, native-osr, sailing, terrain, vitals, xr.
-- **Game modules** (e.g. namespace `@my-game/module-*`, located in a game repo's `modules/` dir): game-specific features with a module lifecycle. Examples: crafting, inventory, buoyancy, collision, wildlife.
-- **Game libraries** (e.g. namespace `@my-game/library-*`, located in a game repo's `libraries/` dir): game-specific pure libraries without a module lifecycle. Examples: boats, economy, fishing, items, survival.
+- **App modules** (e.g. namespace `@my-app/module-*`, located in an app repo's `modules/` dir): app-specific features with a module lifecycle. Examples: crafting, inventory, buoyancy, collision, wildlife.
+- **App libraries** (e.g. namespace `@my-app/library-*`, located in an app repo's `libraries/` dir): app-specific pure libraries without a module lifecycle. Examples: boats, economy, fishing, items, survival.
 
-### Declarative GameModule + startGame()
+### Declarative AppModule + startApp()
 
-Games declare their renderer-side bootstrap as a `GameModule` and call `startGame()` from `@downdraft/engine/app/main`. This replaces the old `bootstrapGame()` callback-soup with a declarative module:
+Apps declare their renderer-side bootstrap as a `AppModule` and call `startApp()` from `@downdraft/engine/app/main`. This replaces the old `bootstrapApp()` callback-soup with a declarative module:
 
 ```ts
-startGame({
+startApp({
   libraries: [WaterLib],                    // engine library descriptors
   renderer: (canvas) => new WebGPURenderer(canvas),
   sim: (seed) => new SimWebWorker(seed?.libraryBuffers),
-  simConfig: { seed: 12345, gamemode: 0, rules: {} },
+  simConfig: { seed: 12345, appmode: 0, rules: {} },
   events: { weather_changed: (data, ctx) => store.setWeather(data) },
   save: { mode: "auto", engineVersion: "0.1.0" },
-  onReady: (ctx) => { /* game-specific wiring */ },
+  onReady: (ctx) => { /* app-specific wiring */ },
   onDispose: (ctx) => { /* cleanup */ },
 });
 ```
 
-`startGame()` handles: library SAB allocation, sim worker spawn, event routing, save store init, renderer create+init, render loop, FPS polling, display info, hot-reload dispose, deterministic mode. `bootstrapGame()` remains available for games that need full control.
+`startApp()` handles: library SAB allocation, sim worker spawn, event routing, save store init, renderer create+init, render loop, FPS polling, display info, hot-reload dispose, deterministic mode. `bootstrapApp()` remains available for apps that need full control.
 
 ### Feature modules
 
-Feature modules (`@downdraft/engine/modules/terrain`, `@downdraft/engine/modules/movement-3d`, `@downdraft/engine/modules/movement-2d`, `@downdraft/engine/modules/sailing`) use the factory pattern (`createXxxModule(config)`) and provide typed DI tokens. Games register them via `moduleHost.useModules([...])` for batch activation in dependency-resolved order.
+Feature modules (`@downdraft/engine/modules/terrain`, `@downdraft/engine/modules/movement-3d`, `@downdraft/engine/modules/movement-2d`, `@downdraft/engine/modules/sailing`) use the factory pattern (`createXxxModule(config)`) and provide typed DI tokens. Apps register them via `moduleHost.useModules([...])` for batch activation in dependency-resolved order.
 
 ### Cross-thread module contract
 
@@ -45,26 +45,26 @@ Feature modules (`@downdraft/engine/modules/terrain`, `@downdraft/engine/modules
 
 ### Engine library descriptors
 
-Engine libraries can expose an `EngineLibrary` descriptor (e.g. `WaterLib`, `PhysicsRapierLib`, `MarchingCubesLib`) that lets games declare them declaratively in `GameModule.libraries[]`:
+Engine libraries can expose an `EngineLibrary` descriptor (e.g. `WaterLib`, `PhysicsRapierLib`, `MarchingCubesLib`) that lets apps declare them declaratively in `AppModule.libraries[]`:
 
 ```ts
 import { WaterLib, PhysicsRapierLib } from "@downdraft/engine/libraries/water";
 
-startGame({
+startApp({
   libraries: [WaterLib, [PhysicsRapierLib, { maxEntities: 8192 }]],
   // ...
 });
 ```
 
-The `LibraryHost` auto-wires each library: allocates SAB channels, creates sim-side systems, creates renderer-side passes, and registers provided resources in the DI graph via typed tokens (e.g. `WaterWriterTok`, `WaterReaderTok`, `PhysicsAPITok`). Games inject these tokens from `GameContext` in their `onReady` hook.
+The `LibraryHost` auto-wires each library: allocates SAB channels, creates sim-side systems, creates renderer-side passes, and registers provided resources in the DI graph via typed tokens (e.g. `WaterWriterTok`, `WaterReaderTok`, `PhysicsAPITok`). Apps inject these tokens from `AppContext` in their `onReady` hook.
 
-Bare class exports remain as an escape hatch — games that need full control can still import and wire `WaterBufferWriter`, `RapierPhysicsBackend`, etc. directly.
+Bare class exports remain as an escape hatch — apps that need full control can still import and wire `WaterBufferWriter`, `RapierPhysicsBackend`, etc. directly.
 
-No engine package depends on any game package (verified). The `entities` library is an engine library (generic `ModelRenderer` used by multiple games). When adding a new game, create `modules/` in the game repo for its game-specific modules and `libraries/` for its game-specific pure libraries.
+No engine package depends on any app package (verified). The `entities` library is an engine library (generic `ModelRenderer` used by multiple apps). When adding a new app, create `modules/` in the app repo for its app-specific modules and `libraries/` for its app-specific pure libraries.
 
 ### Visual Test Bench
 
-A graphical test program for visually verifying engine effects and systems: a native html-ui menu of minimal tests, each owning its renderer (disposed + recreated on switch). Add tests as `src/tests/<category>/<name>.test.ts` in a game repo calling `registerTest()` — Vite glob auto-discovers them (`VisualTest { id, name, category, createRenderer(canvas), getControls?() }`). Built-ins cover navmesh debug viz and the full PostProcessStack effect chain.
+A graphical test program for visually verifying engine effects and systems: a native html-ui menu of minimal tests, each owning its renderer (disposed + recreated on switch). Add tests as `src/tests/<category>/<name>.test.ts` in an app repo calling `registerTest()` — Vite glob auto-discovers them (`VisualTest { id, name, category, createRenderer(canvas), getControls?() }`). Built-ins cover navmesh debug viz and the full PostProcessStack effect chain.
 
 Related manual test rigs under `test-beds/`: `ui-bakeoff` (the framework comparison that picked Blitz) and `component-kit` (live html-ui-kit widget gallery — `bun run test-beds/component-kit/main.ts`, `KIT_SELFTEST=1` for scripted assertions).
 
@@ -106,7 +106,7 @@ Set `DOWNDRAFT_STRICT_DIAGNOSTICS=0` to force-disable in dev, `DOWNDRAFT_STRICT_
 
 ### Logging conventions
 
-All logs go through `createLogger()` (`@downdraft/engine/util/logger`) as `log.<level>(module, msg)` — format `HH:MM:SS LEVEL [module] message`. Module tags are **lowercase-kebab** (`game-renderer`, `platform-native`, `import-cache`); single-identifier tags are normalized to kebab at render time, so stay consistent at the call site anyway. Separators carry meaning: `plugin:<id>` for user plugins, `dev/<sub>` for dev-shell submodules. Process-level tags: `draft` = the CLI, `dev` = the HMR dev shell (`dev/hmr` for runtime-side HMR events). There are **no thread prefixes** (R0/S0/SVC were an Electron-era renderer-vs-main distinction — removed); `setThreadTag()` remains for plugin workers that need origin labels. Routine diagnostics belong at `log.debug` — visible via `--verbose` or `DOWNDRAFT_LOG_LEVEL=debug`; INFO should read as a boot/status narrative, not a stream of internals.
+All logs go through `createLogger()` (`@downdraft/engine/util/logger`) as `log.<level>(module, msg)` — format `HH:MM:SS LEVEL [module] message`. Module tags are **lowercase-kebab** (`app-renderer`, `platform-native`, `import-cache`); single-identifier tags are normalized to kebab at render time, so stay consistent at the call site anyway. Separators carry meaning: `plugin:<id>` for user plugins, `dev/<sub>` for dev-shell submodules. Process-level tags: `draft` = the CLI, `dev` = the HMR dev shell (`dev/hmr` for runtime-side HMR events). There are **no thread prefixes** (R0/S0/SVC were an Electron-era renderer-vs-main distinction — removed); `setThreadTag()` remains for plugin workers that need origin labels. Routine diagnostics belong at `log.debug` — visible via `--verbose` or `DOWNDRAFT_LOG_LEVEL=debug`; INFO should read as a boot/status narrative, not a stream of internals.
 
 Config when adding/removing an engine library or module: create/remove the directory under `packages/engine/libraries/` or `packages/engine/modules/` with a `src/index.ts`, then run `node scripts/gen-engine-exports.mjs` (regenerates the `exports` map in `packages/engine/package.json`) and `node scripts/gen-deno-import-map.mjs` (regenerates `deno.json`). No tsconfig paths, Vite aliases, or workspace entries are needed — subpath resolution flows through the single `@downdraft/engine` package.
 

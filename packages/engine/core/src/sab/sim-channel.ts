@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { defineChannel } from "./define";
-import { InputChannel } from "./game-input";
+import { InputChannel } from "./app-input";
 
 // SAB protocol constants — buffer layout sizes
 export interface PhysicsTimingData {
@@ -32,7 +32,7 @@ export const SIM_ENTITY_SLOT_SIZE = 128;
 export const SIM_PLAYER_SLOT_SIZE = 256;
 
 export const SimChannel = defineChannel({
-  name: "game-sim",
+  name: "app-sim",
   magic: 0x53494d42,
   version: 2,
   mode: "slots",
@@ -53,7 +53,7 @@ export const SimChannel = defineChannel({
       visibility: { type: "f32" },
       ambientTemp: { type: "f32" },
       activePlayers: { type: "u32" },
-      gamemode: { type: "u32" },
+      appmode: { type: "u32" },
       physicsInitialized: { type: "u32" },
       physicsFailed: { type: "u32" },
       physicsBodyCount: { type: "u32" },
@@ -131,9 +131,9 @@ export const SimChannel = defineChannel({
         freecam: { type: "f32", count: 5 },
         thirdPersonDistance: { type: "f32" },
         // NOTE: The player slot is 256 bytes (64 f32s). Core fields use
-        // indices 0–30. Indices 31–63 are reserved padding — games can
-        // define their own extension constants (e.g. GAME_PLR.GOLD = 31)
-        // to store game-specific player state in this padding area without
+        // indices 0–30. Indices 31–63 are reserved padding — apps can
+        // define their own extension constants (e.g. APP_PLR.GOLD = 31)
+        // to store app-specific player state in this padding area without
         // modifying the core SAB schema.
       },
     },
@@ -183,7 +183,7 @@ export const SIM_HDR = {
   VISIBILITY: 14,
   AMBIENT_TEMP: 15,
   ACTIVE_PLAYERS: 16,
-  GAMEMODE: 17,
+  APPMODE: 17,
   PHYSICS_INITIALIZED: 18,
   PHYSICS_FAILED: 19,
   PHYSICS_BODY_COUNT: 20,
@@ -240,8 +240,8 @@ export const PLR = {
   FREECAM_X: 25, FREECAM_Y: 26, FREECAM_Z: 27,
   FREECAM_PITCH: 28, FREECAM_YAW: 29,
   THIRD_PERSON_DISTANCE: 30,
-  // Indices 31–63 are reserved for game-specific player state.
-  // Games define their own extension constants (e.g. GAME_PLR.GOLD = 31).
+  // Indices 31–63 are reserved for app-specific player state.
+  // Apps define their own extension constants (e.g. APP_PLR.GOLD = 31).
 } as const;
 
 export const PLR_FLAG = {
@@ -328,7 +328,7 @@ export class SimBufferReader {
   getVisibility(): number { return this.reader.header.f32[SimChannel.offsets.header.visibility]; }
   getAmbientTemp(): number { return this.reader.header.f32[SimChannel.offsets.header.ambientTemp]; }
   getActivePlayers(): number { return this.reader.header.u32[SimChannel.offsets.header.activePlayers]; }
-  getGamemode(): number { return this.reader.header.u32[SimChannel.offsets.header.gamemode]; }
+  getAppMode(): number { return this.reader.header.u32[SimChannel.offsets.header.appmode]; }
   getPhysicsInitialized(): number { return this.reader.header.u32[SimChannel.offsets.header.physicsInitialized]; }
   getPhysicsFailed(): number { return this.reader.header.u32[SimChannel.offsets.header.physicsFailed]; }
   getPhysicsBodyCount(): number { return this.reader.header.u32[SimChannel.offsets.header.physicsBodyCount]; }
@@ -481,7 +481,7 @@ export class SimBufferWriter {
   setVisibility(v: number) { this.writer.beginWrite(); this.writer.header.f32[SimChannel.offsets.header.visibility] = v; }
   setAmbientTemp(t: number) { this.writer.beginWrite(); this.writer.header.f32[SimChannel.offsets.header.ambientTemp] = t; }
   setActivePlayers(mask: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.activePlayers] = mask; }
-  setGamemode(mode: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.gamemode] = mode; }
+  setAppMode(mode: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.appmode] = mode; }
   setPhysicsInitialized(v: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.physicsInitialized] = v; }
   setPhysicsFailed(v: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.physicsFailed] = v; }
   setPhysicsBodyCount(v: number) { this.writer.beginWrite(); this.writer.header.u32[SimChannel.offsets.header.physicsBodyCount] = v; }

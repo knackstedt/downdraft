@@ -1,11 +1,11 @@
 // ============================================================================
 // NavmeshLib — declarative engine library descriptor for @downdraft/engine/libraries/navmesh
 //
-// Games declare `libraries: [NavmeshLib]` (or with config override) in their
-// GameModule. The host creates the NavMesh + Pathfinder (sim-side) and
+// Apps declare `libraries: [NavmeshLib]` (or with config override) in their
+// AppModule. The host creates the NavMesh + Pathfinder (sim-side) and
 // exposes them via typed tokens.
 //
-// Games that need full control can still import NavMesh, Pathfinder, and
+// Apps that need full control can still import NavMesh, Pathfinder, and
 // CrowdSystem directly (escape hatch).
 // ============================================================================
 
@@ -49,13 +49,13 @@ export const NavmeshLib: EngineLibrary<NavmeshLibConfig> = {
       // NavMesh holds only JS arrays/typed arrays — clear them to release memory.
       navMesh.clear();
     },
-    // tick is game-specific (calls crowdSystem.register() + setTarget() per
-    // agent, repathing, etc.) — games wire this via onReady.
+    // tick is app-specific (calls crowdSystem.register() + setTarget() per
+    // agent, repathing, etc.) — apps wire this via onReady.
   },
 
   tickPhase: "post-physics",
 
-  // No renderer setup — navmesh debug viz is game-specific (the game creates
+  // No renderer setup — navmesh debug viz is app-specific (the app creates
   // a NavMeshDebugViz pass if needed).
 
   defaultConfig: {

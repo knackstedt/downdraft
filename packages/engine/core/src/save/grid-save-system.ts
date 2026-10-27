@@ -1,19 +1,19 @@
 // ============================================================================
-// createGridSaveSystem — generic save-system factory for grid-based games.
+// createGridSaveSystem — generic save-system factory for grid-based apps.
 //
 // Eliminates the duplicated getStore() singleton + save/load/list/delete/
-// autosave/loadAutosave boilerplate that was copy-pasted across grid-based games.
+// autosave/loadAutosave boilerplate that was copy-pasted across grid-based apps.
 //
 // The factory owns:
-//   - Lazy ISaveStore singleton (via the game-provided createStore function)
-//   - saveGame: named slot + thumbnail + properties
-//   - loadGame: parse state + blobs into game-specific entry
+//   - Lazy ISaveStore singleton (via the app-provided createStore function)
+//   - saveApp: named slot + thumbnail + properties
+//   - loadApp: parse state + blobs into app-specific entry
 //   - listSaves: list all slots except autosave, with thumbnails
 //   - deleteSave: delete a named slot
 //   - autosave: save to the autosave slot
 //   - loadAutosave: load from the autosave slot
 //
-// Games provide:
+// Apps provide:
 //   - createStore: () => Promise<ISaveStore> (typically createDefaultSaveStore)
 //   - autosaveSlot: string ("autosave", "world", etc.)
 //   - buildState: (meta) => SaveState
@@ -33,15 +33,15 @@ export interface SaveListEntry {
 }
 
 export interface GridSaveSystemOptions<Meta, Entry> {
-  /** Creates the ISaveStore singleton (game provides this, typically createDefaultSaveStore). */
+  /** Creates the ISaveStore singleton (app provides this, typically createDefaultSaveStore). */
   createStore: () => Promise<ISaveStore>;
   /** Slot name for autosave (e.g. "autosave", "world"). */
   autosaveSlot: string;
-  /** Build SaveState from game meta. */
+  /** Build SaveState from app meta. */
   buildState: (meta: Meta) => SaveState;
-  /** Build blobs record from game meta (typed arrays → ArrayBuffers). */
+  /** Build blobs record from app meta (typed arrays → ArrayBuffers). */
   buildBlobs: (meta: Meta) => Record<string, ArrayBuffer>;
-  /** Parse a loaded SaveState + blobs into a game-specific entry. Return null if invalid. */
+  /** Parse a loaded SaveState + blobs into an app-specific entry. Return null if invalid. */
   parseEntry: (state: SaveState, blobs: Record<string, ArrayBuffer> | null) => Entry | null;
   /**
    * Extract list metadata from a loaded state for listSaves().
@@ -52,9 +52,9 @@ export interface GridSaveSystemOptions<Meta, Entry> {
 
 export interface GridSaveSystem<Meta, Entry> {
   /** Save to a named slot with thumbnail. Returns the generated id + timestamp. */
-  saveGame(name: string, thumbnail: ArrayBuffer | null, meta: Meta): Promise<{ id: string; timestamp: number }>;
+  saveApp(name: string, thumbnail: ArrayBuffer | null, meta: Meta): Promise<{ id: string; timestamp: number }>;
   /** Load from a named slot. Returns null if no save or invalid. */
-  loadGame(id: string): Promise<Entry | null>;
+  loadApp(id: string): Promise<Entry | null>;
   /** List all saves (excluding the autosave slot). */
   listSaves(): Promise<SaveListEntry[]>;
   /** Delete a save slot. */
@@ -80,7 +80,7 @@ export function createGridSaveSystem<Meta, Entry>(
   }
 
   return {
-    async saveGame(name: string, thumbnail: ArrayBuffer | null, meta: Meta): Promise<{ id: string; timestamp: number }> {
+    async saveApp(name: string, thumbnail: ArrayBuffer | null, meta: Meta): Promise<{ id: string; timestamp: number }> {
       const store = await getStore();
       const id = `save-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const state = opts.buildState(meta);
@@ -92,7 +92,7 @@ export function createGridSaveSystem<Meta, Entry>(
       return { id, timestamp: Date.now() };
     },
 
-    async loadGame(id: string): Promise<Entry | null> {
+    async loadApp(id: string): Promise<Entry | null> {
       const store = await getStore();
       const result = await store.load(id);
       if (!result.state) return null;
@@ -117,7 +117,7 @@ export function createGridSaveSystem<Meta, Entry>(
               timestamp: (props.savedAt as number) ?? s.timestamp * 1000,
               thumbnailUrl,
             };
-            // Merge game-specific list metadata if the game provided the callback.
+            // Merge app-specific list metadata if the app provided the callback.
             if (opts.extractListMeta) {
               // Load the state to extract list metadata (e.g. gridW, gridH).
               // This is a lightweight load — the state header is small.

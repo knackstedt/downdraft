@@ -1,7 +1,7 @@
 // ============================================================================
-// world.ts — the "World" tab. Rolls the engine's sim/scene/game provider
+// world.ts — the "World" tab. Rolls the engine's sim/scene/app provider
 // panels into one coherent surface: sim speed + control row up top, world
-// stats, entity/state inspectors, and any bespoke game sections below.
+// stats, entity/state inspectors, and any bespoke app sections below.
 // ============================================================================
 
 import type { RendererModuleContext } from "@downdraft/engine/module/renderer-module";
@@ -15,7 +15,7 @@ import type { PanelCtx } from "../ui/panels";
 import type { TargetSession } from "../targets/session";
 
 /** Provider names that roll up here instead of getting their own tab. */
-const WORLD_PANELS = ["sim", "scene", "target-state", "game"] as const;
+const WORLD_PANELS = ["sim", "scene", "target-state", "app"] as const;
 
 export class WorldSurface extends SnapSurface {
   private pctx: PanelCtx;
@@ -57,7 +57,7 @@ export class WorldSurface extends SnapSurface {
         });
       }
     }
-    // World inspector — the target's get_world_state MCP tool (games expose
+    // World inspector — the target's get_world_state MCP tool (apps expose
     // entities/state through it). 2s cadence.
     this.statePoll += dt * 1000;
     if (this.statePoll >= 2000) {
@@ -156,7 +156,7 @@ export class WorldSurface extends SnapSurface {
     if (!drew) {
       this.drawText(pass, MONO(), 11,
         s.mirror?.connected
-          ? "target exposes no world providers (sim/scene/game)"
+          ? "target exposes no world providers (sim/scene/app)"
           : "no mirror channel — world view needs the devtools mirror",
         r.x + this.z(14), y + this.z(10), hex(t.textFaint));
     }

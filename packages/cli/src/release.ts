@@ -3,11 +3,11 @@
 // ============================================================================
 //
 // Replaces the separate `build`, `dist`, `export`, `mobile`, and
-// `build-games` commands with a single pipeline:
+// `build-apps` commands with a single pipeline:
 //
-//   draft release [--game=<name>] [--target=<csv>]
-//                 (auto-detects the game from cwd or games/ when --game is omitted)
-//                 [--stage=<build|package|release>] [--games=<csv>]
+//   draft release [--app=<name>] [--target=<csv>]
+//                 (auto-detects the app from cwd or apps/ when --app is omitted)
+//                 [--stage=<build|package|release>] [--apps=<csv>]
 //                 [--mode=<dev|debug|prod>] [--out=<dir>]
 //                 [--mcp] [--verbose]
 //
@@ -29,8 +29,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, print, renderHelp } from "./args";
-import { formatGamesList, listGames } from "./list-games";
-import { findGameDirUpward, findMonorepoRoot, readGameConfig, resolveGameDir } from "./paths";
+import { formatAppsList, listApps } from "./list-apps";
+import { findAppDirUpward, findMonorepoRoot, readAppConfig, resolveAppDir } from "./paths";
 import { getCommand } from "./usage";
 
 const log = createLogger();
@@ -42,8 +42,8 @@ const log = createLogger();
 type Stage = "build" | "package" | "release";
 
 interface ReleaseArgs {
-  game: string | null;
-  games: string[];
+  app: string | null;
+  apps: string[];
   target: string;
   stage: Stage;
   mode: string;
@@ -73,11 +73,11 @@ function parseReleaseArgs(args: string[]): ReleaseArgs {
     process.exit(0);
   }
 
-  const game = (parsed.flags.game as string) || null;
-  const gamesFlag = (parsed.flags.games as string) || "";
-  const games = gamesFlag
-    ? gamesFlag.split(",").map((s) => s.trim()).filter(Boolean)
-    : game ? [game] : [];
+  const app = (parsed.flags.app as string) || null;
+  const appsFlag = (parsed.flags.apps as string) || "";
+  const apps = appsFlag
+    ? appsFlag.split(",").map((s) => s.trim()).filter(Boolean)
+    : app ? [app] : [];
 
   const stageFlag = (parsed.flags.stage as string) || "release";
   // --skip-build and --build-only are convenience aliases for --stage.
@@ -88,8 +88,8 @@ function parseReleaseArgs(args: string[]): ReleaseArgs {
   else if (skipBuild) stage = "package";
 
   return {
-    game,
-    games,
+    app,
+    apps,
     target: parsed.flags.target as string,
     stage,
     mode: (parsed.flags.mode as string) || "prod",
@@ -109,33 +109,33 @@ function parseReleaseArgs(args: string[]): ReleaseArgs {
 }
 
 // ---------------------------------------------------------------------------
-// Game resolution
+// App resolution
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the game(s) to release when neither --game nor --games is given.
+ * Resolve the app(s) to release when neither --app nor --apps is given.
  *
  * Resolution order:
- *  1. Explicit flags (--game / --games) — handled by the caller before this.
+ *  1. Explicit flags (--app / --apps) — handled by the caller before this.
  *  2. cwd inference — walk up from `process.cwd()` looking for
- *     `downdraft.config.json` or `src/native-entry.ts`. Lets games run
+ *     `downdraft.config.json` or `src/native-entry.ts`. Lets apps run
  *     `draft release` from their own directory (the scaffolded
  *     `package.json` sets `"release": "draft release"`).
- *  3. Single-game fallback — if `games/` contains exactly one game, use it.
+ *  3. Single-app fallback — if `apps/` contains exactly one app, use it.
  *
- * Returns the detected game name, or `null` if none could be determined.
+ * Returns the detected app name, or `null` if none could be determined.
  */
-function detectGame(monorepoRoot: string | null): string | null {
-  // 2. Cwd inference: walk up looking for the game-dir markers.
-  const upward = findGameDirUpward();
+function detectApp(monorepoRoot: string | null): string | null {
+  // 2. Cwd inference: walk up looking for the app-dir markers.
+  const upward = findAppDirUpward();
   if (upward) return basename(upward);
 
-  // 3. Single-game fallback (monorepo only).
+  // 3. Single-app fallback (monorepo only).
   if (monorepoRoot) {
-    const games = listGames(monorepoRoot);
-    if (games.length === 1) {
-      log.info("release", `No game specified — defaulting to the only game found: ${games[0]}`);
-      return games[0];
+    const apps = listApps(monorepoRoot);
+    if (apps.length === 1) {
+      log.info("release", `No app specified — defaulting to the only app found: ${apps[0]}`);
+      return apps[0];
     }
   }
 
@@ -172,26 +172,26 @@ function classifyTargets(target: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Game info resolution
+// App info resolution
 // ---------------------------------------------------------------------------
 
-interface GameInfo {
+interface AppInfo {
   productName: string;
   appId: string;
   version: string;
-  /** The electron-builder-style `build` block from the game's package.json. */
+  /** The electron-builder-style `build` block from the app's package.json. */
   build: Record<string, any>;
 }
 
-function getGameInfo(gameDir: string, game: string): GameInfo {
-  const pkgPath = resolve(gameDir, "package.json");
-  const fallback: GameInfo = { productName: game, appId: `com.downdraft.${game}`, version: "0.0.0", build: {} };
+function getAppInfo(appDir: string, app: string): AppInfo {
+  const pkgPath = resolve(appDir, "package.json");
+  const fallback: AppInfo = { productName: app, appId: `com.downdraft.${app}`, version: "0.0.0", build: {} };
   if (!existsSync(pkgPath)) return fallback;
   try {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
     const productName = pkg.productName ?? pkg.build?.productName ??
-      String(pkg.name ?? game).replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    const appId = pkg.build?.appId ?? `com.downdraft.${game}`;
+      String(pkg.name ?? app).replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    const appId = pkg.build?.appId ?? `com.downdraft.${app}`;
     const version = pkg.version ?? "0.0.0";
     return { productName, appId, version, build: pkg.build ?? {} };
   } catch {
@@ -204,38 +204,38 @@ function getGameInfo(gameDir: string, game: string): GameInfo {
 // ---------------------------------------------------------------------------
 
 /**
- * Compile the game's native entry into a standalone Bun binary plus the
- * staged runtime tree (<out>/<game>-<target> + sibling native/ + dd-assets/).
+ * Compile the app's native entry into a standalone Bun binary plus the
+ * staged runtime tree (<out>/<app>-<target> + sibling native/ + dd-assets/).
  * One compile covers both the build and package stages — the binary IS the
  * artifact.
  */
 function packageNative(
-  game: string,
-  gameDir: string,
+  app: string,
+  appDir: string,
   targets: string[],
   opts: ReleaseArgs,
-  info: GameInfo,
+  info: AppInfo,
 ): boolean {
-  const entry = resolve(gameDir, "src/native-entry.ts");
+  const entry = resolve(appDir, "src/native-entry.ts");
   if (!existsSync(entry)) {
-    log.error("release:package", `No src/native-entry.ts in ${gameDir} — the game has no native entry.`);
+    log.error("release:package", `No src/native-entry.ts in ${appDir} — the app has no native entry.`);
     return false;
   }
   // The packaging scripts ship inside @downdraft/cli (files: ["scripts"]) so
-  // standalone game repos resolve them through the installed package, not
+  // standalone app repos resolve them through the installed package, not
   // the engine monorepo.
   const scriptNative = fileURLToPath(new URL("../scripts/package-native.mjs", import.meta.url));
   const scriptDesktop = fileURLToPath(new URL("../scripts/package-desktop.mjs", import.meta.url));
   // cwd is the relativization root for staged assets — the monorepo root
-  // when present (engine sources relativize cleanly), else the game dir.
-  const cwd = findMonorepoRoot(gameDir) ?? gameDir;
+  // when present (engine sources relativize cleanly), else the app dir.
+  const cwd = findMonorepoRoot(appDir) ?? appDir;
 
   // Runtime matrix: --runtime flag → build.runtime in package.json →
   // downdraft.config.json "runtime" → bun.
   // "all" expands to the full matrix (one appdir per runtime).
   const RUNTIMES = ["bun", "node", "deno"];
   const requested = opts.runtime ?? info.build.runtime
-    ?? (readGameConfig(gameDir).runtime as string | undefined) ?? "bun";
+    ?? (readAppConfig(appDir).runtime as string | undefined) ?? "bun";
   const runtimes = requested === "all" ? RUNTIMES : [requested];
   for (const r of runtimes.values()) {
     if (!RUNTIMES.includes(r)) {
@@ -281,7 +281,7 @@ function packageNative(
         log.info("release:package", `bun package-desktop.mjs --runtime=${runtime} --format=${format} ${basename(entry)}`);
         const result = spawnSync("bun", argv, { cwd, stdio: "inherit", env: process.env });
         if (result.status !== 0) {
-          log.error("release:package", `Packaging failed for ${game} (${target}/${runtime})`);
+          log.error("release:package", `Packaging failed for ${app} (${target}/${runtime})`);
           ok = false;
         }
         continue;
@@ -290,7 +290,7 @@ function packageNative(
       // target gets its own dir so the staged native/ + dd-assets/ trees
       // don't interleave across platforms.
       if (runtime !== "bun") continue;
-      const outfile = resolve(opts.out, `${game}-${target}`, `${game}-${target}`);
+      const outfile = resolve(opts.out, `${app}-${target}`, `${app}-${target}`);
       const argv = [
         scriptNative,
         `--target=${target}`,
@@ -309,7 +309,7 @@ function packageNative(
         env: process.env,
       });
       if (result.status !== 0) {
-        log.error("release:package", `Native packaging failed for ${game} (${target})`);
+        log.error("release:package", `Native packaging failed for ${app} (${target})`);
         ok = false;
       }
     }
@@ -322,24 +322,24 @@ function packageNative(
 // ---------------------------------------------------------------------------
 
 /**
- * Bundle the game + native libs + embedded libnode into an APK. Single
+ * Bundle the app + native libs + embedded libnode into an APK. Single
  * target ("android") produces lib/<abi>/ entries for --abi (default
  * arm64-v8a). Unlike the desktop path the artifact is the APK itself.
  */
 function packageAndroid(
-  game: string,
-  gameDir: string,
+  app: string,
+  appDir: string,
   opts: ReleaseArgs,
-  info: GameInfo,
+  info: AppInfo,
 ): boolean {
-  const entry = resolve(gameDir, "src/native-entry.ts");
+  const entry = resolve(appDir, "src/native-entry.ts");
   if (!existsSync(entry)) {
-    log.error("release:package", `No src/native-entry.ts in ${gameDir} — the game has no native entry.`);
+    log.error("release:package", `No src/native-entry.ts in ${appDir} — the app has no native entry.`);
     return false;
   }
   const script = fileURLToPath(new URL("../scripts/package-mobile.mjs", import.meta.url));
-  const cwd = findMonorepoRoot(gameDir) ?? gameDir;
-  const outfile = resolve(opts.out, `${game}-android.apk`);
+  const cwd = findMonorepoRoot(appDir) ?? appDir;
+  const outfile = resolve(opts.out, `${app}-android.apk`);
   const argv = [
     script,
     `--mode=${opts.mode}`,
@@ -360,7 +360,7 @@ function packageAndroid(
   log.info("release:package", `bun ${argv.map((a) => basename(a)).join(" ")}`);
   const result = spawnSync("bun", argv, { cwd, stdio: "inherit", env: process.env });
   if (result.status !== 0) {
-    log.error("release:package", `Android packaging failed for ${game}`);
+    log.error("release:package", `Android packaging failed for ${app}`);
     return false;
   }
   return true;
@@ -373,21 +373,21 @@ function packageAndroid(
 export async function release(args: string[]): Promise<void> {
   const opts = parseReleaseArgs(args);
   // Monorepo root when running inside the engine repo; null for standalone
-  // game repos (the game directory itself is the project root).
+  // app repos (the app directory itself is the project root).
   const monorepoRoot = findMonorepoRoot();
 
-  // Auto-detect the game when neither --game nor --games is given.
-  let games = opts.games;
-  if (games.length === 0) {
-    const detected = detectGame(monorepoRoot);
+  // Auto-detect the app when neither --app nor --apps is given.
+  let apps = opts.apps;
+  if (apps.length === 0) {
+    const detected = detectApp(monorepoRoot);
     if (detected) {
-      games = [detected];
-      opts.game = detected;
+      apps = [detected];
+      opts.app = detected;
     } else {
-      log.error("release", "No game specified and none could be auto-detected.");
-      log.error("release", "Run \"draft release\" from a game directory, or use \"--game <name>\" / \"--games <csv>\" from the engine root.");
-      log.error("release", "Available games:");
-      print(formatGamesList(monorepoRoot ?? process.cwd()));
+      log.error("release", "No app specified and none could be auto-detected.");
+      log.error("release", "Run \"draft release\" from an app directory, or use \"--app <name>\" / \"--apps <csv>\" from the engine root.");
+      log.error("release", "Available apps:");
+      print(formatAppsList(monorepoRoot ?? process.cwd()));
       process.exit(1);
     }
   }
@@ -400,7 +400,7 @@ export async function release(args: string[]): Promise<void> {
   ╚══════════════════════════════════════════╝
   `);
 
-  log.info("release", `  Game(s):     ${games.join(", ")}`);
+  log.info("release", `  App(s):     ${apps.join(", ")}`);
   log.info("release", `  Target:      ${opts.target}`);
   log.info("release", `  Stage:       ${opts.stage}`);
   log.info("release", `  Mode:        ${opts.mode}`);
@@ -410,35 +410,35 @@ export async function release(args: string[]): Promise<void> {
 
   let fail = 0;
 
-  for (let _i = 0, _it = games, _n = _it.length; _i < _n; _i++) { const game = _it[_i];
-    const gameDir = resolveGameDir(game) ?? resolve(monorepoRoot ?? process.cwd(), "games", game);
-    const info = getGameInfo(gameDir, game);
-    log.info("release", `Game: ${game} | Product: "${info.productName}" | AppId: ${info.appId} | v${info.version}`);
+  for (let _i = 0, _it = apps, _n = _it.length; _i < _n; _i++) { const app = _it[_i];
+    const appDir = resolveAppDir(app) ?? resolve(monorepoRoot ?? process.cwd(), "apps", app);
+    const info = getAppInfo(appDir, app);
+    log.info("release", `App: ${app} | Product: "${info.productName}" | AppId: ${info.appId} | v${info.version}`);
     log.info("release", "");
 
     // Native packaging is a single compile step — build/package/release
     // all produce the same artifact.
     const isAndroid = targets.every((t) => MOBILE_TARGETS.has(t));
-    log.info("release", `[package] Compiling ${game} (${targets.join(", ")})...`);
+    log.info("release", `[package] Compiling ${app} (${targets.join(", ")})...`);
     const ok = isAndroid
-      ? packageAndroid(game, gameDir, opts, info)
-      : packageNative(game, gameDir, targets, opts, info);
+      ? packageAndroid(app, appDir, opts, info)
+      : packageNative(app, appDir, targets, opts, info);
     if (!ok) {
-      log.error("release", `Packaging failed for ${game} — skipping.`);
+      log.error("release", `Packaging failed for ${app} — skipping.`);
       fail = 1;
       continue;
     }
 
-    log.info("release", `${game} done.`);
+    log.info("release", `${app} done.`);
     log.info("release", "");
   }
 
   // Summary
   log.info("release", "");
   if (fail) {
-    log.error("release", "One or more games failed — see output above.");
+    log.error("release", "One or more apps failed — see output above.");
   } else {
-    log.info("release", "All selected games processed successfully.");
+    log.info("release", "All selected apps processed successfully.");
   }
   log.info("release", `Artifacts: ${opts.out}/`);
 

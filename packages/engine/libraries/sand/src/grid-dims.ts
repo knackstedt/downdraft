@@ -1,8 +1,8 @@
 // ============================================================================
-// computeGridDims — shared grid dimension calculator for sand/grid games
+// computeGridDims — shared grid dimension calculator for sand/grid apps
 // ============================================================================
 //
-// Grid-based sand games need
+// Grid-based sand apps need
 // to compute sand grid dimensions from canvas buffer pixels. The math is
 // identical except for the base cell size, max grid bounds, and optional
 // alignment. This shared utility eliminates the duplication.

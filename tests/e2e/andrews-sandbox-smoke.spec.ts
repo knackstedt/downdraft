@@ -1,22 +1,22 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
     captureAndSaveScreenshot,
-    gameAvailable,
-    launchGame,
+    appAvailable,
+    launchApp,
     parseJsonContent,
     sleep,
-    type GameProcess,
+    type AppProcess,
     type McpToolResult
 } from "./harness";
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
 
-describe.skipIf(!gameAvailable("andrews-sandbox"))("andrews-sandbox MCP automation smoke", () => {
-  let game: GameProcess | null = null;
+describe.skipIf(!appAvailable("andrews-sandbox"))("andrews-sandbox MCP automation smoke", () => {
+  let app: AppProcess | null = null;
 
   beforeAll(async () => {
-    game = await launchGame({
-      game: "andrews-sandbox",
+    app = await launchApp({
+      app: "andrews-sandbox",
       mcpPort: MCP_PORT,
       gpu: (process.env.DOWNDRAFT_GPU as "swiftshader" | undefined) ?? "swiftshader",
       deterministic: true,
@@ -30,19 +30,19 @@ describe.skipIf(!gameAvailable("andrews-sandbox"))("andrews-sandbox MCP automati
   }, 180000);
 
   afterAll(async () => {
-    await game?.kill();
+    await app?.kill();
   }, 30000);
 
   it("exposes the automation tool set", async () => {
-    const tools = await game!.mcpClient.listTools();
+    const tools = await app!.mcpClient.listTools();
     const names = new Set(tools.map((t) => t.name));
     ["capture_screenshot", "get_ui_state", "dispatch_key", "wait_for_condition"].forEach((name) => {
       expect(names.has(name)).toBe(true);
     });
   });
 
-  it("reports game state via get_ui_state", async () => {
-    const result = (await game!.mcpClient.callTool("get_ui_state", {})) as McpToolResult;
+  it("reports app state via get_ui_state", async () => {
+    const result = (await app!.mcpClient.callTool("get_ui_state", {})) as McpToolResult;
     const state = parseJsonContent(result) as {
       simReady: boolean;
       playerHealth: number;
@@ -59,13 +59,13 @@ describe.skipIf(!gameAvailable("andrews-sandbox"))("andrews-sandbox MCP automati
 
   it("captures a non-empty screenshot", async () => {
     await sleep(2000);
-    const meta = await captureAndSaveScreenshot(game!, "andrews-sandbox-smoke.png", true);
+    const meta = await captureAndSaveScreenshot(app!, "andrews-sandbox-smoke.png", true);
     expect(meta.width).toBeGreaterThan(0);
     expect(meta.height).toBeGreaterThan(0);
   }, 30000);
 
   it("reports no console errors during boot", () => {
-    const errors = game!.getConsoleErrors();
+    const errors = app!.getConsoleErrors();
     expect(errors).toEqual([]);
   });
 });

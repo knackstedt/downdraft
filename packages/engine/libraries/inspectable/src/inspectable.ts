@@ -1,25 +1,25 @@
 // ============================================================================
 // inspectable.ts — InspectableRegistry: a schema'd, hierarchical registry of
-// named game-state nodes that automation (MCP tools, devtools) can read and
+// named app-state nodes that automation (MCP tools, devtools) can read and
 // write WITHOUT synthesizing user input.
 //
 // Why callbacks instead of field reflection: most interesting state isn't
 // live-bound — e.g. `CharacterCustomization.girth` only takes effect after
-// the game re-runs resolveCustomizationMeshes() and re-uploads meshes. A raw
+// the app re-runs resolveCustomizationMeshes() and re-uploads meshes. A raw
 // `obj[key] = value` would silently desync the store, the rendered mesh, and
 // the sim. Each node therefore carries a `set()` that routes through the same
-// apply function the game's own UI calls.
+// apply function the app's own UI calls.
 //
 // Hierarchy is derived from dot-separated `path`s ("player.customization.
 // girth") — no class hierarchy or decorator machinery required.
 //
 // Thread model: `set()` runs in whatever thread hosts the registry. For
-// sim-authoritative state, implement `set` as a dispatch over the game's
+// sim-authoritative state, implement `set` as a dispatch over the app's
 // RendererToSimMessage channel and let `get` read the last received snapshot;
 // mark the node `thread: "sim"` so callers know the write isn't synchronous.
 //
 // When to use what:
-//   - inspectable_* tools (this registry) — semantic game state with schema
+//   - inspectable_* tools (this registry) — semantic app state with schema
 //   - add_component (editor MCP)      — ECS component data
 //   - extraTools / set_test_state     — bespoke escape hatches
 //   - inject_input / dispatch_*       — exercising the real input pipeline
@@ -32,7 +32,7 @@ export type InspectableType = "number" | "boolean" | "string" | "enum" | "json";
 export type InspectableThread = "renderer" | "sim" | "main";
 
 /**
- * One addressable piece of game state.
+ * One addressable piece of app state.
  *
  * Path convention: dot-separated identifiers ("player.customization.girth").
  * Segments must not contain `.` — arbitrary map keys (material names with
@@ -52,7 +52,7 @@ export interface InspectableNode {
     readOnly?: boolean;
     thread?: InspectableThread;
     get(): unknown;
-    /** Routes through the game's apply pipeline (store update → re-resolve →
+    /** Routes through the app's apply pipeline (store update → re-resolve →
      *  sim dispatch). May be async when the apply involves uploads. */
     set?(value: unknown): void | Promise<void>;
 }

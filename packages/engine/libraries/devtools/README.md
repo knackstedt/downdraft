@@ -7,14 +7,14 @@ viewers attach to. Renders nothing itself.
 ## Frontend
 
 **`@downdraft/devtools`** — the devtools surface. Embedded as an in-window
-overlay (F12; auto-mounted by `bootstrapGame` when the package is installed)
+overlay (F12; auto-mounted by `bootstrapApp` when the package is installed)
 or launched standalone via `draft devtools` to attach to running targets.
 The removed Blitz dock and `devtools-web` browser SPA are gone.
 
 ## Backend host
 
-`EmbeddedDevtoolsHost` owns `DevtoolsBackend` + `CdpBridge` for a game —
-created per game by `bootstrapGame` (`devtools.ui:"devtools"`, the default)
+`EmbeddedDevtoolsHost` owns `DevtoolsBackend` + `CdpBridge` for an app —
+created per app by `bootstrapApp` (`devtools.ui:"devtools"`, the default)
 and landed on `renderer.nativeDebugger`. Pumped per frame; providers and
 thread evals exist regardless of which frontend is attached.
 

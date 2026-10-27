@@ -6,7 +6,7 @@
 // this document; the `.ddscene` serializer (ddscene.ts) round-trips it to
 // disk.
 //
-// Display names are document metadata, not a component — games are free to
+// Display names are document metadata, not a component — apps are free to
 // have their own "name" component; the editor's name is authoring chrome.
 // ============================================================================
 

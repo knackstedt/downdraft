@@ -4,7 +4,7 @@ DownDraft embeds or distributes components under the following licenses.
 This file summarizes the notable ones; it is not a substitute for the
 upstream license texts, which ship inside each component's distribution.
 
-## JavaScript runtimes (embedded in packaged games)
+## JavaScript runtimes (embedded in packaged apps)
 
 | Component | License | Notes |
 |---|---|---|

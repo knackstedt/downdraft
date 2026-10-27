@@ -28,7 +28,7 @@ export class HostSaveStore implements ISaveStore {
    * @param api  The HostServices API handle (inline impl or worker proxy).
    * @param subscribeWarnings  Host warning feed (services.onWarning) —
    *   forwarded to onWarning subscribers so corruption/backup warnings
-   *   reach the game, not just the log.
+   *   reach the app, not just the log.
    */
   constructor(
     private api: HostServicesApi,

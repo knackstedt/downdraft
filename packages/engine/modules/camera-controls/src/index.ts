@@ -4,9 +4,9 @@
 // Registers a `CameraController` as the active camera provider on the
 // `RendererModuleContext`, wires orbit/pan/zoom input from the shared input
 // bus, and disposes cleanly on unload. This is the engine-builtin replacement
-// for game-local `OrbitCamera` classes.
+// for app-local `OrbitCamera` classes.
 //
-// For games with bespoke render loops (no `GameRenderer`), use
+// For apps with bespoke render loops (no `AppRenderer`), use
 // `createCameraController(inputBus, opts)` instead — it returns a bare
 // `CameraController` wired to a `RendererInputBus` without the plugin wrapper.
 // ============================================================================
@@ -39,8 +39,8 @@ export interface CameraControlsOptions {
 
 /**
  * Creates a configured `CameraController` and wires it to a
- * `RendererInputBus` for orbit/pan/zoom input. For games that use
- * `GameRenderer` + `RendererModuleHost`, prefer `createCameraControlsModule`
+ * `RendererInputBus` for orbit/pan/zoom input. For apps that use
+ * `AppRenderer` + `RendererModuleHost`, prefer `createCameraControlsModule`
  * instead — it handles registration and disposal automatically.
  *
  * The caller is responsible for:
@@ -151,7 +151,7 @@ export function createCameraControlsModule(
 }
 
 /**
- * Convenience default instance with sensible orbit defaults. Games that need
+ * Convenience default instance with sensible orbit defaults. Apps that need
  * custom sensitivity/lerp should use `createCameraControlsModule(opts)`.
  */
 export const CameraControlsModule: RendererModule = createCameraControlsModule();

@@ -1,6 +1,6 @@
 /**
  * Asset manifest format for declaring remote asset packs.
- * Each game project has a `downdraft.assets.json` that lists
+ * Each app project has a `downdraft.assets.json` that lists
  * required asset packs with versions and storage backends.
  */
 

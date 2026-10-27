@@ -1,33 +1,33 @@
 ---
 title: Modules
-description: Module system architecture, typed DI, declarative GameModule, and first-party modules
+description: Module system architecture, typed DI, declarative AppModule, and first-party modules
 ---
 
 DownDraft has a tiered extension system with three layers:
 
 1. **Engine libraries** (`@downdraft/engine/libraries/*`) — standard building blocks (water, physics, terrain, audio, etc.). Used directly or via declarative `EngineLibrary` descriptors.
 2. **Engine modules** (`@downdraft/engine/modules/*`) — opt-in features with lifecycle + typed DI (devtools, camera-controls, terrain, movement, sailing, OSR, MCP, XR).
-3. **Game modules** (`@<game>/module-*`) — game-specific systems (fishing, inventory, crafting, wildlife, etc.) using the same `Module` interface.
+3. **App modules** (`@<app>/module-*`) — app-specific systems (fishing, inventory, crafting, wildlife, etc.) using the same `Module` interface.
 
-> **Note on terminology:** "module" refers to the engine's compile-time DI units (documented on this page). "plugin" refers to the user-authored runtime plugin/modding system — capability-restricted extensions discovered under `<game>/plugins/` (`plugin.json`/`mod.json`), loaded by a per-thread `PluginHost` (`core/src/plugin`) in `worker-js`, `wasm`, `quickjs`, or `asset` formats behind tiered permissions (only wasm/quickjs are hard-isolated — see [Plugins](/guides/plugins/)). Scaffold them with `draft plugin new` / `draft mod new` (see [CLI reference](/reference/cli/)).
+> **Note on terminology:** "module" refers to the engine's compile-time DI units (documented on this page). "plugin" refers to the user-authored runtime plugin/modding system — capability-restricted extensions discovered under `<app>/plugins/` (`plugin.json`/`mod.json`), loaded by a per-thread `PluginHost` (`core/src/plugin`) in `worker-js`, `wasm`, `quickjs`, or `asset` formats behind tiered permissions (only wasm/quickjs are hard-isolated — see [Plugins](/guides/plugins/)). Scaffold them with `draft plugin new` / `draft mod new` (see [CLI reference](/reference/cli/)).
 
-## Declarative GameModule
+## Declarative AppModule
 
-Games declare their renderer-side bootstrap as a `GameModule` and call `startGame()`:
+Apps declare their renderer-side bootstrap as a `AppModule` and call `startApp()`:
 
 ```typescript
-import { startGame } from "@downdraft/engine/app/main";
+import { startApp } from "@downdraft/engine/app/main";
 import { WaterLib } from "@downdraft/engine/libraries/water";
 import { createTerrainModule } from "@downdraft/engine/modules/terrain";
 
-startGame({
+startApp({
   // Engine libraries (declarative SAB allocation + DI tokens)
   libraries: [WaterLib],
 
   // Renderer + Sim
-  renderer: (surface) => new GameRenderer(surface),
+  renderer: (surface) => new AppRenderer(surface),
   sim: (seed) => new SimWebWorker(seed?.libraryBuffers),
-  simConfig: { seed: 12345, gamemode: 0, rules: {} },
+  simConfig: { seed: 12345, appmode: 0, rules: {} },
 
   // Sim→Renderer event routing (declarative)
   events: {
@@ -38,7 +38,7 @@ startGame({
   // Save
   save: { mode: "auto", engineVersion: "0.1.0" },
 
-  // Game-specific wiring
+  // App-specific wiring
   onReady: (ctx) => {
     ctx.renderer.setBuffers(ctx.simSAB, ctx.extraBuffers.water, ctx.inputSAB);
     // ...
@@ -47,7 +47,7 @@ startGame({
 });
 ```
 
-`startGame()` wraps `bootstrapGame()` and handles: sim worker spawn + SAB capture, library SAB allocation, declarative event routing, save store init, renderer create+init, render loop, FPS polling, display info, hot-reload dispose, and deterministic mode. Games that need full control can call `bootstrapGame()` directly.
+`startApp()` wraps `bootstrapApp()` and handles: sim worker spawn + SAB capture, library SAB allocation, declarative event routing, save store init, renderer create+init, render loop, FPS polling, display info, hot-reload dispose, and deterministic mode. Apps that need full control can call `bootstrapApp()` directly.
 
 ## Typed DI (provide/inject)
 
@@ -92,7 +92,7 @@ Engine libraries can expose an `EngineLibrary` descriptor for declarative wiring
 ```typescript
 import { WaterLib, PhysicsRapierLib } from "@downdraft/engine/libraries/water";
 
-startGame({
+startApp({
   libraries: [
     WaterLib,
     [PhysicsRapierLib, { maxEntities: 8192 }],  // override config
@@ -107,7 +107,7 @@ The `LibraryHost` auto-wires each library:
 - Creates renderer-side passes
 - Registers provided resources in the DI graph via typed tokens
 
-Games inject library-provided tokens from `GameContext`:
+Apps inject library-provided tokens from `AppContext`:
 
 ```typescript
 onReady: (ctx) => {
@@ -118,7 +118,7 @@ onReady: (ctx) => {
 }
 ```
 
-Bare class exports remain as an escape hatch — games that need full control can still import and wire `WaterBufferWriter`, `RapierPhysicsBackend`, etc. directly.
+Bare class exports remain as an escape hatch — apps that need full control can still import and wire `WaterBufferWriter`, `RapierPhysicsBackend`, etc. directly.
 
 ### Available library descriptors
 
@@ -130,7 +130,7 @@ Bare class exports remain as an escape hatch — games that need full control ca
 
 ## Feature Modules
 
-Feature modules are opt-in game features with the `Module` interface:
+Feature modules are opt-in app features with the `Module` interface:
 
 | Module | Package | Description |
 |--------|---------|-------------|
@@ -140,17 +140,17 @@ Feature modules are opt-in game features with the `Module` interface:
 | sailing | `@downdraft/engine/modules/sailing` | Sailing mechanics (wind, buoyancy, rudder, hull drag) |
 | devtools | `@downdraft/engine/modules/debug` | Debug overlays, scene inspector, gizmos |
 | camera-controls | `@downdraft/engine/modules/camera-controls` | Camera modes (free, follow, orbit) |
-| native-osr | `@downdraft/engine/modules/native-osr` | Offscreen rendering for in-game UI surfaces |
+| native-osr | `@downdraft/engine/modules/native-osr` | Offscreen rendering for in-app UI surfaces |
 | mcp | `@downdraft/engine/modules/mcp` | MCP automation harness for testing |
 | editor | `@downdraft/engine/modules/editor` | Editor shell, viewport, selection, commands |
-| html-ui | `@downdraft/engine/modules/html-ui` | Blitz HTML/CSS game UI, rasterized in a worker |
+| html-ui | `@downdraft/engine/modules/html-ui` | Blitz HTML/CSS app UI, rasterized in a worker |
 | controller-ui | `@downdraft/engine/modules/controller-ui` | Controller/ten-foot UI support |
 | vitals | `@downdraft/engine/modules/vitals` | Vitals (health/stamina/etc.) system |
 | xr | `@downdraft/engine/modules/xr` | WebXR VR/AR support |
 
 ### Module factory pattern
 
-Modules use a factory pattern so games can pass config at registration time:
+Modules use a factory pattern so apps can pass config at registration time:
 
 ```typescript
 import { createTerrainModule } from "@downdraft/engine/modules/terrain";
@@ -160,12 +160,12 @@ const terrainModule = createTerrainModule({
   meshWorkerCount: 4,
 });
 
-gameWorld.moduleHost.registerModule(terrainModule);
+appWorld.moduleHost.registerModule(terrainModule);
 ```
 
 ## Cross-Thread Module Contract
 
-In multi-threaded games, the sim worker and renderer each have their own `ModuleHost`. Cross-thread tokens declare shared resources:
+In multi-threaded apps, the sim worker and renderer each have their own `ModuleHost`. Cross-thread tokens declare shared resources:
 
 ```typescript
 import { crossThreadToken } from "@downdraft/engine";

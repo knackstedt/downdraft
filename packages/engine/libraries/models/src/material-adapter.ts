@@ -3,7 +3,7 @@
 // glTF/obj material format; this adapter maps it onto a core Material that
 // uses the shader-graph pipeline (PBR profile, graph or fallback physical .wgsl).
 //
-// The game's renderer delegates material upload to the core surface via this
+// The app's renderer delegates material upload to the core surface via this
 // adapter, retiring the parallel material rendering path.
 
 import { BlendMode, CullMode, DEFAULT_VARIANT_FLAGS, Material, MaterialLibrary, MaterialType, type AlphaMode, type MaterialDefinition } from "@downdraft/engine";

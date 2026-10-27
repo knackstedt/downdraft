@@ -10,9 +10,9 @@ members = [
     # Unified platform library — windowing (winit), GPU (wgpu), image decode,
     # text rasterization, WGSL validation. Replaces native/*.c.
     "packages/platform-native/native-rs",
-    # Optional gamepad backend (gilrs). Separate cdylib so its libudev link
+    # Optional controller backend (gilrs). Separate cdylib so its libudev link
     # dep can't take down the platform library on systems without udev.
-    "packages/platform-native/native-gamepad",
+    "packages/platform-native/native-controller",
     # Optional OS keychain backend (keyring). Separate cdylib — zbus/dbus on
     # Linux must not become a load-time dep of downdraft_platform.
     "packages/platform-native/native-secrets",

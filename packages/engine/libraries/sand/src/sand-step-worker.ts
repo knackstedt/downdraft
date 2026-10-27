@@ -17,11 +17,11 @@
 import { MAT_GRAVITY, MAT_GRAVITY_DIR, SandWorld } from "./sand-world";
 
 // --- Gravity overrides for static materials ---
-// Games can pass `gravityOverrides` in the init message to patch the gravity
+// Apps can pass `gravityOverrides` in the init message to patch the gravity
 // lookup tables for materials that are static by default (gravityDir=0) but
-// need to fall in the game's context (e.g. Sandjongg's Ice/Plant/Fireflies).
+// need to fall in the app's context (e.g. Sandjongg's Ice/Plant/Fireflies).
 // This runs in the sand-step worker thread, which has its own module instance
-// separate from the game worker.
+// separate from the app worker.
 let gravityOverrides: { mat: number; gravityDir: number; gravity: number }[] | null = null;
 
 function applyGravityOverrides(): void {
@@ -58,7 +58,7 @@ self.onmessage = (e: MessageEvent) => {
       stripStartX = msg.stripStartX;
       stripEndX = msg.stripEndX;
       world.setStripBounds(stripStartX, stripEndX);
-      // Copy preserveFlagsMask + disturbedFlags from the coordinator (game-specific).
+      // Copy preserveFlagsMask + disturbedFlags from the coordinator (app-specific).
       if (msg.preserveFlagsMask !== undefined) world.preserveFlagsMask = msg.preserveFlagsMask;
       if (msg.disturbedFlags !== undefined) world.disturbedFlags = msg.disturbedFlags;
       self.postMessage({ type: "ready" });

@@ -1,8 +1,8 @@
 import { MultiInputSABWriter } from "./multi-sab-bridge";
 
 export interface InputDevice {
-  type: "keyboard-mouse" | "gamepad";
-  gamepadIndex?: number;
+  type: "keyboard-mouse" | "controller";
+  controllerIndex?: number;
 }
 
 export interface DeviceConnectCallback {
@@ -13,9 +13,9 @@ export interface DeviceDisconnectCallback {
   (device: InputDevice): void;
 }
 
-/** Normalized per-poll gamepad snapshot (standard-layout ordering). */
-export interface GamepadSnapshot {
-  /** W3C-standard button bitmask, bits 0..31 (see GP_BTN_* in sab/gamepad-devices). */
+/** Normalized per-poll controller snapshot (standard-layout ordering). */
+export interface ControllerSnapshot {
+  /** W3C-standard button bitmask, bits 0..31 (see GP_BTN_* in sab/controller-devices). */
   buttonsLo: number;
   /** Button bits 32+ (touchpad/paddles/misc). */
   buttonsHi: number;
@@ -24,23 +24,23 @@ export interface GamepadSnapshot {
 }
 
 /**
- * Pluggable gamepad producer. On the native runtime the implementation is
- * `SabGamepadSource` (libraries/gamepad) — the 'gamepad-devices' SAB channel
- * written by the downdraft_gamepad cdylib.
+ * Pluggable controller producer. On the native runtime the implementation is
+ * `SabControllerSource` (libraries/controller) — the 'controller-devices' SAB channel
+ * written by the downdraft_controller cdylib.
  */
-export interface GamepadSource {
+export interface ControllerSource {
   /** Indices of currently-connected pads. */
   listConnected(): number[];
   /** Snapshot for a device index, or null when disconnected. */
-  read(index: number): GamepadSnapshot | null;
+  read(index: number): ControllerSnapshot | null;
   onConnect(cb: (index: number) => void): void;
   onDisconnect(cb: (index: number) => void): void;
   dispose?(): void;
 }
 
 /** Inert default — reports no devices until a real source is installed
- *  via setGamepadSource(). */
-const NULL_GAMEPAD_SOURCE: GamepadSource = {
+ *  via setControllerSource(). */
+const NULL_CONTROLLER_SOURCE: ControllerSource = {
   listConnected: () => [],
   read: () => null,
   onConnect: () => {},
@@ -61,7 +61,7 @@ export class LocalPlayerManager {
   private wheelDelta: number = 0;
   private connectCallbacks: DeviceConnectCallback[] = [];
   private disconnectCallbacks: DeviceDisconnectCallback[] = [];
-  private gamepadSource: GamepadSource | null = null;
+  private controllerSource: ControllerSource | null = null;
   private listening = false;
 
   constructor(maxPlayers: number = 8) {
@@ -73,24 +73,24 @@ export class LocalPlayerManager {
   }
 
   /**
-   * Install a gamepad producer (e.g. `SabGamepadSource` from
-   * libraries/gamepad). Until one is installed, an inert source reporting
+   * Install a controller producer (e.g. `SabControllerSource` from
+   * libraries/controller). Until one is installed, an inert source reporting
    * no devices is used.
    */
-  setGamepadSource(source: GamepadSource): void {
-    this.gamepadSource?.dispose?.();
-    this.gamepadSource = source;
+  setControllerSource(source: ControllerSource): void {
+    this.controllerSource?.dispose?.();
+    this.controllerSource = source;
     if (this.listening) {
-      source.onConnect((i) => this.emitConnect({ type: "gamepad", gamepadIndex: i }));
-      source.onDisconnect((i) => this.emitDisconnect({ type: "gamepad", gamepadIndex: i }));
+      source.onConnect((i) => this.emitConnect({ type: "controller", controllerIndex: i }));
+      source.onDisconnect((i) => this.emitDisconnect({ type: "controller", controllerIndex: i }));
     }
   }
 
-  getGamepadSource(): GamepadSource {
-    if (!this.gamepadSource) {
-      this.gamepadSource = NULL_GAMEPAD_SOURCE;
+  getControllerSource(): ControllerSource {
+    if (!this.controllerSource) {
+      this.controllerSource = NULL_CONTROLLER_SOURCE;
     }
-    return this.gamepadSource;
+    return this.controllerSource;
   }
 
   getActivePlayerCount(): number {
@@ -115,9 +115,9 @@ export class LocalPlayerManager {
     this.assignDevice(0, { type: "keyboard-mouse" });
 
     let playerIdx = 1;
-    for (const index of this.getGamepadSource().listConnected()) {
+    for (const index of this.getControllerSource().listConnected()) {
       if (playerIdx >= this.maxPlayers) break;
-      this.assignDevice(playerIdx, { type: "gamepad", gamepadIndex: index });
+      this.assignDevice(playerIdx, { type: "controller", controllerIndex: index });
       playerIdx++;
     }
     this.activePlayerCount = Math.max(1, playerIdx);
@@ -150,14 +150,14 @@ export class LocalPlayerManager {
   startListening(): void {
     if (this.listening) return;
     this.listening = true;
-    const src = this.getGamepadSource();
-    src.onConnect((i) => this.emitConnect({ type: "gamepad", gamepadIndex: i }));
-    src.onDisconnect((i) => this.emitDisconnect({ type: "gamepad", gamepadIndex: i }));
+    const src = this.getControllerSource();
+    src.onConnect((i) => this.emitConnect({ type: "controller", controllerIndex: i }));
+    src.onDisconnect((i) => this.emitDisconnect({ type: "controller", controllerIndex: i }));
   }
 
   stopListening(): void {
     // Sources own their listeners; LocalPlayerManager only flips its flag so
-    // a later setGamepadSource() re-wires. Sources are cheap to re-create.
+    // a later setControllerSource() re-wires. Sources are cheap to re-create.
     this.listening = false;
   }
 
@@ -193,9 +193,9 @@ export class LocalPlayerManager {
           this.wheelDelta,
           [], [],
         );
-      } else if (device.type === "gamepad") {
-        const src = this.getGamepadSource();
-        const snap = device.gamepadIndex !== undefined ? src.read(device.gamepadIndex) : null;
+      } else if (device.type === "controller") {
+        const src = this.getControllerSource();
+        const snap = device.controllerIndex !== undefined ? src.read(device.controllerIndex) : null;
         if (!snap) continue;
 
         this.writer.writePlayerInput(
@@ -206,7 +206,7 @@ export class LocalPlayerManager {
           0,
           [snap.buttonsLo, snap.buttonsHi],
           snap.axes,
-          device.gamepadIndex,
+          device.controllerIndex,
         );
       }
     }

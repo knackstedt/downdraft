@@ -5,8 +5,8 @@
 // never TypeScript, never a bundler-specific API.
 //
 // The config creates a custom runnable environment named "native" whose
-// ModuleRunner evaluates the game entry in-process (shared globalThis), with
-// resolve aliases derived from the game's tsconfig paths.
+// ModuleRunner evaluates the app entry in-process (shared globalThis), with
+// resolve aliases derived from the app's tsconfig paths.
 // ============================================================================
 
 import { existsSync, readFileSync } from "node:fs";
@@ -42,7 +42,7 @@ function parseJsonc(text) {
 /**
  * Convert tsconfig `compilerOptions.paths` into vite resolve.alias entries.
  * `paths` are relative to the tsconfig's directory (baseUrl defaults to ".").
- * Later sources only fill gaps — the game's own tsconfig wins over the
+ * Later sources only fill gaps — the app's own tsconfig wins over the
  * monorepo-level tsconfig.web.json.
  */
 function loadPathAliases(tsconfigPath, aliasAcc) {
@@ -71,10 +71,10 @@ function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Merge path aliases from the game tsconfig, then the monorepo web tsconfig. */
-export function buildAliases(gameDir, repoRoot) {
+/** Merge path aliases from the app tsconfig, then the monorepo web tsconfig. */
+export function buildAliases(appDir, repoRoot) {
   const acc = {};
-  loadPathAliases(join(gameDir, "tsconfig.json"), acc);
+  loadPathAliases(join(appDir, "tsconfig.json"), acc);
   if (repoRoot) {
     loadPathAliases(join(repoRoot, "tsconfig.web.json"), acc);
     loadPathAliases(join(repoRoot, "tsconfig.json"), acc);
@@ -196,7 +196,7 @@ if (import.meta.hot) {
  *     module graph              sources, codegen outputs) — the runtime marks
  *                              the window stale instead of silently ignoring.
  *   everything else          → vite propagates normally: accept boundaries
- *                              (wgsl ?raw, hmr-swap-registry, game code with
+ *                              (wgsl ?raw, hmr-swap-registry, app code with
  *                              import.meta.hot.accept) apply in place;
  *                              dead-ends become full-reload → session restart.
  */
@@ -250,7 +250,7 @@ export function nativeHmrPlugin(options) {
         // Script file change with NO module-graph nodes and no tier claim —
         // vite will no-op (nothing to update), leaving the running session on
         // stale code with zero indication. Worker sources hit this when the
-        // game forgot an hmr.simPaths entry. Mark it instead of ignoring.
+        // app forgot an hmr.simPaths entry. Mark it instead of ignoring.
         const clean = file.split("?")[0];
         const dot = clean.lastIndexOf(".");
         const ext = dot >= 0 ? clean.slice(dot) : "";
@@ -266,16 +266,16 @@ export function nativeHmrPlugin(options) {
 
 // ── downdraft.config.json hmr options ────────────────────────────────────────
 
-export function loadGameConfig(gameDir) {
+export function loadAppConfig(appDir) {
   try {
-    return parseJsonc(readFileSync(join(gameDir, "downdraft.config.json"), "utf-8")) ?? {};
+    return parseJsonc(readFileSync(join(appDir, "downdraft.config.json"), "utf-8")) ?? {};
   } catch {
     return {};
   }
 }
 
-export function loadHmrOptions(gameDir) {
-  return loadGameConfig(gameDir)?.hmr ?? {};
+export function loadHmrOptions(appDir) {
+  return loadAppConfig(appDir)?.hmr ?? {};
 }
 
 // ── Full dev config ─────────────────────────────────────────────────────────
@@ -309,8 +309,8 @@ const ENGINE_PACKAGES = ["@downdraft/engine", "@downdraft/platform-native"];
  *
  * @param {object} opts
  * @param {object} opts.vite        the vite module (imported by the caller)
- * @param {string} opts.gameDir     absolute game dir (vite root)
- * @param {string|null} opts.repoRoot monorepo root (null in standalone games)
+ * @param {string} opts.appDir     absolute app dir (vite root)
+ * @param {string|null} opts.repoRoot monorepo root (null in standalone apps)
  * @param {"bun"|"node"|"deno"} opts.runtime
  * @param {boolean} opts.verbose
  * @param {string} opts.wgslRegistryPath abs path to engine's wgsl-hmr.ts
@@ -318,8 +318,8 @@ const ENGINE_PACKAGES = ["@downdraft/engine", "@downdraft/platform-native"];
  * @param {string[]} opts.watchPaths extra watcher paths (worker/sim dirs, repo)
  */
 export function buildNativeDevConfig(opts) {
-  const { vite, gameDir, repoRoot, runtime, verbose, wgslRegistryPath, onEvent, entry } = opts;
-  const hmr = loadHmrOptions(gameDir);
+  const { vite, appDir, repoRoot, runtime, verbose, wgslRegistryPath, onEvent, entry } = opts;
+  const hmr = loadHmrOptions(appDir);
   const engineSource = engineSourceMode(repoRoot);
 
   const simPaths = [...DEFAULT_SIM_PATTERNS, ...(hmr.simPaths ?? [])];
@@ -327,10 +327,10 @@ export function buildNativeDevConfig(opts) {
   const hostRestartPaths = [...DEFAULT_HOST_RESTART_PATTERNS, ...(hmr.hostRestartPaths ?? [])];
   const processRestartPaths = [...DEFAULT_PROCESS_RESTART_PATTERNS, ...(hmr.processRestartPaths ?? [])];
 
-  const aliases = buildAliases(gameDir, repoRoot);
+  const aliases = buildAliases(appDir, repoRoot);
 
   return {
-    root: gameDir,
+    root: appDir,
     configFile: false,
     mode: "development",
     appType: "custom",
@@ -350,13 +350,13 @@ export function buildNativeDevConfig(opts) {
         server: createHttpServer(),
       },
       watch: {
-        // Keep the watcher lean — engine + game sources only.
+        // Keep the watcher lean — engine + app sources only.
         // followSymlinks:false stops the crawl descending into linked source
         // trees (e.g. cruiser's src-tarballs → ~/devvm/src QEMU/edk2 — ~120k
-        // dirs); repoRoot + gameDir are watched as real paths, so engine and
-        // game HMR are unaffected. The ignored list drops generated trees
+        // dirs); repoRoot + appDir are watched as real paths, so engine and
+        // app HMR are unaffected. The ignored list drops generated trees
         // that are never HMR inputs: cargo target/, node-mobile's extracted
-        // node source, .fingerprint. Games can append via hmr.watchIgnored.
+        // node source, .fingerprint. Apps can append via hmr.watchIgnored.
         // (A quarter-million fs.watch handles + Stats objects was ~500MB of
         // retained heap plus seconds of init CPU per boot.)
         followSymlinks: false,
@@ -383,12 +383,12 @@ export function buildNativeDevConfig(opts) {
           // node+bun+npm but we replace the array, so re-add them here.
           builtins: [...builtinModules, /^node:/, /^npm:/, /^bun:/, /^deno:/],
           // FFI + binary deps always resolve natively (never runner-evaluated).
-          // Games declare extra native deps (NAPI addons, FFI modules, …)
+          // Apps declare extra native deps (NAPI addons, FFI modules, …)
           // via downdraft.config.json "native": { "external": [...] }.
           // In dist mode the engine packages externalize too — the runner
-          // then transforms only game source; engine imports land as native
+          // then transforms only app source; engine imports land as native
           // ESM on the pre-built dist/ tree (~0 transform cost).
-          external: ["koffi", ...(loadGameConfig(gameDir)?.native?.external ?? []),
+          external: ["koffi", ...(loadAppConfig(appDir)?.native?.external ?? []),
             ...(engineSource ? [] : ENGINE_PACKAGES)],
         },
         dev: {
@@ -413,7 +413,7 @@ export function buildNativeDevConfig(opts) {
           warmup: [
             join(DEV_DIR, "early-host.ts"),
             join(DEV_DIR, "native-dev-runtime.ts"),
-            ...(entry ? [relative(gameDir, entry)] : []),
+            ...(entry ? [relative(appDir, entry)] : []),
           ],
           preTransformRequests: true,
         },
@@ -442,10 +442,10 @@ export function buildNativeDevConfig(opts) {
  *  keeps module identity identical while avoiding a barrel re-eval. The
  *  registry module must live in the same universe as the code subscribing to
  *  it: source (.ts) in source mode, dist (.js) in dist mode. */
-export function resolveWgslRegistryPath(gameDir, sourceMode) {
+export function resolveWgslRegistryPath(appDir, sourceMode) {
   const source = sourceMode ?? engineSourceMode(process.env.DD_REPO_ROOT || null);
   try {
-    const req = createRequire(join(gameDir, "package.json"));
+    const req = createRequire(join(appDir, "package.json"));
     // Locate the package root, then the leaf directly — wgsl-hmr has no
     // dedicated subpath export, and the package layout is stable. Works for
     // linked monorepo packages and npm installs alike (both ship src/).

@@ -6,7 +6,7 @@
 // left uncovered so the GPU surfaces + snapshot html panels occupy them.
 // ============================================================================
 
-import type { GameContext } from "@downdraft/engine/app/main";
+import type { AppContext } from "@downdraft/engine/app/main";
 import type { HtmlUiContext, UiPanelHandle } from "@downdraft/engine/modules/html-ui";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { readFileSync } from "node:fs";
@@ -42,7 +42,7 @@ function fontDir(): string {
 }
 
 /** Options for mountShell — `z` is the html-ui stacking order for the five
- *  chrome docs; embedded overlays pass a high value to sit above game UI. */
+ *  chrome docs; embedded overlays pass a high value to sit above app UI. */
 export interface ShellMountOptions { z?: number }
 
 async function loadUiFonts(ui: HtmlUiContext): Promise<string> {
@@ -77,7 +77,7 @@ export interface ShellHandles {
   relayout: () => void;
 }
 
-export function mountShell(ui: HtmlUiContext, ctx: GameContext, opts: ShellMountOptions = {}): ShellHandles {
+export function mountShell(ui: HtmlUiContext, ctx: AppContext, opts: ShellMountOptions = {}): ShellHandles {
   const z = opts.z ?? 10;
   loadLayout();
   const s0 = store.getState();

@@ -82,7 +82,7 @@ import { createModelAsyncLoader, registerModelLoaders } from "./loader";
 
 export { createModelAsyncLoader, registerModelLoaders };
 
-// Engine library descriptor (declarative GameModule wiring)
+// Engine library descriptor (declarative AppModule wiring)
     export { ModelLoaderTok, ModelsLib } from "./library";
     export type { ModelAsyncLoader, ModelsLibConfig } from "./library";
 

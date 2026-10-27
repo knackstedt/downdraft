@@ -271,15 +271,15 @@ describe("FBX m01-m16: Babylon test suite", () => {
 });
 
 // ── Real-world fixtures: production FBX files ───────────────────────────────
-// These live in a separate game repo (games/ is gitignored) — skip the block
+// These live in a separate app repo (apps/ is gitignored) — skip the block
 // when the assets aren't on disk.
 
-const REALWORLD_ROOT = resolve(SPEC_DIR, "..", "..", "..", "..", "..", "..", "games/to-the-ocean/src/assets");
+const REALWORLD_ROOT = resolve(SPEC_DIR, "..", "..", "..", "..", "..", "..", "apps/to-the-ocean/src/assets");
 
 describe.skipIf(!existsSync(REALWORLD_ROOT))("FBX real-world fixtures", () => {
   it("character.fbx: Mixamo rigged character (skinning + rest pose)", async () => {
     const data = await loadRealWorld(
-      "games/to-the-ocean/src/assets/models/character.fbx",
+      "apps/to-the-ocean/src/assets/models/character.fbx",
     );
     const model = parseFBX(data, "character.fbx");
     expect(model.meshes.length).toBeGreaterThanOrEqual(1);
@@ -297,7 +297,7 @@ describe.skipIf(!existsSync(REALWORLD_ROOT))("FBX real-world fixtures", () => {
 
   it("X Bot@Idle.fbx: Mixamo animation clip", async () => {
     const data = await loadRealWorld(
-      "games/to-the-ocean/src/assets/animations/human/mixamo/X Bot@Idle.fbx",
+      "apps/to-the-ocean/src/assets/animations/human/mixamo/X Bot@Idle.fbx",
     );
     const model = parseFBX(data, "X Bot@Idle.fbx");
     expect(model.animations).toBeDefined();

@@ -1,7 +1,7 @@
 // ============================================================================
 // CharacterAnimator — model skin data → final skin matrices for ModelRenderer
 //
-// Generalized from a game's PlayerAnimator (which mirrored
+// Generalized from an app's PlayerAnimator (which mirrored
 // model-viewer's ModelAnimator): runs a SkeletonAnimator (state machine +
 // procedural idle + foot IK), feeds its local bone transforms into
 // Skeleton.computeSkinMatrices, and conjugates by the model's normalization
@@ -241,7 +241,7 @@ export class CharacterAnimator {
     const skin: SkinData = modelData.skin;
     this.boneCount = skin.bones.length;
 
-    // The animator (state machine + procedural idle + foot IK). Games pass a
+    // The animator (state machine + procedural idle + foot IK). Apps pass a
     // configured subclass (e.g. LocomotionAnimator); default is a plain one.
     this.animator = animator ?? new SkeletonAnimator(skin);
 

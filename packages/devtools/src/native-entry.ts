@@ -1,10 +1,10 @@
-import { runNativeGameModule } from "@downdraft/platform-native";
-import { gameModule } from "./standalone";
+import { runNativeAppModule } from "@downdraft/platform-native";
+import { appModule } from "./standalone";
 
 // Native entry — `draft dev`/`draft release` runtime (winit + wgpu under Bun,
 // Node, or Deno). MCP, saves, display info, screenshots via the in-process
 // HostAPI bridge.
-await runNativeGameModule(gameModule, {
+await runNativeAppModule(appModule, {
   title: "devtools",
   appId: "downdraft-devtools",
   width: 1600,

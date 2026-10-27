@@ -7,19 +7,19 @@ DownDraft uses WebGPU for rendering, with a deferred pipeline and a Bevy-style r
 
 ## Renderer
 
-Games wire a renderer through the `GameModule` contract — the host injects the `RenderSurface` (a wgpu-backed native window surface; there is no DOM or canvas):
+Apps wire a renderer through the `AppModule` contract — the host injects the `RenderSurface` (a wgpu-backed native window surface; there is no DOM or canvas):
 
 ```typescript
-import { GameRenderer, Camera, MeshBuilder } from "@downdraft/engine";
-import { startGame } from "@downdraft/engine/app/main";
+import { AppRenderer, Camera, MeshBuilder } from "@downdraft/engine";
+import { startApp } from "@downdraft/engine/app/main";
 
-startGame({
-  renderer: (surface) => new GameRenderer(surface),
+startApp({
+  renderer: (surface) => new AppRenderer(surface),
   // ...
 });
 ```
 
-`GameRenderer.init()` acquires (or borrows) the GPU device, configures the surface, and compiles the frame graph; `start()` begins the render loop, which is driven by the window's redraw events. The opaque pass supports `mode: "gbuffer"` (deferred) or `mode: "simple"` (forward).
+`AppRenderer.init()` acquires (or borrows) the GPU device, configures the surface, and compiles the frame graph; `start()` begins the render loop, which is driven by the window's redraw events. The opaque pass supports `mode: "gbuffer"` (deferred) or `mode: "simple"` (forward).
 
 ## Deferred Pipeline
 

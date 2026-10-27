@@ -1,10 +1,10 @@
 //! downdraft-blitz-shell — shared headless Blitz/Dioxus UI shell.
 //!
-//! This crate owns everything except the game's UI: the vdom driver,
-//! vello_cpu rasterizer, input dispatch, and the JS bridge. Game crates
+//! This crate owns everything except the app's UI: the vdom driver,
+//! vello_cpu rasterizer, input dispatch, and the JS bridge. App crates
 //! provide the Dioxus root component and a snapshot applier through
 //! `ShellConfig`, and re-expose `#[wasm_bindgen]` entry points as thin
-//! shims (see `games/sandjongg/blitz-ui` for the pattern).
+//! shims (see `apps/sandjongg/blitz-ui` for the pattern).
 //!
 //! Coordinates passed to `push_input`/`hit_test` are canvas *backing*
 //! (physical) pixels — the engine's InputManager already converts DOM
@@ -33,13 +33,13 @@ pub mod console {
 
 pub use bridge::{
     dispatch_action, hit_test as doc_hit_test, push_input, push_snapshot, set_action_cb,
-    GameBridge, BRIDGE,
+    AppBridge, BRIDGE,
 };
 pub use input::PendingInput;
 pub use shell::{frame, init, resize, shutdown, tick, ShellConfig};
 
 /// Is (x, y) — physical px — over an interactive UI element? Used by the
-/// engine router so clicks on transparent areas fall through to the game.
+/// engine router so clicks on transparent areas fall through to the app.
 /// Conservatively returns true if the document is mid-mutation.
 pub fn hit_test(x: f64, y: f64) -> bool {
     BRIDGE.with(|b| {

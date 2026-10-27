@@ -3,8 +3,8 @@
 //
 // Each `ExtensionLoader` handles one bucket ("assets" | "maps" | "physics" |
 // "shader-postfx" | "shader-material") and registers the extension's data into
-// the appropriate game registry. The registries are injected by the game (via
-// `ExtensionLoaderHost`) so the engine plugin system stays game-agnostic.
+// the appropriate app registry. The registries are injected by the app (via
+// `ExtensionLoaderHost`) so the engine plugin system stays app-agnostic.
 //
 // Phase 3 implements asset/map/physics loaders. Shader loaders are added in
 // Phase 4 (they depend on PostProcessStack + MaterialRegistry).
@@ -13,9 +13,9 @@
 import type { ExtensionLoader } from "./host";
 import type { ModAssetExtension, ModMapExtension, ModPhysicsExtension } from "./manifest";
 
-// ── Registry interfaces (game-implemented) ──
+// ── Registry interfaces (app-implemented) ──
 //
-// The game injects these when wiring the PluginHost. Each loader calls the
+// The app injects these when wiring the PluginHost. Each loader calls the
 // registry to register/unregister extension data. The dispose fn returned
 // by `load` unregisters the data on unload.
 

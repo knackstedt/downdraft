@@ -17,9 +17,9 @@ export interface ViewportRect { x: number; y: number; w: number; h: number; }
 export interface PostProcessStackOptions {
   depthFormat?: GPUTextureFormat;
   /**
-   * Format of the scene color target the game renders into (`getSceneColorView`).
-   * Must match the game's scene pipelines' color target format. Defaults to
-   * rgba16float (HDR input for bloom/tonemap); games whose scene pipelines
+   * Format of the scene color target the app renders into (`getSceneColorView`).
+   * Must match the app's scene pipelines' color target format. Defaults to
+   * rgba16float (HDR input for bloom/tonemap); apps whose scene pipelines
    * target the surface format should pass that format here (LDR input).
    */
   sceneFormat?: GPUTextureFormat;
@@ -955,7 +955,7 @@ export class PostProcessStack {
     this.pingPong[1]?.destroy(); this.pingPong[1] = null;
   }
 
-  // ── Target getters (game renders into these) ──────────────────────────────
+  // ── Target getters (app renders into these) ──────────────────────────────
 
   getSceneColorView(): GPUTextureView {
     if (!this.sceneColor) throw new Error("PostProcess targets not created");

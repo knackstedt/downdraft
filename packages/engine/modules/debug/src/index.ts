@@ -15,7 +15,7 @@ export type { CollisionLogEntry } from "./debug-store";
 export { useSceneStore } from "./scene-store";
 export type { SceneNode, SceneTreeSnapshot, SimEntitySnapshot } from "./scene-store";
 
-// Debug overlays (generic rendering, game provides data via interfaces)
+// Debug overlays (generic rendering, app provides data via interfaces)
 export { DebugRaycast } from "./debug-raycast";
 export { SceneSync } from "./scene-sync";
 
@@ -26,10 +26,10 @@ export { asyncFetchArrayBuffer, bufferCache, evictThumbnailCache, findBinForGLTF
 export { DevToolsDataBridge } from "./data-bridge";
 export { BaseSceneInspector } from "./scene-inspector";
 export type {
-    IAssetResolver, IAssetUrlMaps, IDebugModeProvider, IDebugOverlayProvider, IDevToolsDataRenderer, IDevToolsRenderer, IGameDevToolsExtension, IPerformanceMetricsProvider, IRaycastProvider, IRaycastResult, ISceneEntitySnapshot, ISceneSyncProvider, ISimStats, ISimStatsProvider
+    IAssetResolver, IAssetUrlMaps, IDebugModeProvider, IDebugOverlayProvider, IDevToolsDataRenderer, IDevToolsRenderer, IAppDevToolsExtension, IPerformanceMetricsProvider, IRaycastProvider, IRaycastResult, ISceneEntitySnapshot, ISceneSyncProvider, ISimStats, ISimStatsProvider
 } from "./types";
 
-// Unified DevTools API — single registration surface for plugins, games, and
+// Unified DevTools API — single registration surface for plugins, apps, and
 // engine systems. Auto-detects realm (main vs worker) and chooses transport.
 export { allocateDevToolsSAB, computeDevToolsSABLayout, devtools, DEVTOOLS_REALM, DEVTOOLS_SAB_MAX_FEEDS } from "./api";
 export type { DevToolsAPI, DevToolsManifest, DevToolsSABLayout, DevToolsSABStat } from "./api";
@@ -47,7 +47,7 @@ export { createDevToolsRendererAdapter } from "./renderer-adapter";
 // Sim stats provider factory — eliminates duplicated polling/control boilerplate
 export { createSimStatsProvider } from "./sim-stats-provider";
 
-// initDevTools helper — one-line wiring per game
+// initDevTools helper — one-line wiring per app
 export { initDevTools } from "./init";
 export type { InitDevToolsOptions } from "./init";
 

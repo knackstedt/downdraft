@@ -70,7 +70,7 @@ export function getRecastGenerators(): GeneratorsModule {
 /**
  * Wraps a generated recast {@link NavMesh} + a {@link NavMeshQuery}. Created
  * by {@link RecastLib.sim.create} and exposed via the {@link RecastNavMeshTok}
- * DI token. Games call `buildNavMesh(positions, indices, config)` once
+ * DI token. Apps call `buildNavMesh(positions, indices, config)` once
  * (typically in `onReady`) to populate the mesh from terrain/level geometry.
  */
 export class RecastBackend {

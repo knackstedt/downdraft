@@ -273,14 +273,14 @@ export const MATERIALS: Record<number, MaterialDef> = {
   [Material.LiquidShadow]: def(70, "Liquid Shadow", [0.05, 0.05, 0.12, 0.98], { gravity: 3, gravityDir: 1, density: 2.0, liquid: true, albedo: 0.0, reflectivity: 0.0, brightness: 0.3 }),
   [Material.VoidEssence]: def(74, "Void Essence", [0.1, 0.0, 0.2, 0.95], { gravity: 4, gravityDir: 1, density: 3.0, liquid: true, albedo: 0.0, reflectivity: 0.1, brightness: 0.5 }),
 
-  // --- Alchemy game: powders (solid, fall) ---
+  // --- Alchemy app: powders (solid, fall) ---
   [Material.Sulfur]: def(75, "Sulfur", [0.9, 0.85, 0.2, 1.0], { gravity: 1, gravityDir: 1, density: 2.0, solid: true, flammable: true, burnTime: 60, albedo: 0.5, reflectivity: 0.1, brightness: 0.9 }),
   [Material.BoneDust]: def(78, "Bone Dust", [0.85, 0.82, 0.75, 1.0], { gravity: 1, gravityDir: 1, density: 1.5, solid: true, albedo: 0.5, brightness: 0.8 }),
   [Material.MushroomSpores]: def(82, "Mushroom Spores", [0.6, 0.5, 0.4, 0.9], { gravity: 0.5, gravityDir: 1, density: 0.4, solid: true, albedo: 0.3, brightness: 0.8 }),
   [Material.StarShard]: def(89, "Star Shard", [0.7, 0.8, 1.0, 1.0], { gravity: 1, gravityDir: 1, density: 2.0, solid: true, albedo: 0.3, reflectivity: 0.7, brightness: 1.6 }),
   [Material.TimeSand]: def(90, "Time Sand", [0.4, 0.3, 0.6, 0.9], { gravity: 1, gravityDir: 1, density: 1.5, solid: true, albedo: 0.3, reflectivity: 0.4, brightness: 1.2 }),
 
-  // --- Alchemy game: gases + byproducts ---
+  // --- Alchemy app: gases + byproducts ---
   [Material.EtherealVapor]: def(91, "Ethereal Vapor", [0.6, 0.5, 0.9, 0.5], { gravity: 1, gravityDir: -1, density: 0.08, gas: true, lifetime: 180, albedo: 0.1, brightness: 1.3 }),
   [Material.AlchemicalSlag]: def(92, "Alchemical Slag", [0.25, 0.22, 0.2, 1.0], { gravity: 2, gravityDir: 1, density: 2.8, solid: true, albedo: 0.2, reflectivity: 0.05, brightness: 0.5 }),
 
@@ -295,7 +295,7 @@ export const MATERIALS: Record<number, MaterialDef> = {
   // Flammable. Blocks falling particles.
   [Material.Rope]: def(95, "Rope", [0.78, 0.66, 0.40, 1.0], { density: 0.3, flammable: true, burnTime: 120, climbable: true, albedo: 0.4 }),
   // Torch: placeable light source. Static (gravity=0), non-solid, emits warm
-  // orange light (handled by the game's lighting system, not physics).
+  // orange light (handled by the app's lighting system, not physics).
   // Non-flammable so it doesn't burn away. Bright color so it's visible.
   [Material.Torch]: def(96, "Torch", [0.9, 0.5, 0.2, 1.0], { density: 0.4, albedo: 0.6, brightness: 1.5 }),
   // ColdVapor: visible white vapor produced when liquid nitrogen evaporates.

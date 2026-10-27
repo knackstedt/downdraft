@@ -1,7 +1,7 @@
 // ============================================================================
 // LibraryHostImpl — wires EngineLibrary descriptors
 //
-// Created by startGame() (renderer side) and the sim worker (sim side).
+// Created by startApp() (renderer side) and the sim worker (sim side).
 // Manages SAB allocation, sim system lifecycle, renderer pass lifecycle,
 // and DI token registration.
 //
@@ -112,7 +112,7 @@ export class LibraryHostImpl implements LibraryHost {
       });
     });
     // Missing `requires` only warns: the library DI graph is OPEN — tokens can
-    // be satisfied by game modules or other external providers the host can't
+    // be satisfied by app modules or other external providers the host can't
     // enumerate (unlike ModuleHost's closed module graph, which hard-fails).
     // A truly missing provider still throws at `inject()` call time.
     this.libraries.forEach((active) => {
@@ -121,7 +121,7 @@ export class LibraryHostImpl implements LibraryHost {
         if (!allProviders.has(token.key) && !this.providers.has(token.key)) {
           log.warn(
             "library-host",
-            `Library "${active.lib.name}" requires "${token.key}" which no library provides — it must be provided by a game module or external provider, or inject() will throw.`,
+            `Library "${active.lib.name}" requires "${token.key}" which no library provides — it must be provided by an app module or external provider, or inject() will throw.`,
           );
         }
       });

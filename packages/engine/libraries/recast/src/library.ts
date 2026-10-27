@@ -1,12 +1,12 @@
 // ============================================================================
 // RecastLib — declarative engine library descriptor for @downdraft/engine/libraries/recast
 //
-// Games declare `libraries: [RecastLib]` (or with config override) in their
-// GameModule. The host creates the RecastBackend + RecastCrowdSystem
+// Apps declare `libraries: [RecastLib]` (or with config override) in their
+// AppModule. The host creates the RecastBackend + RecastCrowdSystem
 // (sim-side only — recast has no renderer component) and exposes them via
 // typed tokens.
 //
-// Games that need full control can still import RecastBackend,
+// Apps that need full control can still import RecastBackend,
 // RecastCrowdSystem, and RecastAgent directly (escape hatch).
 // ============================================================================
 
@@ -74,8 +74,8 @@ export const RecastLib: EngineLibrary<RecastLibConfig> = {
       crowd.destroy();
       backend.destroy();
     },
-    // tick is game-specific (calls crowd.update via the registered ECS system,
-    // setTarget per agent, repathing, etc.) — games wire this via onReady.
+    // tick is app-specific (calls crowd.update via the registered ECS system,
+    // setTarget per agent, repathing, etc.) — apps wire this via onReady.
   },
 
   tickPhase: "post-physics",

@@ -62,7 +62,7 @@ export interface DevtoolsBackendOptions {
   hasClient: () => boolean;
   cdp: CdpBridge;
   renderer: unknown;
-  gameScene?: unknown;
+  appScene?: unknown;
   profilingSAB: SharedArrayBuffer | null;
 }
 
@@ -84,7 +84,7 @@ export class DevtoolsBackend {
   private globalCommandHandler: PanelCommandHandler | null = null;
   /** Dynamically-allocated slots for provider names outside the fixed PANEL
    *  table — panelSlot() alone collapsed every unknown name onto slot 0
-   *  ("console"), so a second game provider silently replaced the first. */
+   *  ("console"), so a second app provider silently replaced the first. */
   private dynSlots = new Map<string, number>();
   private dynSlotNames = new Map<number, string>();
   private nextDynSlot = 100;
@@ -115,7 +115,7 @@ export class DevtoolsBackend {
     this.cdp = opts.cdp;
     this.ctx = {
       renderer: opts.renderer,
-      gameScene: opts.gameScene,
+      appScene: opts.appScene,
       profilingSAB: opts.profilingSAB,
     };
   }
@@ -265,7 +265,7 @@ export class DevtoolsBackend {
   // ── Providers / commands ──
 
   /** Resolve a panel id to its slot. Names outside the fixed PANEL table
-   *  get a stable dynamically-allocated slot so bespoke game providers can
+   *  get a stable dynamically-allocated slot so bespoke app providers can
    *  coexist instead of colliding on slot 0. */
   private slotFor(panel: PanelName | number | string): number {
     if (typeof panel === "number") return panel;

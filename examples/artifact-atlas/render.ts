@@ -3,7 +3,7 @@
 //
 // Renders one intentionally-broken scene per classic rendering artifact and
 // captures each as a PNG under docs/site/src/assets/artifacts/. Raw wgpu on
-// the native host — no game module, no sim worker, no MCP.
+// the native host — no app module, no sim worker, no MCP.
 //
 // Usage:
 //   bun examples/artifact-atlas/render.ts              # all artifacts
@@ -791,7 +791,7 @@ const artifacts: Record<string, () => Promise<void>> = {
   },
 
   // Left: grid of true squares at the surface's real aspect. Right: the same
-  // grid drawn with aspect=1.0 — everything stretches ("game looks squashed").
+  // grid drawn with aspect=1.0 — everything stretches ("app looks squashed").
   "aspect-stretch": async () => {
     const cell = quadXY(0.82, 0.82);
     const p = litPipe({ cullMode: "none" });

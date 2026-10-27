@@ -24,16 +24,16 @@ export const CRATES = [
     // weight in the APK.
     noAndroid: true,
   },
-  // Optional gamepad backend (gilrs). Ships beside the platform lib; loads
+  // Optional controller backend (gilrs). Ships beside the platform lib; loads
   // lazily — missing libudev etc. must never block the main platform lib.
   {
-    pkg: "downdraft-gamepad",
-    lib: "downdraft_gamepad",
-    dir: "packages/platform-native/native-gamepad",
+    pkg: "downdraft-controller",
+    lib: "downdraft_controller",
+    dir: "packages/platform-native/native-controller",
     dest: "packages/platform-native/native",
     flatCopy: false,
   },
-  // Optional OS-keychain backend (keyring). Same rationale as gamepad —
+  // Optional OS-keychain backend (keyring). Same rationale as controller —
   // a missing session secret-service must not take the platform lib down.
   {
     pkg: "downdraft-secrets",

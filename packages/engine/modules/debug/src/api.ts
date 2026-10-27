@@ -1,5 +1,5 @@
 // ============================================================================
-// Unified DevTools API — single registration surface for plugins, games, and
+// Unified DevTools API — single registration surface for plugins, apps, and
 // engine systems, regardless of which thread they run on.
 //
 // Realm detection determines transport:

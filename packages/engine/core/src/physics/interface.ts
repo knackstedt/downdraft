@@ -12,7 +12,7 @@ export type ColliderShape =
   | { type: "heightfield"; nrows: number; ncols: number; heights: Float32Array; scale: [number, number, number] };
 
 /**
- * Opaque public handle for a physics body. Games never see raw backend/Rapier
+ * Opaque public handle for a physics body. Apps never see raw backend/Rapier
  * handles — all state access goes through validated `PhysicsBackend`/API methods
  * keyed by this handle. `id` is unique within the owning `realmId`.
  */
@@ -217,7 +217,7 @@ export interface IslandInfo {
 
 /**
  * Per-body importance weight used to decide freeze order under load (lower =
- * frozen first). `flags` is a game-defined bitmask for custom prioritization.
+ * frozen first). `flags` is an app-defined bitmask for custom prioritization.
  */
 export interface ImportanceWeight {
   weight: number;
@@ -226,7 +226,7 @@ export interface ImportanceWeight {
 
 /**
  * Hook for customizing realm-transfer logic. Lets multiplayer/authoritative
- * games override the default single-machine distance-based tier model.
+ * apps override the default single-machine distance-based tier model.
  */
 export interface RealmTransferHook {
   onPromote?(bodyId: number, fromTier: RealmTier, toTier: RealmTier): void;
@@ -237,7 +237,7 @@ export interface RealmTransferHook {
 
 /**
  * Snapshot hooks for reconnect/late-join. The plugin provides serialization;
- * games provide the networking transport and trigger these hooks.
+ * apps provide the networking transport and trigger these hooks.
  */
 export interface SnapshotHooks {
   onSnapshot?(tier: RealmTier, data: Uint8Array, tick: number): void;
@@ -283,14 +283,14 @@ export interface PhysicsModuleConfig {
   duplicateStatics: boolean;
   /**
    * If true (default), `step()` extracts contact manifolds + intersection
-   * pairs after each physics step. Games that never read contacts/intersections
+   * pairs after each physics step. Apps that never read contacts/intersections
    * (e.g. prop sandboxes) can set this to false to skip the expensive
-   * WASM↔JS callback traversal — ~43% of step time in such games.
+   * WASM↔JS callback traversal — ~43% of step time in such apps.
    */
   extractContacts?: boolean;
   /**
    * If true (default), `step()` reads back all body transforms from WASM into
-   * the backend's cached body state after each step. Games that read transforms
+   * the backend's cached body state after each step. Apps that read transforms
    * via the Raw scalar API (`getTranslationRaw`/`getLinearVelocityRaw`) or the
    * bulk `readTransforms` buffer can set this to false to avoid redundant
    * high-level API calls (each allocates wrapped RawVector/RawRotation objects).

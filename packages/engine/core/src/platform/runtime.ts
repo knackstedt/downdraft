@@ -138,7 +138,7 @@ export interface GpuPassMailboxLike {
   onPush?: () => void;
 }
 
-/** The subset of the live native host object games legitimately reach for —
+/** The subset of the live native host object apps legitimately reach for —
  *  primarily its GPU handles until the renderer gets an injected device
  *  (Phase 2 of the native re-architecture). */
 export interface NativeHostHandle {

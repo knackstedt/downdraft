@@ -1,7 +1,7 @@
 // ============================================================================
 // DevToolsDataBridge — non-abstract data-feed API exposed on
-// window.__downdraftDevtools. Games that don't need the full 3D scene inspector
-// (any game) can instantiate this directly with a
+// window.__downdraftDevtools. Apps that don't need the full 3D scene inspector
+// (any app) can instantiate this directly with a
 // minimal IDevToolsDataRenderer to get perf metrics, GC stats, GPU info, and
 // telemetry in the DevTools panel.
 //
@@ -41,7 +41,7 @@ export class DevToolsDataBridge {
     return null;
   }
 
-  /** Games override this to expose sim stats + controls (pause/step/speed/clear). */
+  /** Apps override this to expose sim stats + controls (pause/step/speed/clear). */
   protected getSimStatsProvider(): ISimStatsProvider | null {
     return null;
   }
@@ -231,7 +231,7 @@ export class DevToolsDataBridge {
         return this.cachedGpuAdapterInfo;
       },
 
-      // --- Sim stats & controls (optional — games implement ISimStatsProvider) ---
+      // --- Sim stats & controls (optional — apps implement ISimStatsProvider) ---
       getSimStats: (): any => this.getSimStatsProvider()?.getSimStats() ?? null,
       pauseSim: (): void => { this.getSimStatsProvider()?.pauseSim(); },
       resumeSim: (): void => { this.getSimStatsProvider()?.resumeSim(); },

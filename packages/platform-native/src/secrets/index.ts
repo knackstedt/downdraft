@@ -3,7 +3,7 @@
 //
 // OS keychain access for tokens/credentials: secret-service on Linux,
 // macOS Keychain, Windows Credential Manager. The library is optional — no
-// session keyring → initNativeSecrets() returns null and games degrade
+// session keyring → initNativeSecrets() returns null and apps degrade
 // gracefully (prompt each launch, or keep session-only tokens).
 //
 // Calls are synchronous FFI (ms-scale DBus/keychain IPC) — keep them off

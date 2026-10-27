@@ -1,7 +1,7 @@
 // ============================================================================
 // @downdraft/engine/libraries/character — skinned character plumbing
 //
-// The character pipeline every rigged-model game needs:
+// The character pipeline every rigged-model app needs:
 //  - `createCharacterModelLoader` — fetch + parse + external texture
 //    resolution + accessory-mesh filtering + animation-file merging, cached.
 //  - `LocomotionAnimator` — Idle/Walk/Run/airborne state machine with

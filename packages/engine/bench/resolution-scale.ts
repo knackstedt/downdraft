@@ -3,7 +3,7 @@
 // Renders a fill-bound scene (N fullscreen overdraw quads) into the scaled
 // offscreen target, then blits it onto a canvas-sized texture via
 // ResolutionScaleOffscreen.applyPostprocess — the same path
-// GameRenderer.setResolutionScale uses on the native runtime.
+// AppRenderer.setResolutionScale uses on the native runtime.
 //
 // Run: DOWNDRAFT_GPU=swiftshader bun run packages/engine/bench/resolution-scale.ts
 // (DOWNDRAFT_GPU picks the adapter; swiftshader/lavapipe is deterministic and

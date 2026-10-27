@@ -28,7 +28,7 @@ import type { PluginPermission } from "./manifest";
 // ── Event bus ──
 
 /**
- * Game-defined event catalog. A game publishes a set of named events with
+ * App-defined event catalog. An app publishes a set of named events with
  * typed payloads that plugins may subscribe to / publish. The host validates
  * event names against this catalog (if provided) and rejects unknown events.
  */
@@ -86,13 +86,13 @@ export interface ScriptPluginContext {
   onDispose(fn: () => void): void;
 }
 
-// ── Host-call bridge (game mutation API) ──
+// ── Host-call bridge (app mutation API) ──
 //
-// Logic extensions (worker-js / wasm) mutate the game through a set of bridged
-// host calls rather than touching renderer/sim internals directly. The game
+// Logic extensions (worker-js / wasm) mutate the app through a set of bridged
+// host calls rather than touching renderer/sim internals directly. The app
 // implements `PluginHostCalls` and injects it into the PluginHost; the host
 // exposes the methods on `NativePluginContext`. Each call is gated by a
-// permission (physics / assets / ecs). The bridge is game-agnostic — the host
+// permission (physics / assets / ecs). The bridge is app-agnostic — the host
 // just forwards to the injected implementation.
 
 /** A spawned prop descriptor (returned by spawnProp). */
@@ -120,8 +120,8 @@ export interface PhysicsDesc {
   gravityScale: number;
 }
 
-/** The game-implemented host-call bridge. Injected into PluginHostOptions.
- *  All methods are optional — a game that doesn't support physics mutation
+/** The app-implemented host-call bridge. Injected into PluginHostOptions.
+ *  All methods are optional — an app that doesn't support physics mutation
  *  simply omits them, and the host throws a clear error if a plugin calls one. */
 export interface PluginHostCalls {
   /** Spawn a prop by content id at a world transform. Returns the entity id.
@@ -149,8 +149,8 @@ export interface PluginHostCalls {
 // allocate SAB channels exactly like a compile-time module. The host bridges
 // these calls into the real ModuleHost on the plugin's thread.
 //
-// Also exposes the host-call bridge (spawnProp, setPhysics, etc.) for game
-// mutation. These are gated by permissions and forwarded to the game's
+// Also exposes the host-call bridge (spawnProp, setPhysics, etc.) for app
+// mutation. These are gated by permissions and forwarded to the app's
 // PluginHostCalls implementation.
 
 export interface NativePluginContext extends ScriptPluginContext {
@@ -161,7 +161,7 @@ export interface NativePluginContext extends ScriptPluginContext {
   inject<T>(token: ResourceToken<T>): T;
   injectOptional<T>(token: ResourceToken<T>): T | undefined;
   readonly devtools: ModuleDevToolsAPI;
-  // ── Host-call bridge (game mutation) ──
+  // ── Host-call bridge (app mutation) ──
   spawnProp(desc: SpawnPropDesc): Promise<SpawnedProp>;
   removeProp(entityId: number): Promise<void>;
   setPhysics(entityId: number, desc: Partial<PhysicsDesc>): Promise<void>;
@@ -213,7 +213,7 @@ export interface PluginContextBacking {
   inject?: <T>(token: ResourceToken<T>) => T;
   injectOptional?: <T>(token: ResourceToken<T>) => T | undefined;
   devtools?: ModuleDevToolsAPI;
-  // host-call bridge (game mutation). Undefined when the game didn't inject
+  // host-call bridge (app mutation). Undefined when the app didn't inject
   // a PluginHostCalls impl; calling a host-call method then throws.
   hostCalls?: PluginHostCalls;
   onDispose: (fn: () => void) => void;
@@ -230,7 +230,7 @@ export interface PluginContextBacking {
 function permError(apiName: string, perm: PluginPermission, pluginId: string): Error {
   return new Error(
     `[downdraft:plugin] "${apiName}" requires the "${perm}" permission, which plugin "${pluginId}" was not granted ` +
-      `(check permissions[] in the manifest — requested ∩ tier-allowed ∩ game-allowlist).`,
+      `(check permissions[] in the manifest — requested ∩ tier-allowed ∩ app-allowlist).`,
   );
 }
 
@@ -318,7 +318,7 @@ export function makeNativeContext(
   }
   // Gate a host-call method: check the declared permission(s) first (a clear
   // permission error beats a missing-bridge error), then forward to the
-  // game's PluginHostCalls impl.
+  // app's PluginHostCalls impl.
   const hostCall = <A extends unknown[], R>(
     name: keyof PluginHostCalls,
   ): ((...args: A) => Promise<R>) => {
@@ -352,7 +352,7 @@ export function makeNativeContext(
     inject: b.inject,
     injectOptional: b.injectOptional,
     devtools: b.devtools,
-    // Host-call bridge: permission-gated, then forwarded to the game's impl.
+    // Host-call bridge: permission-gated, then forwarded to the app's impl.
     spawnProp: hostCall<[SpawnPropDesc], SpawnedProp>("spawnProp"),
     removeProp: hostCall<[number], void>("removeProp"),
     setPhysics: hostCall<[number, Partial<PhysicsDesc>], void>("setPhysics"),

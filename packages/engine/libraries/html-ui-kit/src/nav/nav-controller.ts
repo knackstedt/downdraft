@@ -1,5 +1,5 @@
 // ============================================================================
-// nav-controller.ts — gamepad/keyboard spatial navigation over an html-ui doc.
+// nav-controller.ts — controller/keyboard spatial navigation over an html-ui doc.
 //
 // One NavController per UiPanelHandle. The doc's focusables are enumerated via
 // navSnapshot (single backend roundtrip); directional moves are resolved

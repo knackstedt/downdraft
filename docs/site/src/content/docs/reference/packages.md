@@ -10,7 +10,7 @@ DownDraft Engine is organized as a Bun workspace monorepo with the following pac
 || Package | Description |
 |---|---|
 || `@downdraft/engine` | Engine core: ECS, render passes, render graph, SAB, input, telemetry, modules, particles, animation, physics, audio, assets, save system |
-|| `@downdraft/engine/app` | Runtime-agnostic game bootstrap: `startGame()`/`bootstrapGame()`, HostAPI types |
+|| `@downdraft/engine/app` | Runtime-agnostic app bootstrap: `startApp()`/`bootstrapApp()`, HostAPI types |
 || `@downdraft/engine/mcp` | MCP server for AI agent interaction (JSON-RPC) |
 || `@downdraft/engine/shader-graph` | Material/shader graph compiler and validator |
 || `@downdraft/cli` | CLI tool (`draft new/dev/debug/release/assets/test/mcp/plugin`) |
@@ -18,17 +18,17 @@ DownDraft Engine is organized as a Bun workspace monorepo with the following pac
 
 ## Engine Libraries
 
-Engine libraries export `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRapierLib`) for declarative wiring in `GameModule.libraries[]`, plus bare class exports as an escape hatch.
+Engine libraries export `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRapierLib`) for declarative wiring in `AppModule.libraries[]`, plus bare class exports as an escape hatch.
 
 || Package | Description |
 |---|---|
-|| `@downdraft/engine/libraries/asset-browser` | In-game asset browser UI |
+|| `@downdraft/engine/libraries/asset-browser` | In-app asset browser UI |
 || `@downdraft/engine/libraries/audio-kira` | Kira audio backend (Rust FFI, crate `downdraft-audio` under `native/`) |
 || `@downdraft/engine/libraries/blitz-ui` | Native Blitz/vello UI rasterization cdylib FFI |
 || `@downdraft/engine/libraries/character` | Character system |
 || `@downdraft/engine/libraries/devtools` | DevTools host and panels |
-|| `@downdraft/engine/libraries/entities` | Generic model renderer shared by games |
-|| `@downdraft/engine/libraries/gamepad` | Gamepad input |
+|| `@downdraft/engine/libraries/entities` | Generic model renderer shared by apps |
+|| `@downdraft/engine/libraries/controller` | Controller input |
 || `@downdraft/engine/libraries/gaussian-splats` | Gaussian splat rendering |
 || `@downdraft/engine/libraries/gpu-kernels` | Shared GPU compute kernels |
 || `@downdraft/engine/libraries/html-ui-kit` | Widget/theme/navigation kit for html-ui |
@@ -52,7 +52,7 @@ Engine libraries export `EngineLibrary` descriptors (e.g. `WaterLib`, `PhysicsRa
 
 ## Engine Modules
 
-Feature modules use the factory pattern (`createXxxModule(config)`) and provide typed DI tokens. Games register them via `moduleHost.useModules([...])`.
+Feature modules use the factory pattern (`createXxxModule(config)`) and provide typed DI tokens. Apps register them via `moduleHost.useModules([...])`.
 
 || Package | Description |
 |---|---|
@@ -60,8 +60,8 @@ Feature modules use the factory pattern (`createXxxModule(config)`) and provide 
 || `@downdraft/engine/modules/controller-ui` | Controller/ten-foot UI support |
 || `@downdraft/engine/modules/debug` | DevTools overlay panel (native OSR) |
 || `@downdraft/engine/modules/editor` | Editor tooling |
-|| `@downdraft/engine/modules/html-ui` | Blitz HTML/CSS game UI, rasterized in a worker |
-|| `@downdraft/engine/modules/mcp` | In-game MCP automation harness |
+|| `@downdraft/engine/modules/html-ui` | Blitz HTML/CSS app UI, rasterized in a worker |
+|| `@downdraft/engine/modules/mcp` | In-app MCP automation harness |
 || `@downdraft/engine/modules/movement-2d` | 2D movement system |
 || `@downdraft/engine/modules/movement-3d` | 3D movement system |
 || `@downdraft/engine/modules/native-osr` | Offscreen rendering (native WebGPU surfaces) |
@@ -70,16 +70,16 @@ Feature modules use the factory pattern (`createXxxModule(config)`) and provide 
 || `@downdraft/engine/modules/vitals` | Vitals (health/stamina/etc.) system |
 || `@downdraft/engine/modules/xr` | WebXR / VR support |
 
-## Game Libraries & Modules
+## App Libraries & Modules
 
-Game-specific code lives in each game repo's `libraries/` and `modules/` directories, conventionally packaged as `@<game-scope>/library-*` (bare classes, no lifecycle) and `@<game-scope>/module-*` (lifecycle + typed DI), following the same split as the engine. No engine package depends on any game package.
+App-specific code lives in each app repo's `libraries/` and `modules/` directories, conventionally packaged as `@<app-scope>/library-*` (bare classes, no lifecycle) and `@<app-scope>/module-*` (lifecycle + typed DI), following the same split as the engine. No engine package depends on any app package.
 
 ## Native Rust Crates
 
 || Crate | Location | Description |
 |---|---|---|
 || `downdraft-platform` | `packages/platform-native/native-rs` | Platform cdylib (`libdowndraft_platform`): winit windowing, wgpu device, HostAPI |
-|| `downdraft-gamepad` | `packages/platform-native/native-gamepad` | Gamepad input cdylib (`libdowndraft_gamepad`) |
+|| `downdraft-controller` | `packages/platform-native/native-controller` | Controller input cdylib (`libdowndraft_controller`) |
 || `downdraft-secrets` | `packages/platform-native/native-secrets` | OS keychain secrets cdylib (`libdowndraft_secrets`) |
 || `downdraft-physics` | `packages/engine/libraries/physics-native/native` | Native physics backend cdylib (`libdowndraft_physics`) |
 || `downdraft-audio` | `packages/engine/libraries/audio-kira/native` | Optional Kira audio cdylib (`libdowndraft_audio`) |

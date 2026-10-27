@@ -1,7 +1,7 @@
 // ============================================================================
 // splash-screen.ts — boot splash for the native window
 //
-// Between `createNativeHost()` (window + surface configured) and the game's
+// Between `createNativeHost()` (window + surface configured) and the app's
 // first real frame sits module evaluation + renderer init — several seconds
 // under the dev shell's ModuleRunner. During that time the swapchain has
 // never presented, so the window shows uninitialized/black content and reads
@@ -10,11 +10,11 @@
 // The splash is a tiny self-contained WGSL pass (fullscreen triangle with a
 // procedural spinner — no fonts, no assets) driven by the window's own rAF
 // pump. It stops the moment ANY other rAF callback registers — that is the
-// earliest reliable signal that the game's render loop is starting — or after
-// a 60s safety timeout for event-driven games that never rAF.
+// earliest reliable signal that the app's render loop is starting — or after
+// a 60s safety timeout for event-driven apps that never rAF.
 //
 // GPU objects are (re)built against `ctx.getDevice()` per frame: a renderer
-// that creates its own device (GameRenderer.init) reconfigures the surface,
+// that creates its own device (AppRenderer.init) reconfigures the surface,
 // and drawing with stale-device resources would panic on cross-device use.
 // ============================================================================
 
@@ -59,7 +59,7 @@ struct Uniforms {
 }
 `;
 
-/** Hard cap on splash lifetime — a game that never registers a rAF callback
+/** Hard cap on splash lifetime — an app that never registers a rAF callback
  *  (event-driven renderer, headless harness) would otherwise spin forever. */
 const SPLASH_TIMEOUT_MS = 60_000;
 

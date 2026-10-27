@@ -9,7 +9,7 @@
 // - Dirty region tracking for mesh rebuilds
 // - Deformation batching
 //
-// Games provide:
+// Apps provide:
 // - A ChunkFieldFactory to create chunked fields at a given LOD
 // - A PhysicsFieldFactory to create physics voxel fields
 // - A ChunkGenerator to fill chunk data on demand

@@ -16,11 +16,11 @@ Run `draft` with no arguments to see the top-level command list.
 
 ## `draft new [path] [options]`
 
-Scaffolds a new game project with directory structure, a `src/native-entry.ts` entry point, and `downdraft.config.json`.
+Scaffolds a new app project with directory structure, a `src/native-entry.ts` entry point, and `downdraft.config.json`.
 
 | Flag | Description |
 |---|---|
-| `--template=<name>` | Project template: `minimal` / `physics` / `full` / `gamemodule` (default: `minimal`) |
+| `--template=<name>` | Project template: `minimal` / `physics` / `full` / `appmodule` (default: `minimal`) |
 | `--name=<n>` | Project name (defaults to directory basename) |
 | `--description=<d>` | Project description |
 | `--author=<a>` | Author name |
@@ -30,25 +30,25 @@ Scaffolds a new game project with directory structure, a `src/native-entry.ts` e
 | `--list-templates` | List available templates and exit |
 
 ```bash
-draft new my-game
-draft new my-game --template=physics --ai-companion
+draft new my-app
+draft new my-app --template=physics --ai-companion
 draft new --list-templates
 ```
 
 ## `draft dev [options]`
 
-Starts the game on the native runtime — a JS-runtime process hosting a winit window and the wgpu device, with an embedded Vite dev shell providing tiered HMR. Run from a game directory (the game is inferred by walking up from cwd looking for `downdraft.config.json` or `src/native-entry.ts`).
+Starts the app on the native runtime — a JS-runtime process hosting a winit window and the wgpu device, with an embedded Vite dev shell providing tiered HMR. Run from an app directory (the app is inferred by walking up from cwd looking for `downdraft.config.json` or `src/native-entry.ts`).
 
 | Flag | Description |
 |---|---|
-| `--entry <path>` | Game entrypoint file (defaults to `src/native-entry.ts`) |
+| `--entry <path>` | App entrypoint file (defaults to `src/native-entry.ts`) |
 | `--port <n>` | MCP HTTP port (default: auto-assign) |
 | `--runtime <r>` | JS runtime hosting the dev shell: `bun` / `node` / `deno` (default: `DD_RUNTIME` env → `"runtime"` in `downdraft.config.json` → auto-detect) |
 | `--watch` | Back-compat no-op — the dev shell always watches |
 | `--no-hmr` | Disable HMR — spawn the entry directly (`bun run`), no dev shell |
 | `--verbose`, `-v` | Verbose logging |
 
-> **Note:** Each game boots from its own `src/native-entry.ts`. `draft dev` infers the game from the current directory; there is no root dispatcher or `DOWNDRAFT_GAME` env var.
+> **Note:** Each app boots from its own `src/native-entry.ts`. `draft dev` infers the app from the current directory; there is no root dispatcher or `DOWNDRAFT_APP` env var.
 
 ## `draft debug [path] [options]`
 
@@ -62,12 +62,12 @@ Runs the engine in debug mode with profiling, debug draw, and visualization tool
 
 ## `draft release [options]`
 
-Unified build + package pipeline. The legacy `build`, `dist`, `export`, `mobile`, and `build-games` commands were removed.
+Unified build + package pipeline. The legacy `build`, `dist`, `export`, `mobile`, and `build-apps` commands were removed.
 
 | Flag | Description |
 |---|---|
-| `--game <name>`, `-g` | Game to release (name or directory; resolves `games/<name>` when run from the engine root). For multiple games, use `--games`. |
-| `--games=<csv>` | Comma-separated game names (e.g. `my-game,my-game`) |
+| `--app <name>`, `-g` | App to release (name or directory; resolves `apps/<name>` when run from the engine root). For multiple apps, use `--apps`. |
+| `--apps=<csv>` | Comma-separated app names (e.g. `my-app,my-app`) |
 | `--target <t>`, `-t` | Target: `win` / `linux` / `mac` / `android` / `all` (default: `all`). `android` can't mix with desktop targets in one invocation. |
 | `--runtime=<r>` | JS runtime embedded in the package: `bun` (compiled binary) / `node` / `deno` / `all` (default: `build.runtime` in package.json → `"runtime"` in `downdraft.config.json` → `bun`). `node`/`deno` are linux-only today — win/mac targets still embed bun. |
 | `--format=<csv>` | Linux package formats: `dir` / `deb` / `appimage` / `flatpak` (default: `build.linux.target` in package.json, else `dir`). |
@@ -87,33 +87,33 @@ Unified build + package pipeline. The legacy `build`, `dist`, `export`, `mobile`
 
 ```bash
 # Full release for all desktop platforms
-draft release --game=my-game
+draft release --app=my-app
 
 # Build stage only (compile the native binary)
-draft release --game=my-game --stage=build
+draft release --app=my-app --stage=build
 
 # Specific targets
-draft release --game=my-game --target=win,linux
+draft release --app=my-app --target=win,linux
 
 # Linux .deb + AppImage + Flatpak for every supported JS runtime
-draft release --game=my-game --target=linux --runtime=all --format=deb,appimage,flatpak
+draft release --app=my-app --target=linux --runtime=all --format=deb,appimage,flatpak
 
 # Android APK (native winit+wgpu shell with embedded libnode)
-draft release --game=my-game --target=android
+draft release --app=my-app --target=android
 
-# Multiple games at once
-draft release --games=my-game,my-game --target=all
+# Multiple apps at once
+draft release --apps=my-app,my-app --target=all
 ```
 
 ### What gets produced
 
-- **win / mac** — a standalone Bun binary (`<out>/<game>-<target>`) via `packages/cli/scripts/package-native.mjs`, plus a sibling `native/` cdylib and `dd-assets/` staging tree. Windows binaries get version-info/icon resource stamping via `resedit`.
+- **win / mac** — a standalone Bun binary (`<out>/<app>-<target>`) via `packages/cli/scripts/package-native.mjs`, plus a sibling `native/` cdylib and `dd-assets/` staging tree. Windows binaries get version-info/icon resource stamping via `resedit`.
 - **linux** — `packages/cli/scripts/package-desktop.mjs`, an electron-builder-style packager. The appdir layout is identical across runtimes (`<exe>` + `bundle/` + `native/` + `dd-assets/`, all anchored on `dirname(process.execPath)`); each `--format` then wraps it:
   - `dir` — the staged appdir verbatim
   - `deb` — `dpkg-deb` package (`/usr/lib/<exe>` + `/usr/bin` symlink + desktop file + hicolor icons)
   - `appimage` — AppDir + `appimagetool` (auto-downloaded to `~/.cache/downdraft/tools/`; works without FUSE via `APPIMAGE_EXTRACT_AND_RUN`)
   - `flatpak` — generated manifest + `flatpak-builder` + `build-bundle`
-- **android** — `packages/cli/scripts/package-mobile.mjs` assembles the APK directly (no Gradle): bundle + workers emitted as `.mjs`, embedded libnode, `lib/<abi>/` engine + game `.so`s, `.node` addons staged under the bundle's `native/` dir.
+- **android** — `packages/cli/scripts/package-mobile.mjs` assembles the APK directly (no Gradle): bundle + workers emitted as `.mjs`, embedded libnode, `lib/<abi>/` engine + app `.so`s, `.node` addons staged under the bundle's `native/` dir.
 
 See the [Packaging & Distribution guide](/guides/packaging/) for the `build` block in `package.json`, the runtime matrix, and native-module staging.
 
@@ -126,7 +126,7 @@ The legacy commands were removed; use the equivalent `release` invocation:
 | `draft build` | `draft release --stage=build` |
 | `draft dist` | `draft release --stage=package` |
 | `draft export` | `draft release --stage=package` |
-| `draft build-games` | `draft release --games=<csv> --target=<csv>` |
+| `draft build-apps` | `draft release --apps=<csv> --target=<csv>` |
 | `draft mobile` | `draft release --target=android` |
 
 ## `draft assets <command> [project] [options]`
@@ -171,12 +171,12 @@ Manages remote asset packs (pull, push, list, init, add, add-store).
 
 ## `draft test [options]`
 
-Runs e2e tests via `bun:test`. Sets `DOWNDRAFT_DETERMINISTIC=1` (fixed seed, paused render loop, no autosave) and `DOWNDRAFT_GPU=swiftshader` by default, then spawns `bun test <spec>`. The default smoke specs (`tests/e2e/<game>-smoke.spec.ts`) use the in-game MCP RPC harness to drive the game, but `--spec` can point at any `bun:test` file — the MCP harness is not required.
+Runs e2e tests via `bun:test`. Sets `DOWNDRAFT_DETERMINISTIC=1` (fixed seed, paused render loop, no autosave) and `DOWNDRAFT_GPU=swiftshader` by default, then spawns `bun test <spec>`. The default smoke specs (`tests/e2e/<app>-smoke.spec.ts`) use the in-app MCP RPC harness to drive the app, but `--spec` can point at any `bun:test` file — the MCP harness is not required.
 
 | Flag | Description |
 |---|---|
-| `--game <name>`, `-g` | Game to test (required; resolves `games/<name>` from the engine root, or the game dir from cwd) |
-| `--spec <path>`, `-s` | Spec file to run (default: `tests/e2e/<game>-smoke.spec.ts`) |
+| `--app <name>`, `-g` | App to test (required; resolves `apps/<name>` from the engine root, or the app dir from cwd) |
+| `--spec <path>`, `-s` | Spec file to run (default: `tests/e2e/<app>-smoke.spec.ts`) |
 | `--port <n>`, `-p` | MCP port (`0` = auto-assign a free port; default: `0`) |
 | `--renderer <r>`, `-r` | WebGPU backend: `cpu` (SwiftShader) / `gpu` (hardware) (default: `cpu`) |
 | `--no-deterministic` | Disable fixed seed / render loop pause |
@@ -185,13 +185,13 @@ Runs e2e tests via `bun:test`. Sets `DOWNDRAFT_DETERMINISTIC=1` (fixed seed, pau
 
 ```bash
 # Default: SwiftShader + deterministic
-draft test --game=my-game
+draft test --app=my-app
 
 # Hardware GPU
-draft test --game=my-game --renderer=gpu
+draft test --app=my-app --renderer=gpu
 
 # Headed (show window)
-draft test --game=my-game --headed
+draft test --app=my-app --headed
 
 ```
 
@@ -224,7 +224,7 @@ draft test --game=my-game --headed
 | `DOWNDRAFT_MCP` | `packages/engine/core/src/util/logger.ts` | `1` routes logs to stderr (keeps stdout clean for MCP JSON-RPC) |
 | `DOWNDRAFT_DISABLE_DEVTOOLS` | `packages/cli/src/debug.ts` | `1` disables the devtools UI entirely — forces `devtools.ui` to `"none"` (set by `draft debug --no-devtools`) |
 | `DOWNDRAFT_GPU` | `packages/platform-native/src/gpu/adapter-policy.ts` | `swiftshader` (software only) \| `hardware` (real adapter only) \| `auto` (hardware-first, software failover — default) |
-| `DOWNDRAFT_GPU_MODE` | `packages/platform-native/src/gpu/adapter-policy.ts` | `performance` \| `stability` — preset matching `downdraft.config.json` `"gpu": { "mode": … }`: `performance` (games) = hardware-only, never silently degrade; `stability` (desktop apps) = graceful chain vulkan → gl(virgl) → software |
+| `DOWNDRAFT_GPU_MODE` | `packages/platform-native/src/gpu/adapter-policy.ts` | `performance` \| `stability` — preset matching `downdraft.config.json` `"gpu": { "mode": … }`: `performance` (apps) = hardware-only, never silently degrade; `stability` (desktop apps) = graceful chain vulkan → gl(virgl) → software |
 | `DOWNDRAFT_GPU_BACKEND` | `packages/platform-native/src/gpu/adapter-policy.ts` | `auto` \| `vulkan` \| `gl` \| `metal` \| `dx12` — restrict the wgpu instance to one backend (`gl`/virgl is experimental — presents on Wayland with reduced features, no screenshots) |
 | `DOWNDRAFT_GPU_FALLBACK` | `packages/platform-native/src/gpu/adapter-policy.ts` | `0`/`1` — toggle the automatic software-adapter failover (default `1`) |
 | `DOWNDRAFT_GPU_DENY` | `packages/platform-native/src/gpu/adapter-policy.ts` | Comma-separated substrings extending the built-in adapter denylist (`venus`, `gfxstream`) |
@@ -232,20 +232,20 @@ draft test --game=my-game --headed
 ## Examples
 
 ```bash
-# Scaffold a new game
-draft new my-game
-draft new my-game --template=physics --ai-companion
+# Scaffold a new app
+draft new my-app
+draft new my-app --template=physics --ai-companion
 
-# Run in dev mode (from the game directory)
-cd my-game && draft dev
+# Run in dev mode (from the app directory)
+cd my-app && draft dev
 
 # Build for production
-draft release --game=my-game --target=win
-draft release --game=my-game --target=all --out=release
+draft release --app=my-app --target=win
+draft release --app=my-app --target=all --out=release
 
 # Run e2e tests
-draft test --game=my-game
-draft test --game=my-game --renderer=gpu --headed
+draft test --app=my-app
+draft test --app=my-app --renderer=gpu --headed
 
 # Manage assets
 draft assets init
@@ -254,9 +254,9 @@ draft assets add textures --store=s3 --version=1.0.0
 draft assets push
 draft assets list
 
-# Manage game plugins/mods (runtime extensions under <game>/plugins/)
+# Manage app plugins/mods (runtime extensions under <app>/plugins/)
 draft plugin list                                    # list discovered plugin.json/mod.json
-draft plugin new my-plugin --game=my-game            # scaffold plugin.json (worker-js)
-draft plugin new my-plugin --game=my-game --format=wasm
-draft mod new my-mod --game=my-game                  # alias — scaffolds mod.json (asset)
+draft plugin new my-plugin --app=my-app            # scaffold plugin.json (worker-js)
+draft plugin new my-plugin --app=my-app --format=wasm
+draft mod new my-mod --app=my-app                  # alias — scaffolds mod.json (asset)
 ```

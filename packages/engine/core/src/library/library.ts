@@ -1,13 +1,13 @@
 // ============================================================================
 // Library descriptor — declarative engine library wiring
 //
-// An `EngineLibrary` descriptor lets games declare which engine libraries they
-// use (water, physics, terrain, etc.) in their `GameModule.libraries[]` array.
+// An `EngineLibrary` descriptor lets apps declare which engine libraries they
+// use (water, physics, terrain, etc.) in their `AppModule.libraries[]` array.
 // The `LibraryHost` auto-wires each library: allocates SAB channels,
 // instantiates sim-side systems + renderer-side readers/passes, and exposes
 // them via typed tokens in the DI graph.
 //
-// Libraries keep their bare class exports as an escape hatch — games that
+// Libraries keep their bare class exports as an escape hatch — apps that
 // need full control can still import and wire classes manually.
 //
 // Design:
@@ -15,7 +15,7 @@
 //     complex ones (terrain with worker pools) add more fields.
 //   - Typed: each descriptor is generic in its config type.
 //   - DI-integrated: libraries `provides` typed tokens that plugins/hooks
-//     can `inject` from the GameContext.
+//     can `inject` from the AppContext.
 // ============================================================================
 
 import type { ResourceToken } from "../ecs/resource";
@@ -180,7 +180,7 @@ export interface LibrarySABChannel {
 /**
  * A declarative engine library descriptor.
  *
- * Games declare libraries in their `GameModule.libraries[]` array. The
+ * Apps declare libraries in their `AppModule.libraries[]` array. The
  * `LibraryHost` auto-wires each library: allocates SABs, calls sim-side
  * and renderer-side setup, and registers provided resources in the DI graph.
  *
@@ -209,7 +209,7 @@ export interface LibrarySABChannel {
  * ```
  */
 export interface EngineLibrary<C = unknown, S = unknown, R = unknown> {
-  /** Library name (unique among the game's libraries[]). */
+  /** Library name (unique among the app's libraries[]). */
   name: string;
   /** Library version (semver). */
   version: string;
@@ -238,14 +238,14 @@ export interface EngineLibrary<C = unknown, S = unknown, R = unknown> {
   renderer?: LibraryRendererSetup<C, R>;
 
   // ── Config ──
-  /** Default config. Overridden by the game's `libraries[]` entry config. */
+  /** Default config. Overridden by the app's `libraries[]` entry config. */
   defaultConfig?: C;
 }
 
-// ── Game-facing library entry (in GameModule.libraries[]) ──
+// ── App-facing library entry (in AppModule.libraries[]) ──
 
 /**
- * An entry in `GameModule.libraries[]`. Either a bare `EngineLibrary` (uses
+ * An entry in `AppModule.libraries[]`. Either a bare `EngineLibrary` (uses
  * default config) or a tuple `[library, config]` to override config.
  */
 export type LibraryEntry<C = unknown> =
@@ -255,9 +255,9 @@ export type LibraryEntry<C = unknown> =
 // ── LibraryHost (internal — wires libraries) ──
 
 /**
- * Host that manages library lifecycle. Created by `startGame()`
- * and the sim worker; exposed on `GameContext.libraryHost` for diagnostics
- * and advanced wiring. Games normally interact with libraries via
+ * Host that manages library lifecycle. Created by `startApp()`
+ * and the sim worker; exposed on `AppContext.libraryHost` for diagnostics
+ * and advanced wiring. Apps normally interact with libraries via
  * the DI graph (`ctx.inject(WaterWriterTok)` etc.).
  */
 export interface LibraryHost {

@@ -1,9 +1,9 @@
 // ============================================================================
 // Locomotion animator — Idle/Walk/Run/airborne state machine with hysteresis
 //
-// Two games hand-rolled this on top of SkeletonAnimator:
-//  - action games: walk/run thresholds + a held in-air state ("Jump")
-//  - swim-capable games: same thresholds + flag-driven swim override and a
+// Two apps hand-rolled this on top of SkeletonAnimator:
+//  - action apps: walk/run thresholds + a held in-air state ("Jump")
+//  - swim-capable apps: same thresholds + flag-driven swim override and a
 //                     per-speed air-state split (JumpStart/JumpLoop/JumpEnd)
 //
 // Hysteresis matters: once in Run the state holds until speed drops below
@@ -31,7 +31,7 @@ export interface LocomotionConfig {
   thresholds?: LocomotionThresholds;
   /**
    * Airborne state: a constant state name (e.g. "Jump"), or a function of the
-   * input `speed` for games that split airtime (e.g. JumpStart/JumpLoop/
+   * input `speed` for apps that split airtime (e.g. JumpStart/JumpLoop/
    * JumpEnd). Absent = stay on the current state while airborne.
    */
   air?: AnimState | ((speed: number) => AnimState);
@@ -91,8 +91,8 @@ export class LocomotionAnimator extends SkeletonAnimator {
   /**
    * Pick the animation state from the locomotion input, then advance the
    * skeleton by `dt` seconds. Named `updateLocomotion` (not `update`) so
-   * game-specific subclasses can keep their own `update(dt, flags, speed)`
-   * signatures that decode game state into a LocomotionInput.
+   * app-specific subclasses can keep their own `update(dt, flags, speed)`
+   * signatures that decode app state into a LocomotionInput.
    */
   updateLocomotion(dt: number, input: LocomotionInput): void {
     const c = this.cfg;

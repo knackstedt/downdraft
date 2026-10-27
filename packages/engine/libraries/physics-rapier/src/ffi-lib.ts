@@ -8,7 +8,7 @@
 // all JS-side bookkeeping (BodyState cache, contacts extraction) unchanged.
 //
 // Semantic parity notes vs the WASM lib:
-//  - Entity resolution is done JS-side: native code returns game bodyIds,
+//  - Entity resolution is done JS-side: native code returns app bodyIds,
 //    we map them back to Entity via a per-realm map populated in createBody.
 //  - Contact points are WORLD-space (Rapier SolverContact), whereas the WASM
 //    path returns manifold.localContactPoint1 (collider1-local). Callers that
@@ -143,7 +143,7 @@ function buildLib(): FfiPhysicsLib {
   const lib = dlopen(findPhysicsLibrary(), PHYSICS_SPEC);
   const s = lib.symbols;
 
-  // Per-realm game-bodyId → Entity (native returns bodyIds; entities never
+  // Per-realm app-bodyId → Entity (native returns bodyIds; entities never
   // cross the FFI boundary).
   const entityByBodyId = new Map<number, Map<number, Entity>>();
   // Reverse: entity.index → bodyId (O(1) excludeEntity lookup in queries).

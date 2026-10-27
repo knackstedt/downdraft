@@ -1,6 +1,6 @@
 # gpu-kernels
 
-gpu.js-inspired GPGPU kernels for downdraft games — write a restricted-JS
+gpu.js-inspired GPGPU kernels for downdraft apps — write a restricted-JS
 function, it transpiles to a WGSL compute shader and runs on the **shared
 GPUDevice** you pass in. No second device, no hidden context.
 
@@ -8,7 +8,7 @@ GPUDevice** you pass in. No second device, no hidden context.
 import { createKernel } from "@downdraft/engine/libraries/gpu-kernels";
 
 const k = createKernel({
-  device,                       // the game's GPUDevice — required
+  device,                       // the app's GPUDevice — required
   output: [512, 512],
   constants: { DT: 0.016 },
   fn: function (pos, vel) {

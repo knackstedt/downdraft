@@ -5,7 +5,7 @@ import { getHostCapabilities } from "../platform/runtime";
  *
  * The wgpu timestamp path (writeTimestamp / resolveQuerySet / map_async
  * readback) loses the device on lavapipe-class software rasterizers and has
- * been observed to lose real discrete Vulkan devices under sustained in-game
+ * been observed to lose real discrete Vulkan devices under sustained in-app
  * use — on native it stays behind DOWNDRAFT_GPU_TIMESTAMPS (debug opt-in),
  * additionally refusing on adapters that report deviceType "cpu" so the
  * flag can't be used to wedge a software-rendered test run.

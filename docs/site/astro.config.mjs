@@ -12,7 +12,7 @@ export default defineConfig({
 	base: process.env.DOCS_BASE || '/',
 	integrations: [
 		starlight({
-			title: 'DownDraft — TypeScript Game Engine',
+			title: 'DownDraft — TypeScript App Engine',
 			logo: {
 				src: './src/assets/logo.svg',
 				replacesTitle: true,
@@ -85,7 +85,7 @@ export default defineConfig({
 				starlightImageZoom({ showCaptions: true }),
 				starlightLlmsTxt({
 					projectName: 'DownDraft Engine',
-					description: 'A TypeScript game engine built on a native runtime (winit + wgpu under Bun, Node, or Deno) with a built-in MCP server for AI agent interaction',
+					description: 'A TypeScript app engine built on a native runtime (winit + wgpu under Bun, Node, or Deno) with a built-in MCP server for AI agent interaction',
 					promote: ['index*']
 				}),
 			]

@@ -1,6 +1,6 @@
 // ============================================================================
 // SceneSync — syncs entities to scene store, manages gizmo state
-// Generic gizmo interaction logic; game provides data via ISceneSyncProvider.
+// Generic gizmo interaction logic; app provides data via ISceneSyncProvider.
 // ============================================================================
 
 import type { TransformGizmo } from "./transform-gizmo";

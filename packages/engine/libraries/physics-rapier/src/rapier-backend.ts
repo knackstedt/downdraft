@@ -167,7 +167,7 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
     // Reverse map: Rapier rigid-body handle -> Entity, for collision reporting.
     // Populated in createBody, cleared in destroyBody/destroyRealm.
     const entityByBodyHandle = new Map<number, Map<number, Entity>>();
-    // Reverse map: Rapier rigid-body handle -> game bodyId, for the bulk
+    // Reverse map: Rapier rigid-body handle -> app bodyId, for the bulk
     // awake-body readback (forEachActiveRigidBodyHandle yields raw handles).
     const bodyIdByHandle = new Map<number, Map<number, number>>();
     // Scratch for the awake-handle enumeration (grown on demand). Rapier
@@ -857,7 +857,7 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
       },
 
       // --- Raw fast paths (scalar methods, zero JS object alloc) ---
-      // NOTE: bodyId here is the game's PhysicsBody.id, NOT the Rapier handle.
+      // NOTE: bodyId here is the app's PhysicsBody.id, NOT the Rapier handle.
       // We must look up the Rapier RigidBody from bodyMaps to get body.handle.
 
       setTranslationRaw(realmId, bodyId, x, y, z, wakeUp) {
@@ -988,7 +988,7 @@ async function doLoadPhysicsLib(): Promise<PhysicsLib> {
         const world = realms.get(realmId);
         const rawColliders = world?.colliders.raw;
         if (!world || !rawColliders) return false;
-        // colliderId is the game's sequential id — look up the Rapier collider
+        // colliderId is the app's sequential id — look up the Rapier collider
         // to get its handle. Passing colliderId directly to coSetShape causes
         // out-of-bounds WASM access (corrupts internal state, aliasing panic).
         const collider = colliderMaps.get(realmId)?.get(colliderId);

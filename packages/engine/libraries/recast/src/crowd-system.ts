@@ -68,7 +68,7 @@ interface RecastCrowdConfig {
 
 /**
  * Wraps a recast-navigation {@link Crowd}. Created by the {@link RecastLib}
- * descriptor and exposed via {@link RecastCrowdTok}. Games register it with
+ * descriptor and exposed via {@link RecastCrowdTok}. Apps register it with
  * their ECS world via {@link register}, then add agents with {@link addAgent}
  * and steer them with {@link setTarget}.
  *
@@ -105,8 +105,8 @@ export class RecastCrowdSystem {
 
   /**
    * Lazily creates the recast Crowd. The Crowd requires a built NavMesh, so
-   * this is called from {@link register} (after the game has built the mesh)
-   * or explicitly by the game once the mesh is ready.
+   * this is called from {@link register} (after the app has built the mesh)
+   * or explicitly by the app once the mesh is ready.
    */
   private ensureCrowd(): import("recast-navigation").Crowd {
     if (this.crowd) return this.crowd;

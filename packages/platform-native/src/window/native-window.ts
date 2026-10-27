@@ -87,13 +87,13 @@ export interface NativeWindowConfig {
   height: number;
   resizable?: boolean;
   /** Request window activation on creation. Default false — the window maps
-   *  inactive so launching a game never steals focus (e.g. dev-shell
+   *  inactive so launching an app never steals focus (e.g. dev-shell
    *  restarts while the user is typing elsewhere). WMs may still focus the
    *  window per their own policy; this only controls whether WE ask. */
   focused?: boolean;
   /** Desktop-entry identity (Linux): applied as the Wayland app_id and both
    *  X11 WM_CLASS parts so the WM matches the window to <appId>.desktop's
-   *  icon. Pass the packaged app's desktop id, e.g. "com.example.game".
+   *  icon. Pass the packaged app's desktop id, e.g. "com.example.app".
    *  No-op on other platforms and on libs predating the symbol. */
   appId?: string;
   /** Path to an image decoded as the window icon (_NET_WM_ICON on X11,
@@ -229,7 +229,7 @@ export class NativeWindow extends MiniEventTarget {
   // per loop iteration, so listeners + the surface see a single resize.
   private pendingResize: { width: number; height: number } | null = null;
   // Click synthesis — The wire format reports raw button transitions only; DOM click /
-  // dblclick (which games gate pointer lock and UI activation on) are
+  // dblclick (which apps gate pointer lock and UI activation on) are
   // derived here: a mouseup matching the last mousedown's button fires click.
   private lastMouseDown: { button: number } | null = null;
   private lastClickAt = -1e9;
@@ -240,7 +240,7 @@ export class NativeWindow extends MiniEventTarget {
   // Focus-click suppression: on X11 a click that raises/focuses an unfocused
   // window is still delivered to it as a normal press+release, so the
   // synthesized "click" would fire pointer-lock / UI-activation handlers for
-  // what the user meant as pure window activation (e.g. launching the game
+  // what the user meant as pure window activation (e.g. launching the app
   // and clicking the new window to focus it locks the pointer instantly).
   // Any click completing within this window of a Focused(true) is treated as
   // the focus click and its click/dblclick synthesis is skipped — the press
@@ -252,9 +252,9 @@ export class NativeWindow extends MiniEventTarget {
   // focus switch), so a grab applies only while focused — AND only after a
   // real input gesture in the current focus period. A requestPointerLock()
   // at boot (or before focus) goes pending and captures the cursor on the
-  // player's first click/keypress, never before — a game can never seize
+  // player's first click/keypress, never before — an app can never seize
   // the pointer on its own. Focus loss releases the grab entirely and
-  // clears the request (games must re-request, matching pointer-lock
+  // clears the request (apps must re-request, matching pointer-lock
   // semantics).
   private focused = false;
   private inputGrabWanted = false;
@@ -267,7 +267,7 @@ export class NativeWindow extends MiniEventTarget {
   private focusRequestAttempts = 0;
   private lastFocusAttempt = -1e9;
   // Boot splash (SplashScreen) — covers the window with a procedural spinner
-  // from host creation until the game's render loop registers its first rAF
+  // from host creation until the app's render loop registers its first rAF
   // callback (detected in requestAnimationFrame below).
   private splash: { tick: RAFCallback; stop(): void } | null = null;
   // Terminal state: QUIT dispatched "close" (closeDispatched) and the OS
@@ -282,7 +282,7 @@ export class NativeWindow extends MiniEventTarget {
   private primaryTouchId: number | null = null;
   // Last raw position per active touch id — movementX/Y on synthesized
   // pointer/mouse events (deltas feed pointer-locked camera look; absent
-  // values are read as undefined → NaN by game handlers).
+  // values are read as undefined → NaN by app handlers).
   private lastTouchPos = new Map<number, [number, number]>();
   // Set on DD_EVENT_SUSPENDED, cleared on RESUMED — gates the resume path's
   // surface recreation.
@@ -425,7 +425,7 @@ export class NativeWindow extends MiniEventTarget {
   // ── requestAnimationFrame ──
 
   /** Attach the boot splash. It runs until the first rAF callback that is
-   *  not its own tick registers — i.e. the game's render loop starting. */
+   *  not its own tick registers — i.e. the app's render loop starting. */
   attachSplash(splash: { tick: RAFCallback; start(): void; stop(): void }): void {
     this.splash?.stop();
     this.splash = splash;
@@ -750,7 +750,7 @@ export class NativeWindow extends MiniEventTarget {
     const vsyncStale = now - this.lastVsyncAt > Math.max(50, this.frameInterval() * 3);
     const due = this.vsyncDriven && !vsyncStale ? this.vsyncTick : timerDue;
     // `this.running` may have flipped mid-event-drain (QUIT → destroy) —
-    // dispatching rAF on a released surface would fire game frame callbacks
+    // dispatching rAF on a released surface would fire app frame callbacks
     // against a dead swapchain.
     const dispatched = this.running && !this.surfaceSuspended && this.rafCallbacks.size > 0 && due;
     if (dispatched) {
@@ -766,7 +766,7 @@ export class NativeWindow extends MiniEventTarget {
       });
       // Browser semantics: the canvas auto-presents at end of frame, after
       // the rAF callbacks AND the microtask checkpoint. Renderers driving the
-      // surface through GameRenderer already call context.present() (a no-op
+      // surface through AppRenderer already call context.present() (a no-op
       // here — the texture was consumed); bespoke loops (model-viewer,
       // gpu-bench) never call it and rely on auto-present. Deferring a
       // microtask lets synchronous submits and inline promise continuations
@@ -819,7 +819,7 @@ export class NativeWindow extends MiniEventTarget {
 
     // Process wgpu events (for async callback delivery), then poll the
     // device-lost flag on every live device — this is what resolves
-    // GPUDevice.lost on native (GameRenderer recovery hooks off that).
+    // GPUDevice.lost on native (AppRenderer recovery hooks off that).
     // Skipped once running stops: QUIT already tore the surface down and
     // device handles may be mid-destroy.
     if (this.running) {
@@ -966,7 +966,7 @@ export class NativeWindow extends MiniEventTarget {
         // window traps the pointer with no recourse. The Rust shim drops
         // the OS-level grab on its own; going through exitPointerLock here
         // keeps JS-side state coherent (_pointerLocked) and fires
-        // pointerlockchange so games see the unlock. Release is permanent — browsers require
+        // pointerlockchange so apps see the unlock. Release is permanent — browsers require
         // re-engagement after lock loss, so the grab is NOT restored on
         // refocus (inputGrabWanted is cleared via grabInput(false)).
         if (this.surface?.pointerLocked) this.surface.exitPointerLock();
@@ -979,7 +979,7 @@ export class NativeWindow extends MiniEventTarget {
 
       case DD_EVENT_FOCUS_GAINED:
         this.focused = true;
-        // Apply a grab that was deferred while unfocused (e.g. a game's
+        // Apply a grab that was deferred while unfocused (e.g. an app's
         // boot-time requestPointerLock landing before the WM focused us).
         // Still gated on a gesture — refocus alone never captures.
         this.applyPendingGrab();
@@ -1172,7 +1172,7 @@ export class NativeWindow extends MiniEventTarget {
         // ~the same spot fires "dblclick". Without this, listeners that gate
         // pointer lock / UI activation on click never run.
         // The press that (re)focused the window doesn't count — otherwise
-        // focusing the game window with a click would immediately lock the
+        // focusing the app window with a click would immediately lock the
         // pointer / activate whatever UI sits under the cursor.
         const isFocusClick = performance.now() - this.focusGainedAt < NativeWindow.FOCUS_CLICK_SUPPRESS_MS;
         if (this.lastMouseDown?.button === base.button && !isFocusClick) {
@@ -1419,7 +1419,7 @@ export class NativeWindow extends MiniEventTarget {
 // special keys are scancode | (1<<30) = 0x40000000+.
 // NOTE: DOM `key`/`code`/`keyCode` are three different fields:
 //   key  = "w", "Shift", "Escape"   (typed value, layout-dependent)
-//   code = "KeyW", "ShiftLeft"      (physical position — what games bind on)
+//   code = "KeyW", "ShiftLeft"      (physical position — what apps bind on)
 //   keyCode = 87, 16, 27            (deprecated numeric)
 const KC_SC = 0x40000000; // scancode-to-keycode base bit
 

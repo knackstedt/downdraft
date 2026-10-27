@@ -1,12 +1,12 @@
 // ============================================================================
 // tools.ts — devtools MCP toolset.
 //
-// Standard automation comes from createGameMcp; these are the devtools tools
+// Standard automation comes from createAppMcp; these are the devtools tools
 // that make the viewer fully agent-drivable — the thing Chrome DevTools
 // can't do.
 // ============================================================================
 
-import type { GameContext } from "@downdraft/engine/app/main";
+import type { AppContext } from "@downdraft/engine/app/main";
 import type { McpToolRegistration } from "@downdraft/engine/app/main";
 import { jsonResult, errorResult } from "@downdraft/engine/app/main";
 import { sessions, feedServer } from "../targets/runtime";
@@ -20,7 +20,7 @@ function session(params: Record<string, unknown>) {
   return s;
 }
 
-export function mountMcpTools(_ctx: GameContext): McpToolRegistration[] {
+export function mountMcpTools(_ctx: AppContext): McpToolRegistration[] {
   return [
     {
       def: {

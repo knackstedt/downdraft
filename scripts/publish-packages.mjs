@@ -57,7 +57,7 @@ if (!dryRun) {
     return r.status !== 0 && /E404|404/.test(`${r.stderr ?? ""}${r.stdout ?? ""}`);
   });
   if (neverPublished.length) {
-    for (const name of neverPublished) {
+    for (let _i = 0, _it = neverPublished, _n = _it.length; _i < _n; _i++) { const name = _it[_i];
       console.error(
         `::error::${name} does not exist on npm — trusted publishing (OIDC) cannot perform a package's first publish. ` +
           `Do a one-off manual publish ("npm publish --access public" from ${pkgs.get(name).dir}), then configure the ` +

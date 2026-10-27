@@ -1,4 +1,4 @@
-// Stickman skeleton computation — shared between games.
+// Stickman skeleton computation — shared between apps.
 //
 // Produces a flat list of line segments `[ax, ay, bx, by, ...]` in world-cell
 // coordinates, given a pose. The wrapper uploads these into a thick-line quad

@@ -2,7 +2,7 @@
 // native-providers.ts — engine-generic data providers for the native devtools
 // panels. registerEngineProviders() wires collectors for every provider-fed
 // panel against whatever data is reachable on the renderer + ProfilingSAB.
-// Game-specific data registers separately via mirror.registerProvider("game").
+// App-specific data registers separately via mirror.registerProvider("app").
 // ============================================================================
 
 import { collectGpuInfo } from "./collectors";
@@ -23,7 +23,7 @@ export interface DevtoolsProviderTarget {
 }
 
 export interface EngineProviderContext {
-    /** The game renderer / accessors (duck-typed — getters are probed). */
+    /** The app renderer / accessors (duck-typed — getters are probed). */
     renderer: any;
     /** ProfilingSAB for per-worker memory/thread stats. */
     profilingSAB?: SharedArrayBuffer | null;
@@ -31,7 +31,7 @@ export interface EngineProviderContext {
     moduleHosts?: { sim?: any; renderer?: any };
     /** Names of registered worker eval targets (REPL threads). */
     evalTargetNames?: () => string[];
-    /** Extra game-level input info for the Input panel. */
+    /** Extra app-level input info for the Input panel. */
     inputInfo?: () => { key: string; value: string; flags?: number }[];
     /**
      * Sim worker devtools proxy (__devtoolsGetManifest/__devtoolsCallCommand)
@@ -610,8 +610,8 @@ function collectInput(ctx: EngineProviderContext): PanelSnapshot {
     } catch { /* */ }
     const extra = ctx.inputInfo?.() ?? [];
     extra.forEach((e) => { rows.push(kv(e.key, e.value, e.flags));; });
-    if (rows.length === 0) rows.push(kv("(no game input info)", "register inputInfo()"));
-    return { sections: [{ kind: "kv", name: "Game input", rows }] };
+    if (rows.length === 0) rows.push(kv("(no app input info)", "register inputInfo()"));
+    return { sections: [{ kind: "kv", name: "App input", rows }] };
 }
 
 // PostFX: effects toggle list + sliders for the exposed numeric params.
@@ -781,7 +781,7 @@ function handleEngineCommand(ctx: EngineProviderContext, cmd: DevtoolsCommand): 
 
 /**
  * Register engine-generic providers + command handlers for all provider-fed
- * panels. Game-specific data registers separately on the "game" slot.
+ * panels. App-specific data registers separately on the "app" slot.
  */
 export function registerEngineProviders(mirror: DevtoolsProviderTarget, ctx: EngineProviderContext): void {
     mirror.registerProvider("gpu", () => collectGpu(ctx));

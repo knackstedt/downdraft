@@ -1,12 +1,12 @@
 // ============================================================================
 // AudioKiraLib — declarative engine library descriptor for @downdraft/engine/libraries/audio-kira
 //
-// Games declare `libraries: [AudioKiraLib]` (or with config override) in their
-// GameModule. The host creates the KiraAudioBackend (sim-side only — audio is
+// Apps declare `libraries: [AudioKiraLib]` (or with config override) in their
+// AppModule. The host creates the KiraAudioBackend (sim-side only — audio is
 // simulated on the sim thread and mixed there) and exposes it via the
 // AudioEngineTok typed token.
 //
-// Games that need full control can still import KiraAudioBackend directly
+// Apps that need full control can still import KiraAudioBackend directly
 // (escape hatch).
 // ============================================================================
 
@@ -63,8 +63,8 @@ export const AudioKiraLib: EngineLibrary<AudioKiraLibConfig> = {
     dispose(backend) {
       (backend as KiraAudioBackend).destroy();
     },
-    // tick is game-specific (calls backend.update(dt), syncs listener/source
-    // positions, etc.) — games wire this via onReady or a sim system.
+    // tick is app-specific (calls backend.update(dt), syncs listener/source
+    // positions, etc.) — apps wire this via onReady or a sim system.
   },
 
   tickPhase: "post-physics",

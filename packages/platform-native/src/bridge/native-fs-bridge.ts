@@ -4,7 +4,7 @@
 // `downdraft.mv` is implemented directly over node:fs — file dialogs go
 // through zenity/kdialog when available (winit has no file dialog).
 //
-// Attach from a game's native entry:
+// Attach from an app's native entry:
 //   (globalThis as any).downdraft.mv = createNativeMvBridge(host.window, { ... });
 // ============================================================================
 
@@ -44,7 +44,7 @@ async function listDirTree(dir: string, fileFilter: ((n: string) => boolean) | u
   }
   // Walk subdirectories concurrently — a serial await per directory turns a
   // large asset root (tens of thousands of files) into a multi-second stall
-  // on whatever callsite awaits the scan (typically game boot).
+  // on whatever callsite awaits the scan (typically app boot).
   const entries = (await Promise.all(dirents.map(async (d): Promise<NativeFsTreeEntry | null> => {
     if (d.name.startsWith(".")) return null;
     const full = join(dir, d.name);

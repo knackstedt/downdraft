@@ -2,7 +2,7 @@
 // borrow.ts — symmetric resource handoff for shared-device GPU work
 //
 // shared-device.ts covers the device view + command-buffer direction. This
-// file covers the RESOURCE direction — the two patterns games actually need:
+// file covers the RESOURCE direction — the two patterns apps actually need:
 //
 //   borrow* — worker side. The OWNER thread created the texture/buffer and
 //     keeps its lifetime; the worker wraps the raw ptr non-owningly so it can

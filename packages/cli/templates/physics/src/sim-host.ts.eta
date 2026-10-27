@@ -1,10 +1,10 @@
 import { SimWorkerHost } from "@downdraft/engine";
 
 // Sim worker host — spawns sim-worker.ts on the main (renderer) thread and
-// exposes the sim SAB + event stream to startGame().
+// exposes the sim SAB + event stream to startApp().
 export class SimHost extends SimWorkerHost {
   constructor() {
-    // Replace with your game's sim-buffer allocation (see the SAB APIs in
+    // Replace with your app's sim-buffer allocation (see the SAB APIs in
     // @downdraft/engine, e.g. defineRecordBuffer/allocateSimBuffer).
     super(new SharedArrayBuffer(4096));
   }

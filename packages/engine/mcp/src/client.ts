@@ -1,23 +1,23 @@
 // ============================================================================
-// GameClient — client for a running game's in-process MCP automation endpoint.
+// AppClient — client for a running app's in-process MCP automation endpoint.
 //
-// A running game (draft dev / draft test / launchGame) exposes a JSON-RPC
+// A running app (draft dev / draft test / launchApp) exposes a JSON-RPC
 // over HTTP endpoint on 127.0.0.1 (McpHttpTransport) and advertises its port
 // via ~/.downdraft/port/<pid>. This module is the single implementation of
 // the client side of that wire — previously triplicated across
 // scripts/mcp-call.mjs, .devin/mcp-stdio-bridge.mjs, and tests/e2e/harness.ts.
 //
-//   import { GameClient, launchGame } from "@downdraft/engine/mcp/client";
+//   import { AppClient, launchApp } from "@downdraft/engine/mcp/client";
 //
-//   const client = await GameClient.connect();          // PID-file discovery
+//   const client = await AppClient.connect();          // PID-file discovery
 //   const tools = await client.listTools();
 //   const state = await client.callJson("get_world_state");
 //   await client.screenshot("shot.png");
 //
 //   // Or launch + connect + kill in one:
-//   const game = await launchGame({ game: "packaging-smoke" });
-//   await game.client.callText("get_player_state");
-//   await game.kill();
+//   const app = await launchApp({ app: "packaging-smoke" });
+//   await app.client.callText("get_player_state");
+//   await app.kill();
 //
 // Node- and Bun-compatible: only node: APIs + fetch, no Bun.* globals.
 // ============================================================================
@@ -39,16 +39,16 @@ export class McpClientError extends Error {}
 // Instance discovery — ~/.downdraft/port/<pid> PID files
 // ---------------------------------------------------------------------------
 
-/** Directory holding one PID file per running game instance. Each file is
+/** Directory holding one PID file per running app instance. Each file is
  *  named `<pid>` and contains the bound MCP HTTP port; a sibling
  *  `<pid>.token` holds the bearer token when the instance requires auth. */
 export function mcpPortDir(): string {
     return join(homedir(), ".downdraft", "port");
 }
 
-export interface GameInstance {
+export interface AppInstance {
     pid: number;
-    /** Automation endpoint port (host tools + game harness), from the
+    /** Automation endpoint port (host tools + app harness), from the
      *  `<pid>` file. Absent when the instance only advertises an editor
      *  endpoint. */
     port?: number;
@@ -96,16 +96,16 @@ function readAppId(pid: number): string | undefined {
     }
 }
 
-/** List all live game instances, newest-first. Dead PID files are pruned
+/** List all live app instances, newest-first. Dead PID files are pruned
  *  as a side effect. */
-export function listGameInstances(sel: InstanceSelector = {}): GameInstance[] {
+export function listAppInstances(sel: InstanceSelector = {}): AppInstance[] {
     let entries: string[];
     try {
         entries = readdirSync(mcpPortDir());
     } catch {
         return [];
     }
-    const out: GameInstance[] = [];
+    const out: AppInstance[] = [];
     // Group files by PID: "<pid>" is the automation endpoint, "<pid>.editor"
     // the editor toolset endpoint (createMcpModule http transport). Token
     // siblings "<pid>.token" / "<pid>.editor.token" don't match the regex.
@@ -170,16 +170,16 @@ export function listGameInstances(sel: InstanceSelector = {}): GameInstance[] {
 }
 
 /** Pick the newest live instance matching the selector, or null. */
-export function discoverGameInstance(sel: InstanceSelector = {}): GameInstance | null {
-    return listGameInstances(sel)[0] ?? null;
+export function discoverAppInstance(sel: InstanceSelector = {}): AppInstance | null {
+    return listAppInstances(sel)[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
-// GameClient
+// AppClient
 // ---------------------------------------------------------------------------
 
-export interface GameClientOptions {
-    /** Narrow discovery to a specific game's appId. */
+export interface AppClientOptions {
+    /** Narrow discovery to a specific app's appId. */
     appId?: string;
     /** Connect to a specific PID. */
     pid?: number;
@@ -189,7 +189,7 @@ export interface GameClientOptions {
     /** Bearer token; auto-read from <pid>.token on discovery. */
     token?: string;
     /** Which of the instance's endpoints to connect to: "automation"
-     *  (default — `<pid>` file: host tools + game harness) or "editor"
+     *  (default — `<pid>` file: host tools + app harness) or "editor"
      *  (`<pid>.editor` file: createMcpModule http transport's full editor
      *  toolset). DOWNDRAFT_MCP_ENDPOINT=editor works too. Ignored when
      *  `url` is given. */
@@ -220,7 +220,7 @@ function sleep(ms: number): Promise<void> {
     return new Promise((r) => setTimeout(r, ms));
 }
 
-export class GameClient {
+export class AppClient {
     readonly url: string;
     readonly pid: number | undefined;
     private token: string | undefined;
@@ -236,11 +236,11 @@ export class GameClient {
     }
 
     /**
-     * Connect to a running game instance. With no selector, attaches to the
+     * Connect to a running app instance. With no selector, attaches to the
      * newest live instance in ~/.downdraft/port/. Performs the `initialize`
      * handshake before returning.
      */
-    static async connect(opts: GameClientOptions = {}): Promise<GameClient> {
+    static async connect(opts: AppClientOptions = {}): Promise<AppClient> {
         // Env fallbacks: DOWNDRAFT_MCP_URL/MCP_HTTP_URL for explicit targets,
         // MCP_APP_ID/MCP_PID for discovery selectors — the same selectors the
         // old stdio bridge honored, so existing configs keep working.
@@ -251,7 +251,7 @@ export class GameClient {
         let token = opts.token ?? process.env.DOWNDRAFT_MCP_TOKEN ?? process.env.MCP_TOKEN;
         const endpoint = opts.endpoint ?? (process.env.DOWNDRAFT_MCP_ENDPOINT === "editor" ? "editor" : "automation");
         if (!url) {
-            const inst = discoverGameInstance({ appId, pid });
+            const inst = discoverAppInstance({ appId, pid });
             if (!inst) {
                 const filter = appId
                     ? ` with appId "${appId}"`
@@ -259,8 +259,8 @@ export class GameClient {
                         ? ` with PID ${pid}`
                         : "";
                 throw new McpClientError(
-                    `No running downdraft game instance found${filter} in ${mcpPortDir()}. ` +
-                    `Start a game first (e.g. \`draft dev\`), or pass url / set DOWNDRAFT_MCP_URL.`,
+                    `No running downdraft app instance found${filter} in ${mcpPortDir()}. ` +
+                    `Start an app first (e.g. \`draft dev\`), or pass url / set DOWNDRAFT_MCP_URL.`,
                 );
             }
             const instPort = endpoint === "editor" ? inst.editorPort : inst.port;
@@ -268,7 +268,7 @@ export class GameClient {
                 throw new McpClientError(
                     `Instance ${inst.pid} has no ${endpoint} MCP endpoint in ${mcpPortDir()}` +
                     (endpoint === "editor"
-                        ? ` — register createMcpModule({ transport: "http" }) in the game, or drop the editor endpoint selection.`
+                        ? ` — register createMcpModule({ transport: "http" }) in the app, or drop the editor endpoint selection.`
                         : "."),
                 );
             }
@@ -276,11 +276,11 @@ export class GameClient {
             token ??= endpoint === "editor" ? (inst.editorToken ?? inst.token) : inst.token;
             pid = inst.pid;
         }
-        const client = new GameClient(url, token, pid, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+        const client = new AppClient(url, token, pid, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
         await client.rpc("initialize", {
             protocolVersion: "2024-11-05",
             capabilities: {},
-            clientInfo: { name: "downdraft-game-client", version: "0.1.0" },
+            clientInfo: { name: "downdraft-app-client", version: "0.1.0" },
         }, 10_000);
         return client;
     }
@@ -327,7 +327,7 @@ export class GameClient {
         return this.rpc(method, params, timeoutMs);
     }
 
-    /** tools/list — the tool defs the game registered. */
+    /** tools/list — the tool defs the app registered. */
     async listTools(): Promise<MCPToolDef[]> {
         const result = (await this.rpc("tools/list", {}, 10_000)) as { tools?: MCPToolDef[] };
         return result.tools ?? [];
@@ -411,7 +411,7 @@ export class GameClient {
     /**
      * Wait until the instance is serving MCP and has registered tools:
      * poll GET /mcp/health, then initialize + tools/list until non-empty.
-     * `proc` (optional) enables fail-fast when a launched game dies early.
+     * `proc` (optional) enables fail-fast when a launched app dies early.
      * A final capture_screenshot probe warns (non-fatal) when WebGPU isn't
      * producing frames yet — mirrors the e2e harness's readiness check.
      */
@@ -421,7 +421,7 @@ export class GameClient {
         let lastErr = "";
         const alive = () => !opts.proc || (opts.proc.exitCode === null && !opts.proc.killed);
         const failIfDead = (stage: string) => {
-            if (!alive()) throw new McpClientError(`Game process exited before ${stage} became ready`);
+            if (!alive()) throw new McpClientError(`App process exited before ${stage} became ready`);
         };
 
         while (Date.now() < deadline) {
@@ -458,7 +458,7 @@ export class GameClient {
         }
 
         // Best-effort readiness probe: a valid screenshot implies WebGPU is
-        // initialized. Warn but don't fail — some games can't screenshot in
+        // initialized. Warn but don't fail — some apps can't screenshot in
         // their initial state.
         const probeDeadline = Math.min(Date.now() + 30_000, deadline + 30_000);
         let lastProbeErr = "";
@@ -475,7 +475,7 @@ export class GameClient {
             }
             await sleep(1_000);
         }
-        process.stderr.write(`[GameClient] readiness probe failed (non-fatal): ${lastProbeErr}\n`);
+        process.stderr.write(`[AppClient] readiness probe failed (non-fatal): ${lastProbeErr}\n`);
     }
 
     // ── Harness-compat aliases (the old tests/e2e McpClient interface) ──
@@ -491,16 +491,16 @@ export class GameClient {
 }
 
 // ---------------------------------------------------------------------------
-// launchGame — spawn a game, wait for MCP, connect
+// launchApp — spawn an app, wait for MCP, connect
 // ---------------------------------------------------------------------------
 
-export interface LaunchGameOptions {
-    /** Game name resolved to games/<name>/ or examples/<name>/ under cwd. */
-    game?: string;
-    /** Explicit entry file (default: <game>/src/native-entry.ts). */
+export interface LaunchAppOptions {
+    /** App name resolved to apps/<name>/ or examples/<name>/ under cwd. */
+    app?: string;
+    /** Explicit entry file (default: <app>/src/native-entry.ts). */
     entry?: string;
     /** Working directory for the spawned process (default: process.cwd() —
-     *  the monorepo root or a standalone game dir, where bunfig.toml's
+     *  the monorepo root or a standalone app dir, where bunfig.toml's
      *  preload registers the ?raw/.wgsl/.css loaders). */
     cwd?: string;
     /** MCP_PORT pin; default is an OS-assigned free port. */
@@ -521,8 +521,8 @@ export interface LaunchGameOptions {
     mirrorOutput?: boolean;
 }
 
-export interface LaunchedGame {
-    client: GameClient;
+export interface LaunchedApp {
+    client: AppClient;
     process: ChildProcess;
     pid: number;
     port: number;
@@ -627,23 +627,24 @@ function collectDescendants(rootPid: number): number[] {
 }
 
 /**
- * Launch a game on the native runtime (`bun <entry>`), wait for its MCP
- * endpoint to serve tools, and return a connected GameClient plus a kill()
+ * Launch an app on the native runtime (`bun <entry>`), wait for its MCP
+ * endpoint to serve tools, and return a connected AppClient plus a kill()
  * that tears down the whole process tree (detached group kill + /proc
- * descendant sweep — the game must not outlive the caller).
+ * descendant sweep — the app must not outlive the caller).
  */
-export async function launchGame(opts: LaunchGameOptions = {}): Promise<LaunchedGame> {
+export async function launchApp(opts: LaunchAppOptions = {}): Promise<LaunchedApp> {
     const cwd = opts.cwd ?? process.cwd();
-    const game = opts.game ?? "packaging-smoke";
+    const app = opts.app ?? "packaging-smoke";
     const entry = opts.entry
         ? resolve(cwd, opts.entry)
         : [
-            resolve(cwd, "games", game, "src", "native-entry.ts"),
-            resolve(cwd, "examples", game, "src", "native-entry.ts"),
+            resolve(cwd, "apps", app, "src", "native-entry.ts"),
+            resolve(cwd, "games", app, "src", "native-entry.ts"),
+            resolve(cwd, "examples", app, "src", "native-entry.ts"),
             resolve(cwd, "src", "native-entry.ts"),
-        ].find((p) => existsSync(p)) ?? resolve(cwd, "games", game, "src", "native-entry.ts");
+        ].find((p) => existsSync(p)) ?? resolve(cwd, "apps", app, "src", "native-entry.ts");
     if (!existsSync(entry)) {
-        throw new McpClientError(`Game entry not found: ${entry} (pass --entry or game:)`);
+        throw new McpClientError(`App entry not found: ${entry} (pass --entry or app:)`);
     }
     const port = opts.port ?? (await findFreePort());
 
@@ -731,7 +732,7 @@ export async function launchGame(opts: LaunchGameOptions = {}): Promise<Launched
         }
     }
 
-    const client = await GameClient.connect({
+    const client = await AppClient.connect({
         url: `http://localhost:${port}/mcp`,
         token,
         timeoutMs: opts.timeoutMs,

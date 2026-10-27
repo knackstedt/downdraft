@@ -7,7 +7,7 @@
 //
 //   serializeDocument(doc)              → DdSceneFile
 //   deserializeIntoDocument(doc, file)  → { warnings, idMap }
-//   instantiateScene(file, deps)        → spawn-only engine API for games
+//   instantiateScene(file, deps)        → spawn-only engine API for apps
 //   diffScenes(a, b)                    → structural diff for agents/CI
 //
 // Format is intentionally close to `SerializedScene` (core/scene/scene.ts)
@@ -186,9 +186,9 @@ export function deserializeIntoDocument(
 }
 
 /**
- * `SceneLoader` — the runtime consumption half. Games call this to spawn a
+ * `SceneLoader` — the runtime consumption half. Apps call this to spawn a
  * `.ddscene` into their own World/Hierarchy. Returns the fileId→Entity map
- * so games can resolve authored references.
+ * so apps can resolve authored references.
  */
 export function instantiateScene(
   file: DdSceneFile,

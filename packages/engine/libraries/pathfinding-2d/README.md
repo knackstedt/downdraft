@@ -1,6 +1,6 @@
 # `@downdraft/engine/libraries/pathfinding-2d`
 
-2D pathfinding — A* grid search and flow fields for top-down and tile-based games.
+2D pathfinding — A* grid search and flow fields for top-down and tile-based apps.
 
 ## Install
 

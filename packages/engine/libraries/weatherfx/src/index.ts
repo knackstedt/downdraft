@@ -3,7 +3,7 @@ export { CloudSystem, CloudUniformsStruct, PerLayerUniformsStruct } from "./clou
 export { COLLISION_RADIUS, MAX_VOXEL_FLOATS, ParticleSystem, RenderUniformsStruct, SimParamsStruct } from "./particle-system";
 export type { VoxelCollisionData } from "./particle-system";
 
-// Engine library descriptor (declarative GameModule wiring)
+// Engine library descriptor (declarative AppModule wiring)
 export { WeatherFxLib, WeatherFxTok } from "./library";
 export type { WeatherFxLibConfig } from "./library";
 

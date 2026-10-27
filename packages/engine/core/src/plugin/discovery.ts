@@ -1,16 +1,16 @@
 // ============================================================================
-// Plugin discovery helpers — generalized from a game's entrypoint +
+// Plugin discovery helpers — generalized from an app's entrypoint +
 // plugin-host-bridge.ts.
 //
-// Games collect manifests via import.meta.glob (the glob call MUST stay in
-// game code — Vite analyzes the literal pattern relative to the importing
+// Apps collect manifests via import.meta.glob (the glob call MUST stay in
+// app code — Vite analyzes the literal pattern relative to the importing
 // file), then hand the results to collectPluginManifests + discoverPlugins:
 //
 //   const found = collectPluginManifests({
 //     "mod.json":     import.meta.glob("../plugins/*\/mod.json",     { eager: true, query: "?json", import: "default" }),
 //     "plugin.json":  import.meta.glob("../plugins/*\/plugin.json",  { eager: true, query: "?json", import: "default" }),
 //   });
-//   const host = new PluginHost({ gameId, engineVersion });
+//   const host = new PluginHost({ appId, engineVersion });
 //   const result = await discoverPlugins(host, found);
 //   const getBaseUrl = pluginBaseUrlLookup(found);
 // ============================================================================
@@ -44,7 +44,7 @@ export function collectPluginManifests(
   for (const [fileName, modules] of Object.entries(globResults)) {
     for (const [path, manifest] of Object.entries(modules)) {
       // Convert glob path (e.g. "../plugins/acid-postfx/mod.json") to a URL
-      // relative to the Vite dev server root (the game directory).
+      // relative to the Vite dev server root (the app directory).
       const pluginDir = path.replace(`/${fileName}`, "");
       const absDir = pluginDir.replace(/^\.\.\//, "/");
       out.push({ manifest: manifest as PluginManifest, baseUrl: absDir });
@@ -116,7 +116,7 @@ export interface PluginAssetEntry {
 }
 
 export interface AssetRegistryBridgeHooks {
-  /** Register a discovered asset into the game's content/asset registry. */
+  /** Register a discovered asset into the app's content/asset registry. */
   register(entry: PluginAssetEntry): void;
   /** Remove a previously-registered asset. */
   unregister(id: string): void;
@@ -126,7 +126,7 @@ export interface AssetRegistryBridgeHooks {
 
 /**
  * Generic AssetRegistry implementation — handles name derivation + URL
- * resolution and delegates the actual registration to the game's hooks.
+ * resolution and delegates the actual registration to the app's hooks.
  */
 export function createAssetRegistryBridge(hooks: AssetRegistryBridgeHooks): AssetRegistry {
   const entry = (
@@ -165,7 +165,7 @@ export function createAssetRegistryBridge(hooks: AssetRegistryBridgeHooks): Asse
   };
 }
 
-// --- No-op registries (for games that don't support a category yet) ---
+// --- No-op registries (for apps that don't support a category yet) ---
 
 export function createNoopMapRegistry(logPrefix = "[PluginHost]"): MapRegistry {
   return {

@@ -1,6 +1,6 @@
 export enum InputContext {
   Editor = 0,
-  Game = 1,
+  App = 1,
   UI = 2,
 }
 
@@ -24,9 +24,9 @@ export class InputState {
   mouseButtonsPressed: Set<number> = new Set();
   mouseButtonsReleased: Set<number> = new Set();
   wheelDelta: number = 0;
-  gamepadButtons: Set<number> = new Set();
+  controllerButtons: Set<number> = new Set();
   /** lx ly rx ry lt rt dpadX dpadY (triggers are 0..1). */
-  gamepadAxes: number[] = [0, 0, 0, 0, 0, 0, 0, 0];
+  controllerAxes: number[] = [0, 0, 0, 0, 0, 0, 0, 0];
   xrControllers: XRControllerState[] = [];
 
   private context: InputContext = InputContext.Editor;

@@ -3,7 +3,7 @@ import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
 import logoSvg from '../assets/logo.svg';
 ---
 
-<StarlightPage frontmatter={{ title: 'DownDraft — TypeScript game engine for native WebGPU', description: 'A TypeScript-first game engine on a native winit + wgpu runtime (Bun, Node, or Deno). ECS, deferred WebGPU rendering, mods, and a built-in MCP server.', template: 'splash' }} hasSidebar={false}>
+<StarlightPage frontmatter={{ title: 'DownDraft — TypeScript app engine for native WebGPU', description: 'A TypeScript-first app engine on a native winit + wgpu runtime (Bun, Node, or Deno). ECS, deferred WebGPU rendering, mods, and a built-in MCP server.', template: 'splash' }} hasSidebar={false}>
 	<div class="landing-root">
 		<!-- Background grid -->
 		<div class="grid-bg" aria-hidden="true"></div>
@@ -36,7 +36,7 @@ import logoSvg from '../assets/logo.svg';
 					<span class="line accent">TypeScript-first.</span>
 				</h1>
 				<p class="subheadline">
-					DownDraft is a TypeScript game engine that runs your code on a native runtime — winit +
+					DownDraft is a TypeScript app engine that runs your code on a native runtime — winit +
 					wgpu under Bun, Node, or Deno. Real desktop windows, not a browser. A typed-DI module
 					system, a permission-tiered plugin/mod loader, and a built-in MCP server for
 					AI-assisted development.
@@ -58,7 +58,7 @@ import logoSvg from '../assets/logo.svg';
 		<section class="install-section">
 			<div class="section-inner">
 				<p class="section-eyebrow">Quick Start</p>
-				<h2 class="section-title">Scaffold a new game</h2>
+				<h2 class="section-title">Scaffold a new app</h2>
 				<p class="install-subtitle">Bootstrap a project with the DownDraft CLI — templates, configs, and dev server all set up for you.</p>
 				<div class="terminal">
 					<div class="terminal-header">
@@ -70,8 +70,8 @@ import logoSvg from '../assets/logo.svg';
 						<span class="terminal-title">bash</span>
 					</div>
 					<div class="terminal-body">
-						<code class="terminal-code">bunx @downdraft/cli new my-game</code>
-						<button class="copy-btn" aria-label="Copy to clipboard" data-command="bunx @downdraft/cli new my-game">
+						<code class="terminal-code">bunx @downdraft/cli new my-app</code>
+						<button class="copy-btn" aria-label="Copy to clipboard" data-command="bunx @downdraft/cli new my-app">
 							<svg class="copy-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
 							<svg class="check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
 						</button>
@@ -190,7 +190,7 @@ import logoSvg from '../assets/logo.svg';
 				<p class="section-eyebrow">Runtime</p>
 				<h2 class="section-title">Native all the way down</h2>
 				<p class="section-lead">
-					DownDraft games run as a single process driving a real OS window and the GPU
+					DownDraft apps run as a single process driving a real OS window and the GPU
 					directly — Bun by default, with Node and Deno supported. The platform is a
 					Rust library your code calls into, not a shell around it.
 				</p>
@@ -210,7 +210,7 @@ import logoSvg from '../assets/logo.svg';
 						</div>
 						<div>
 							<h3>Threads where they matter</h3>
-							<p>The simulation runs in a dedicated worker thread with SharedArrayBuffer, so heavy game logic never blocks rendering. Workers can even share the GPU device and encode command buffers in parallel.</p>
+							<p>The simulation runs in a dedicated worker thread with SharedArrayBuffer, so heavy app logic never blocks rendering. Workers can even share the GPU device and encode command buffers in parallel.</p>
 						</div>
 					</div>
 					<div class="native-point">
@@ -219,7 +219,7 @@ import logoSvg from '../assets/logo.svg';
 						</div>
 						<div>
 							<h3>A fraction of the footprint</h3>
-							<p>Games ship as one executable plus a Rust library — tens of megabytes for Bun-compiled builds (Node-embedded builds are roughly double), with low baseline memory. What your GPU draws is exactly what your code asked for.</p>
+							<p>Apps ship as one executable plus a Rust library — tens of megabytes for Bun-compiled builds (Node-embedded builds are roughly double), with low baseline memory. What your GPU draws is exactly what your code asked for.</p>
 						</div>
 					</div>
 				</div>
@@ -297,7 +297,7 @@ import logoSvg from '../assets/logo.svg';
 		<section class="footer-cta">
 			<div class="section-inner">
 				<h2 class="footer-title">Ready to build something great?</h2>
-				<p class="footer-lead">Dive into the docs and start building your game.</p>
+				<p class="footer-lead">Dive into the docs and start building your app.</p>
 				<div class="cta-row">
 					<a href="/getting-started/introduction/" class="btn btn-primary">
 						<span>Get Started</span>

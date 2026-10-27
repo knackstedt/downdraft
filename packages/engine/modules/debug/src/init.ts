@@ -1,7 +1,7 @@
 // ============================================================================
-// initDevTools — one-line DevTools wiring for games.
+// initDevTools — one-line DevTools wiring for apps.
 //
-// Replaces the per-game boilerplate of:
+// Replaces the per-app boilerplate of:
 //   1. Creating an IDevToolsDataRenderer adapter
 //   2. Instantiating DevToolsDataBridge (or BaseSceneInspector)
 //   3. Calling init()
@@ -11,8 +11,8 @@
 // singleton (registered by plugins via ctx.devtools.registerDataFeed() etc.)
 // and from worker manifests (via syncWorkerManifests).
 //
-// Returns the bridge instance for games that need post-init calls
-// (a game's devtools bridge setter).
+// Returns the bridge instance for apps that need post-init calls
+// (an app's devtools bridge setter).
 // ============================================================================
 
 import { _devtoolsImpl, devtools, DevToolsAPITok } from "./api";
@@ -31,14 +31,14 @@ import type {
 import { syncWorkerManifests, type WorkerSyncEntry } from "./worker-sync";
 
 export interface InitDevToolsOptions {
-  // --- Providers (game-specific) ---
+  // --- Providers (app-specific) ---
   simStatsProvider?: ISimStatsProvider & { start?: () => void; stop?: () => void };
   debugOverlayProvider?: IDebugOverlayProvider;
   debugModeProvider?: IDebugModeProvider;
   performanceMetricsProvider?: IPerformanceMetricsProvider;
   assetResolver?: IAssetResolver;
 
-  // --- Scene inspector (3D games) ---
+  // --- Scene inspector (3D apps) ---
   /** Use BaseSceneInspector instead of DevToolsDataBridge. Auto-detected if renderer implements IDevToolsRenderer. */
   sceneInspector?: boolean;
   /** Custom bridge class (extends BaseSceneInspector). If provided, sceneInspector is implied. */
@@ -187,7 +187,7 @@ function mergeGlobalRegistrations(bridge: DevToolsDataBridge): void {
   const api = (window as any).__downdraftDevtools;
   if (api) {
     for (let _i = 0, _it = manifest.dataFeeds, _n = _it.length; _i < _n; _i++) { const feed = _it[_i];
-      if (typeof api[feed.name] === "function") continue; // don't override game-provided
+      if (typeof api[feed.name] === "function") continue; // don't override app-provided
       const feedName = feed.name;
       api[feedName] = (): any => {
         // Main realm: call the registered fn directly

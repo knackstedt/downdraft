@@ -58,7 +58,7 @@ export abstract class TextSurface implements ScreenUiCompositor {
   protected installInput(): void {
     const bus = this.ctx.getInputBus();
     // Priority -20 — ahead of html-ui's panel routing (-10). A devtools
-    // surface drawn over an interactive game doc must claim the events in
+    // surface drawn over an interactive app doc must claim the events in
     // its rect first, or clicks/keys on a panel land on the doc beneath.
     this.unsubs.push(bus.onWheel((e, ctrl) => {
       if (!this.active || !this.inRect(e.clientX, e.clientY)) return;
@@ -91,7 +91,7 @@ export abstract class TextSurface implements ScreenUiCompositor {
     return this.active && this.rect.w > 0 && this.rect.h > 0;
   }
 
-  /** Damage-gate signal (GameRenderer damageOnly) — `dirty` is set wherever
+  /** Damage-gate signal (AppRenderer damageOnly) — `dirty` is set wherever
    *  content/geometry changes; report + clear it once per poll. */
   takeDirty(): boolean {
     const d = this.dirty;

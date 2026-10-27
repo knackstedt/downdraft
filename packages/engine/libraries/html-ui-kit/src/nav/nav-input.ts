@@ -2,7 +2,7 @@
 // nav-input.ts — normalize input sources into NavAction events with
 // edge-detection and hold-repeat.
 //
-// PadNavDriver polls a GamepadSource slot each frame (call update() from the
+// PadNavDriver polls a ControllerSource slot each frame (call update() from the
 // app's frame loop). Directions come from dpad buttons AND the left stick
 // (with hysteresis), repeat after an initial delay; A=confirm, B=cancel,
 // START=menu, LB/RB=prev/next. KeyboardNavDriver maps arrow keys +
@@ -10,8 +10,8 @@
 // pad, and arrow-key nav for free on any keyboard.
 // ============================================================================
 
-import type { GamepadSource } from "@downdraft/engine/input/local-player-manager";
-import { GP_AXIS, GP_BTN } from "@downdraft/engine/sab/gamepad-devices";
+import type { ControllerSource } from "@downdraft/engine/input/local-player-manager";
+import { GP_AXIS, GP_BTN } from "@downdraft/engine/sab/controller-devices";
 import type { NavAction, NavDirection } from "./nav-controller";
 
 export interface NavInputOptions {
@@ -30,9 +30,9 @@ export interface NavInputOptions {
 
 type DirectionState = { held: boolean; since: number; lastFire: number };
 
-/** Map W3C gamepad bit + axes → NavAction edges with repeat. Frame-driven. */
+/** Map W3C controller bit + axes → NavAction edges with repeat. Frame-driven. */
 export class PadNavDriver {
-  private src: GamepadSource;
+  private src: ControllerSource;
   private slot: number;
   private dispatch: (a: NavAction) => void;
   private opts: Required<Omit<NavInputOptions, "onButtonEdge">> & Pick<NavInputOptions, "onButtonEdge">;
@@ -40,7 +40,7 @@ export class PadNavDriver {
   private prevBtn = 0;
   private prevDirAxis: NavDirection | null = null;
 
-  constructor(source: GamepadSource, slot: number, dispatch: (a: NavAction) => void, opts: NavInputOptions = {}) {
+  constructor(source: ControllerSource, slot: number, dispatch: (a: NavAction) => void, opts: NavInputOptions = {}) {
     this.src = source;
     this.slot = slot;
     this.dispatch = dispatch;

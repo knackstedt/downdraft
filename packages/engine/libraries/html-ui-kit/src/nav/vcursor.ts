@@ -7,14 +7,14 @@
 // handle.sendPointer, so hover, click, scroll and drag all reach the real
 // doc pipeline exactly like a mouse.
 //
-// PadCursorDriver polls a GamepadSource slot each frame: right stick moves
+// PadCursorDriver polls a ControllerSource slot each frame: right stick moves
 // the cursor (velocity response curve), A / right-trigger clicks, and
 // holding LT turns the right stick into scroll. Steam-Deck-style mapping.
 // ============================================================================
 
-import type { GamepadSource } from "@downdraft/engine/input/local-player-manager";
+import type { ControllerSource } from "@downdraft/engine/input/local-player-manager";
 import type { HtmlUiHost, UiPanelHandle } from "@downdraft/engine/modules/html-ui";
-import { GP_AXIS, GP_BTN } from "@downdraft/engine/sab/gamepad-devices";
+import { GP_AXIS, GP_BTN } from "@downdraft/engine/sab/controller-devices";
 import { kitStyleTag } from "../theme";
 
 export interface VirtualCursorOptions {
@@ -51,7 +51,7 @@ function cursorHtml(): string {
 }
 
 /**
- * A mouse-like pointer driven programmatically (typically by a gamepad via
+ * A mouse-like pointer driven programmatically (typically by a controller via
  * PadCursorDriver). Position is screen-space CSS px; events land on the
  * topmost interactive panel under the cursor, or no-one when over the world.
  */
@@ -163,7 +163,7 @@ export class PadCursorDriver {
   private prevClick = false;
 
   constructor(
-    private src: GamepadSource,
+    private src: ControllerSource,
     private slot: number,
     private cursor: VirtualCursor,
     private opts: Required<PadCursorOptions> = {

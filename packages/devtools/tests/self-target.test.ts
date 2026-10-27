@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { store } from "../src/app/store";
 import { SessionManager } from "../src/targets/registry";
 
-// Embedded mounts call sessions.setSelfTarget(process.pid) — the host game
+// Embedded mounts call sessions.setSelfTarget(process.pid) — the host app
 // is a legitimate target there. The standalone viewer never sets it, and
 // its own pid must stay invisible.
 

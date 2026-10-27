@@ -10,8 +10,8 @@
 // compatibility (avoiding save migration) but are unused.
 //
 // These constants are shared between the sand simulation (sand-world.ts) and
-// any game-specific SharedArrayBuffer bridge (e.g. a game's sim-buffer.ts
-// or a game's chunk SAB). Games keep their own SAB layout but reference
+// any app-specific SharedArrayBuffer bridge (e.g. an app's sim-buffer.ts
+// or an app's chunk SAB). Apps keep their own SAB layout but reference
 // these field offsets so the indexing stays consistent.
 // ============================================================================
 

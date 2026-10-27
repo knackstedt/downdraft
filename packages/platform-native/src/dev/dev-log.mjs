@@ -180,7 +180,7 @@ export function writeLine(level, module, msg) {
 
 // ── Console bridge ──────────────────────────────────────────────────────────
 // The vite ModuleRunner evaluates modules in this same process (shared
-// globalThis), so vite's client code — and any stray console.* in game/engine
+// globalThis), so vite's client code — and any stray console.* in app/engine
 // code — lands on our stdout unformatted. Route every console method through
 // writeLine: a leading "[tag]" prefix becomes the module name (matching how
 // log.info(module, msg) renders), and lines already in engine format pass

@@ -1,8 +1,8 @@
 // ============================================================================
-// package-native.mjs — compile a game's native entry into a standalone Bun
+// package-native.mjs — compile an app's native entry into a standalone Bun
 // binary plus a staged runtime tree:
 //
-//   bun packages/cli/scripts/package-native.mjs games/mining-rpg/src/native-entry.ts /tmp/out/mining
+//   bun packages/cli/scripts/package-native.mjs apps/mining-rpg/src/native-entry.ts /tmp/out/mining
 //   bun scripts/package-native.mjs --mcp <entry> <outfile>   # retain the MCP endpoint
 //   --target=win|linux|mac   cross-compile (default: host)
 //   --mode=dev|debug|prod    prod minifies (default: prod)
@@ -108,8 +108,8 @@ if (target.exe && !outfile.endsWith(".exe")) outfile += ".exe";
 
 const repoRoot = process.cwd();
 // Bun embeds compile-mode modules keyed relative to the common ancestor of
-// all ENTRYPOINT paths — which is NOT necessarily cwd (a game inside games/
-// whose deps resolve under its own dir gets game-dir keys even when this
+// all ENTRYPOINT paths — which is NOT necessarily cwd (an app inside apps/
+// whose deps resolve under its own dir gets app-dir keys even when this
 // script runs from the monorepo root). Baked $bunfs specifiers must be
 // relative to that same root or workers/dynamic imports miss the embedded FS.
 // Set after the worker-discovery fixpoint, before the compile pass.
@@ -492,22 +492,22 @@ result.outputs.forEach((out) => {
 // Stamp version info + icon into the compiled .exe so it doesn't identify
 // itself as "Bun runtime". resedit is pure JS — no wine/rcedit needed.
 // Metadata precedence: --product-name/--product-version/--icon flags, then
-// the game's package.json (productName / build.productName, version,
-// build.icon or icon.ico|icon.png in the game dir), then the game name.
-const gameDir = dirname(dirname(resolve(entry))); // src/native-entry.ts → game root
+// the app's package.json (productName / build.productName, version,
+// build.icon or icon.ico|icon.png in the app dir), then the app name.
+const appDir = dirname(dirname(resolve(entry))); // src/native-entry.ts → app root
 if (target.exe) {
   let pkg = {};
-  try { pkg = JSON.parse(readFileSync(join(gameDir, "package.json"), "utf-8")); } catch { /* standalone entry */ }
+  try { pkg = JSON.parse(readFileSync(join(appDir, "package.json"), "utf-8")); } catch { /* standalone entry */ }
   const titleize = (s) => String(s).replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   const productName = productNameFlag ?? pkg.productName ?? pkg.build?.productName
     ?? titleize(pkg.name ?? basename(outfile, ".exe"));
   const version = productVersionFlag ?? pkg.version ?? "0.0.0";
   const author = typeof pkg.author === "string" ? pkg.author : pkg.author?.name ?? "DownDraft Engine";
   let iconPath = iconFlag
-    ?? (pkg.build?.icon ? resolve(gameDir, pkg.build.icon) : undefined);
+    ?? (pkg.build?.icon ? resolve(appDir, pkg.build.icon) : undefined);
   if (!iconPath) {
     iconPath = ["icon.ico", "assets/icon.ico", "icon.png", "assets/icon.png"]
-      .map((p) => join(gameDir, p)).find((p) => existsSync(p));
+      .map((p) => join(appDir, p)).find((p) => existsSync(p));
   }
   try {
     const ResEdit = await import("resedit");
@@ -568,7 +568,7 @@ if (target.exe) {
           res.entries, groupId, lang.lang, items);
       }
     } else {
-      // No game icon — drop Bun's ~270KB stock icon (RT_ICON + its
+      // No app icon — drop Bun's ~270KB stock icon (RT_ICON + its
       // RT_GROUP_ICON) so the version strings fit inside the existing .rsrc
       // under noGrow below. The exe falls back to the generic Windows icon,
       // which is better branding than shipping the Bun logo.
@@ -595,14 +595,14 @@ const libExt = platKey.startsWith("win32") ? ".dll" : platKey.startsWith("darwin
 const nativeDir = join(outdir, "native");
 mkdirSync(nativeDir, { recursive: true });
 
-// Package resolution rooted at the game dir — works both inside the
-// monorepo (workspace links) and in a standalone game repo (node_modules).
-const gameRequire = createRequire(resolve(entry));
+// Package resolution rooted at the app dir — works both inside the
+// monorepo (workspace links) and in a standalone app repo (node_modules).
+const appRequire = createRequire(resolve(entry));
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const monorepoRoot = resolve(scriptDir, "../../..");
 
 function pkgRoot(name) {
-  try { return dirname(gameRequire.resolve(`${name}/package.json`)); }
+  try { return dirname(appRequire.resolve(`${name}/package.json`)); }
   catch { return null; }
 }
 
@@ -622,7 +622,7 @@ const platLibCandidates = [...new Set([
 const platPkgVersion = platPkg &&
   JSON.parse(readFileSync(join(platPkg, "package.json"), "utf8")).version;
 const platStageDir = await resolvePlatLibDir(
-  platKey, platLibCandidates, join(gameDir, "node_modules", ".cache"), platPkgVersion);
+  platKey, platLibCandidates, join(appDir, "node_modules", ".cache"), platPkgVersion);
 if (!platStageDir) {
   console.error(`no libdowndraft_platform build found for ${platKey} — searched: ${platLibCandidates.join(", ")}`);
   process.exit(1);
@@ -633,7 +633,7 @@ for (const f of readdirSync(platStageDir)) {
 
 // Engine cdylibs — staged if a build exists: new dist/<plat>-<arch>/ and
 // dist/ layouts (build-native.mjs), the installed @downdraft/engine package
-// (standalone games), plus the legacy standalone-crate target/ + crate-dir
+// (standalone apps), plus the legacy standalone-crate target/ + crate-dir
 // layouts.
 const engineCrates = CRATES.filter((c) => c.pkg !== "downdraft-platform");
 const engineRoot = pkgRoot("@downdraft/engine");
@@ -663,22 +663,22 @@ engineCrates.forEach((crate) => {
   }
 });
 
-// Game-native libs — convention: <game>/native/dist/<platform>-<arch>/ holds
-// artifacts the game built itself (cdylib .so/.dll/.dylib loaded via the FFI
+// App-native libs — convention: <app>/native/dist/<platform>-<arch>/ holds
+// artifacts the app built itself (cdylib .so/.dll/.dylib loaded via the FFI
 // adapter, or .node napi addons loaded via createRequire/process.dlopen).
 // Staged flat into native/ so resolveNativeLibrary's <execDir>/native lookup
 // and execDir-relative .node resolution both hit.
-const gameNativeDir = join(gameDir, "native", "dist", platKey);
-if (existsSync(gameNativeDir)) {
-  let gameLibs = 0;
-  for (const f of readdirSync(gameNativeDir)) {
+const appNativeDir = join(appDir, "native", "dist", platKey);
+if (existsSync(appNativeDir)) {
+  let appLibs = 0;
+  for (const f of readdirSync(appNativeDir)) {
     if (f.endsWith(libExt) || f.endsWith(".node")) {
-      copyFileSync(join(gameNativeDir, f), join(nativeDir, f));
+      copyFileSync(join(appNativeDir, f), join(nativeDir, f));
       staged.add(f);
-      gameLibs++;
+      appLibs++;
     }
   }
-  if (gameLibs) console.log(`staged ${gameLibs} game-native lib(s) from ${gameNativeDir}`);
+  if (appLibs) console.log(`staged ${appLibs} app-native lib(s) from ${appNativeDir}`);
 }
 
 // Assets referenced via ?url / new URL / import.meta.glob.

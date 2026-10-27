@@ -89,7 +89,7 @@ function crc32(buf: Buffer): number {
  * Convert a padded wgpu copyTextureToBuffer readback into tightly-packed RGBA.
  * Strips the 256-byte row padding and swaps B↔R for BGRA surface formats.
  * Shared by captureScreenshot() and consumers that own their own copy pass
- * (e.g. games that piggyback the copy on the renderer's encoder).
+ * (e.g. apps that piggyback the copy on the renderer's encoder).
  */
 export function paddedReadbackToRGBA(
   pixels: Uint8Array,

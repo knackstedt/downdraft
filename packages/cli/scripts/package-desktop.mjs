@@ -12,7 +12,7 @@
 //     --mode=dev|debug|prod     bundle mode (default: prod)
 //     --product-name=<name>     display name (default: pkg.productName)
 //     --product-version=<v>     version (default: pkg.version)
-//     --app-id=<id>             reverse-DNS id (default: com.downdraft.<game>)
+//     --app-id=<id>             reverse-DNS id (default: com.downdraft.<app>)
 //     --executable-name=<n>     binary name (default: kebab-case productName)
 //     --icon=<path>             png icon (default: build.linux.icon →
 //                               build.icon → assets/icon.png → embedded)
@@ -29,7 +29,7 @@
 //           tree is also what dd-assets/import.meta resolution anchors on.)
 //
 // App dir layout — identical shape across runtimes so all downstream
-// resolution (lib-paths, dd-assets, workers, game-native .so/.node) is
+// resolution (lib-paths, dd-assets, workers, app-native .so/.node) is
 // uniform. Everything anchors on dirname(process.execPath) == appdir root:
 //
 //   <exe>                  primary executable — compiled binary (bun) or a
@@ -37,12 +37,12 @@
 //   node|deno              runtime binary (emit runtimes only)
 //   bundle/                emitted .mjs tree + index.js + package.json
 //   bundle/node_modules/   koffi + @koromix/koffi-<plat> prebuild (node only)
-//   native/                libdowndraft_*.so + game-native dist/<plat>/*
+//   native/                libdowndraft_*.so + app-native dist/<plat>/*
 //                          (includes .node addons — napi loads under all
 //                          three desktop runtimes)
 //   dd-assets/             ?url / new URL / import.meta.glob staged assets
 //
-// electron-builder-style config lives in the game's package.json `build`:
+// electron-builder-style config lives in the app's package.json `build`:
 //
 //   build: {
 //     appId, productName, icon, runtime, executableName,
@@ -92,9 +92,9 @@ if (!entry || !outdirArg) {
   process.exit(1);
 }
 
-const gameDir = dirname(dirname(resolve(entry))); // src/native-entry.ts → game root
+const appDir = dirname(dirname(resolve(entry))); // src/native-entry.ts → app root
 let pkg = {};
-try { pkg = JSON.parse(readFileSync(join(gameDir, "package.json"), "utf-8")); } catch { /* standalone entry */ }
+try { pkg = JSON.parse(readFileSync(join(appDir, "package.json"), "utf-8")); } catch { /* standalone entry */ }
 const build = pkg.build ?? {};
 const linuxCfg = build.linux ?? {};
 
@@ -116,19 +116,19 @@ const mode = flagValue("mode") ?? "prod";
 const retainMcp = hasFlag("mcp");
 
 const titleize = (s) => String(s).replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-const productName = flagValue("product-name") ?? pkg.productName ?? build.productName ?? titleize(pkg.name ?? basename(gameDir));
-const appId = flagValue("app-id") ?? build.appId ?? `com.downdraft.${basename(gameDir).replace(/[^a-zA-Z0-9]/g, "")}`;
+const productName = flagValue("product-name") ?? pkg.productName ?? build.productName ?? titleize(pkg.name ?? basename(appDir));
+const appId = flagValue("app-id") ?? build.appId ?? `com.downdraft.${basename(appDir).replace(/[^a-zA-Z0-9]/g, "")}`;
 const version = flagValue("product-version") ?? pkg.version ?? "0.0.1";
 const exeName = (flagValue("executable-name") ?? build.executableName ?? productName)
-  .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || basename(gameDir);
+  .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || basename(appDir);
 const maintainer = linuxCfg.maintainer
   ?? (typeof pkg.author === "string" ? pkg.author : pkg.author?.name) ?? "DownDraft";
-const category = linuxCfg.category ?? "Game";
+const category = linuxCfg.category ?? "Utility";
 const synopsis = linuxCfg.synopsis ?? pkg.description ?? productName;
 const description = linuxCfg.description ?? pkg.description ?? synopsis;
 
 const outdir = resolve(outdirArg);
-const appdir = join(outdir, `${basename(gameDir)}-linux-${runtime}`);
+const appdir = join(outdir, `${basename(appDir)}-linux-${runtime}`);
 const platKey = `${process.platform}-${process.arch}`;
 const repoRoot = process.cwd();
 
@@ -152,10 +152,10 @@ const DEFAULT_ICON = fileURLToPath(new URL("./default-icon.png", import.meta.url
 function resolveIcon() {
   const explicit = flagValue("icon") ?? linuxCfg.icon ?? build.icon;
   const candidates = [
-    explicit ? resolve(gameDir, explicit) : null,
-    join(gameDir, "assets/icon.png"),
-    join(gameDir, "assets/icon.ico"),
-    join(gameDir, "icon.png"),
+    explicit ? resolve(appDir, explicit) : null,
+    join(appDir, "assets/icon.png"),
+    join(appDir, "assets/icon.ico"),
+    join(appDir, "icon.png"),
   ].filter(Boolean);
   return candidates.find((p) => existsSync(p)) ?? (existsSync(DEFAULT_ICON) ? DEFAULT_ICON : null);
 }
@@ -509,7 +509,7 @@ if (workerEntries.size) {
   console.log(`workers: ${[...workerEntries].map((p) => p.split("/").pop()).join(", ")}`);
 }
 
-// ── Stage engine + game-native libs into <appdir>/native ──
+// ── Stage engine + app-native libs into <appdir>/native ──
 
 const libExt = platKey.startsWith("win32") ? ".dll" : platKey.startsWith("darwin") ? ".dylib" : ".so";
 
@@ -539,7 +539,7 @@ async function stageEngineLibs(nativeDir) {
   const platPkgVersion = platPkg &&
     JSON.parse(readFileSync(join(platPkg, "package.json"), "utf8")).version;
   const platStageDir = await resolvePlatLibDir(
-    platKey, platLibCandidates, join(gameDir, "node_modules", ".cache"), platPkgVersion);
+    platKey, platLibCandidates, join(appDir, "node_modules", ".cache"), platPkgVersion);
   if (!platStageDir) {
     throw new Error(`no libdowndraft_platform build found for ${platKey} — searched: ${platLibCandidates.join(", ")}`);
   }
@@ -573,17 +573,17 @@ async function stageEngineLibs(nativeDir) {
   }
 }
 
-/** Game-owned native artifacts: <game>/native/dist/<plat>/ → appdir/native/.
+/** App-owned native artifacts: <app>/native/dist/<plat>/ → appdir/native/.
  *  Covers .so cdylibs AND .node napi addons (all three desktop runtimes can
- *  load napi). The convention game-side loaders resolve — see
- *  games/<name>/src/tests/native/native-bridge-lib.ts. */
-function stageGameNative(nativeDir) {
-  const dist = join(gameDir, "native", "dist", platKey);
+ *  load napi). The convention app-side loaders resolve — see
+ *  apps/<name>/src/tests/native/native-bridge-lib.ts. */
+function stageAppNative(nativeDir) {
+  const dist = join(appDir, "native", "dist", platKey);
   if (!existsSync(dist)) return;
   mkdirSync(nativeDir, { recursive: true });
   for (const f of readdirSync(dist)) {
     copyFileSync(join(dist, f), join(nativeDir, f));
-    console.log(`  game-native: ${f}`);
+    console.log(`  app-native: ${f}`);
   }
 }
 
@@ -636,9 +636,9 @@ if (runtime === "bun") {
   // koffi + platform prebuild — node's FFI fallback needs real files.
   if (runtime === "node") {
     const { createRequire } = await import("node:module");
-    const gameRequire = createRequire(resolve(entry));
+    const appRequire = createRequire(resolve(entry));
     let koffiRoot = null;
-    try { koffiRoot = dirname(gameRequire.resolve("koffi")); } catch { /* absent */ }
+    try { koffiRoot = dirname(appRequire.resolve("koffi")); } catch { /* absent */ }
     if (!koffiRoot) {
       console.warn("[package-desktop] koffi not resolvable — FFI will fail under the node runtime");
     } else {
@@ -687,8 +687,8 @@ if (runtime === "bun") {
   await stageEngineLibs(nativeDir);
 }
 
-// Game-native artifacts (.so + .node) → appdir/native/.
-stageGameNative(nativeDir);
+// App-native artifacts (.so + .node) → appdir/native/.
+stageAppNative(nativeDir);
 
 // Follow relative imports inside staged script assets — execArgv loader
 // files (wgsl-loader.mjs, worker-bootstrap.mjs) are staged raw, not
@@ -734,7 +734,7 @@ if (runtime !== "bun") {
 for (const f of (Array.isArray(build.files) ? build.files : []).values()) {
   const from = typeof f === "string" ? f : f.from;
   const rel = from.replace(/\/\*\*?\/\*?$/, "").replace(/\/+$/, "");
-  const src = resolve(gameDir, rel);
+  const src = resolve(appDir, rel);
   const dest = join(appdir, typeof f === "string" ? rel : (f.to ?? rel));
   if (!existsSync(src)) { console.warn(`[package-desktop] files entry missing: ${src}`); continue; }
   cpSync(src, dest, { recursive: true });
@@ -825,7 +825,7 @@ if (formats.includes("deb")) {
   writeFileSync(join(root, "DEBIAN/control"),
     `Package: ${exeName}\n` +
     `Version: ${version}\n` +
-    `Section: ${debCfg.section ?? "games"}\n` +
+    `Section: ${debCfg.section ?? "utils"}\n` +
     `Priority: ${debCfg.priority ?? "optional"}\n` +
     `Architecture: amd64\n` +
     `Installed-Size: ${sizeKb}\n` +

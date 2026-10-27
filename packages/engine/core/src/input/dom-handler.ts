@@ -1,7 +1,7 @@
 // ============================================================================
 // createDomInputHandler — batteries-included DOM input capture.
 //
-// Every game hand-rolled the same ~100-270-line input handler: window
+// Every app hand-rolled the same ~100-270-line input handler: window
 // keydown/keyup feeding a keyMap, canvas mousedown + window mouseup for
 // buttons, canvas mousemove → canvas-space coords, wheel accumulation,
 // contextmenu suppression — with no destroy() (leaks on hot reload) and no
@@ -75,7 +75,7 @@ export interface DomInputOptions {
    * handler if you need once-per-press.
    */
   onKeyPress?: Record<string, (e: KeyboardEvent, input: DomInputHandler) => void>;
-  /** Raw event hooks for game-specific behavior (run after built-in handling). */
+  /** Raw event hooks for app-specific behavior (run after built-in handling). */
   onKeyDown?: (e: KeyboardEvent, input: DomInputHandler) => void;
   onKeyUp?: (e: KeyboardEvent, input: DomInputHandler) => void;
   onMouseDown?: (e: MouseEvent, pos: { x: number; y: number }, input: DomInputHandler) => void;
@@ -348,7 +348,7 @@ export function createDomInputHandler(opts: DomInputOptions): DomInputHandler {
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
     // Normalize to integer notches (scroll up = +1 = zoom in, matching the
-    // per-game convention).
+    // per-app convention).
     state.wheel(e.deltaY < 0 ? 1 : e.deltaY > 0 ? -1 : 0);
     opts.onWheel?.(e, handler);
   };

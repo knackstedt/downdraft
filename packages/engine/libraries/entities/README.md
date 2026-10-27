@@ -1,6 +1,6 @@
 # `@downdraft/engine/libraries/entities`
 
-Generic entity rendering — ModelRenderer and entity-display plumbing shared by games (EntitiesLib descriptor).
+Generic entity rendering — ModelRenderer and entity-display plumbing shared by apps (EntitiesLib descriptor).
 
 ## Install
 

@@ -1,6 +1,6 @@
 // ============================================================================
-// Cloud Mesh Provider — interface for game-specific cloud field generation
-// Games implement this to supply voxel fields and mesh extraction for clouds.
+// Cloud Mesh Provider — interface for app-specific cloud field generation
+// Apps implement this to supply voxel fields and mesh extraction for clouds.
 // ============================================================================
 
 import type { ExtractedMesh, VoxelField } from "@downdraft/engine/libraries/marching-cubes";

@@ -4,12 +4,12 @@ import type { ToolRegistration } from "../types";
 import { errorResult, jsonResult } from "../types";
 
 /** Base directory used for path confinement. Falls back to cwd. */
-const GAME_ROOT = process.cwd();
+const APP_ROOT = process.cwd();
 
 /** Strip absolute filesystem paths from error messages to avoid leaking implementation details. */
 function sanitizeErrorMessage(msg: string): string {
-  return msg.replace(GAME_ROOT, "<game-root>").replace(/\/[^\s"']+/g, (match) => {
-    if (match.startsWith("/<game-root>")) return match;
+  return msg.replace(APP_ROOT, "<app-root>").replace(/\/[^\s"']+/g, (match) => {
+    if (match.startsWith("/<app-root>")) return match;
     return "<path>";
   });
 }
@@ -20,7 +20,7 @@ export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
     {
       def: {
         name: "create_script",
-        description: "Create a TypeScript game logic script file.",
+        description: "Create a TypeScript app logic script file.",
         inputSchema: {
           type: "object",
           properties: {
@@ -38,7 +38,7 @@ export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
 
         const path = `scripts/${name}.ts`;
         try {
-          const safePath = confinePath(GAME_ROOT, path);
+          const safePath = confinePath(APP_ROOT, path);
           const { promises: fs } = await import("node:fs");
           await fs.writeFile(safePath, code);
           return jsonResult({ created: true, name, path });
@@ -51,7 +51,7 @@ export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
     {
       def: {
         name: "attach_script",
-        description: "Attach (load) a script to the running game.",
+        description: "Attach (load) a script to the running app.",
         inputSchema: {
           type: "object",
           properties: {
@@ -66,7 +66,7 @@ export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
         const path = (params.path as string) ?? `scripts/${name}.ts`;
 
         try {
-          const safePath = confinePath(GAME_ROOT, path);
+          const safePath = confinePath(APP_ROOT, path);
           await ctx.scriptingSystem.load(name, safePath);
           return jsonResult({ attached: true, name, path: safePath });
         } catch (e) {
@@ -93,7 +93,7 @@ export function createScriptTools(ctx: EngineContext): ToolRegistration[] {
         const path = (params.path as string) ?? `scripts/${name}.ts`;
 
         try {
-          const safePath = confinePath(GAME_ROOT, path);
+          const safePath = confinePath(APP_ROOT, path);
           await ctx.scriptingSystem.hotReload(name, safePath);
           return jsonResult({ hotReloaded: true, name, path: safePath });
         } catch (e) {

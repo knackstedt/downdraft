@@ -2,14 +2,14 @@
 // device-request.ts — the shared requestDevice descriptor for host-owned
 // devices. Extracted so the dev shell's early-boot path (early-host.ts) and
 // createNativeHost() request the SAME limits/features union — an early
-// device adopted by the full host must satisfy everything GameRenderer asks.
+// device adopted by the full host must satisfy everything AppRenderer asks.
 // ============================================================================
 
 import type { WgpuAdapter } from "./wgpu-device";
 
 /**
  * Build the GPUDeviceDescriptor the native host requests. Limits/features
- * are the UNION of what the host and GameRenderer request, clamped to what
+ * are the UNION of what the host and AppRenderer request, clamped to what
  * the adapter reports — requesting a limit above the adapter's max fails
  * requestDevice.
  */
@@ -27,7 +27,7 @@ export function computeDeviceDescriptor(adapter: WgpuAdapter): GPUDeviceDescript
   requestLimit("maxTextureArrayLayers", 512);
   // Timestamp queries are opt-in on native: the wgpu timestamp path loses
   // the device on lavapipe-class rasterizers AND has been observed to lose
-  // real discrete Vulkan devices under sustained in-game use — keep it behind
+  // real discrete Vulkan devices under sustained in-app use — keep it behind
   // DOWNDRAFT_GPU_TIMESTAMPS until the driver-level issue is resolved
   // upstream. The base feature is still requested unconditionally (harmless
   // while unused; consumers gate on isGpuTimestampSafe).

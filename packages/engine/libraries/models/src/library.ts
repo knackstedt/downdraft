@@ -1,12 +1,12 @@
 // ============================================================================
 // ModelsLib — declarative engine library descriptor for @downdraft/engine/libraries/models
 //
-// Games declare `libraries: [ModelsLib]` (or with config override) in their
-// GameModule. The host creates the async model loader (renderer-side only —
+// Apps declare `libraries: [ModelsLib]` (or with config override) in their
+// AppModule. The host creates the async model loader (renderer-side only —
 // model loading + parsing happens on the renderer thread where the GPU device
 // and AssetManager live) and exposes it via the ModelLoaderTok typed token.
 //
-// Games that need full control can still import loadModel /
+// Apps that need full control can still import loadModel /
 // createModelAsyncLoader / registerModelLoaders directly (escape hatch).
 // ============================================================================
 

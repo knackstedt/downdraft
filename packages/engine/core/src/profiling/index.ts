@@ -2,7 +2,7 @@
 // @downdraft/engine/profiling — public API barrel
 //
 // Re-exports all profiling types + functions for use by workers, the
-// devtools module, the profiler library, and games.
+// devtools module, the profiler library, and apps.
 // ============================================================================
 
 // SAB layout + reader/writer

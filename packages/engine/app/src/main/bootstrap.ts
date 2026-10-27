@@ -1,7 +1,7 @@
 // ============================================================================
-// bootstrapGame() — framework-orchestrated renderer bootstrap
+// bootstrapApp() — framework-orchestrated renderer bootstrap
 //
-// Centralizes the common bootstrap sequence shared by all games (both
+// Centralizes the common bootstrap sequence shared by all apps (both
 // sim-worker and renderer-only topologies):
 //   1. Get the render surface
 //   2. Create + init renderer
@@ -16,9 +16,9 @@
 //  10. Hot-reload dispose (if provided)
 //  11. Deterministic callbacks (if onDeterministic provided)
 //
-// `startGame()` wraps this and adds sim worker spawn, SAB capture, event
-// routing, engine library auto-wiring, and save store initialization. Games
-// that need full control can call `bootstrapGame()` directly.
+// `startApp()` wraps this and adds sim worker spawn, SAB capture, event
+// routing, engine library auto-wiring, and save store initialization. Apps
+// that need full control can call `bootstrapApp()` directly.
 // ============================================================================
 
 import { encodeFeatureLogLine, getNativeHost, isDevMode, type RenderSurface } from "@downdraft/engine";
@@ -41,7 +41,7 @@ const devtoolsLibP = isDevMode
   ? import("@downdraft/engine/libraries/devtools")
   : null;
 // ./hooks is tiny and same-graph, but pre-warming it too keeps the await at
-// the bottom of bootstrapGame() off the in-flight-fetch path as well.
+// the bottom of bootstrapApp() off the in-flight-fetch path as well.
 const hooksP = import("./hooks");
 // Attach benign handlers so a rejection before the first await isn't flagged
 // as unhandled — awaiting the original promise still propagates the error.
@@ -79,7 +79,7 @@ function importOrDead<T>(p: Promise<T>, expectedSession?: any): Promise<T | null
   ]);
 }
 
-/** Bail predicate for bootstrapGame's mid-boot awaits. The session snapshot
+/** Bail predicate for bootstrapApp's mid-boot awaits. The session snapshot
  *  captured at ENTRY is this generation's identity: after any await a restart
  *  may have torn it down AND begun a fresh session — checking the tracker's
  *  current session alone would let dead-generation continuations register
@@ -117,10 +117,10 @@ export interface BootstrapDevToolsOptions {
    *  Forwarded to initDevTools — implies sceneInspector. */
   bridgeClass?: new () => any;
   /** Worker hosts to sync devtools manifests from (evaluated after
-   *  renderer init — a factory runs when the game's sim worker is already
+   *  renderer init — a factory runs when the app's sim worker is already
    *  started, e.g. by an overridden onInit). */
   workerHosts?: any[] | ((renderer: any) => any[]);
-  /** Extra game-level rows for the Input panel. */
+  /** Extra app-level rows for the Input panel. */
   inputInfo?: () => { key: string; value: string; flags?: number }[];
   /**
    * Enable the profiling system (ProfilingSAB + ProfilingBridge + built-in views).
@@ -145,7 +145,7 @@ export interface BootstrapDevToolsOptions {
   };
 }
 
-export interface BootstrapGameOptions {
+export interface BootstrapAppOptions {
   // --- Surface ---
   /** Surface layer index. Default: 0 — the only layer on native hosts. */
   canvasLayer?: number;
@@ -155,7 +155,7 @@ export interface BootstrapGameOptions {
   createRenderer: (surface: RenderSurface) => any;
   /** Called after renderer creation to initialize it. Should return false on failure. */
   initRenderer?: (renderer: any) => Promise<boolean> | boolean;
-  /** Called after renderer init to let the game wire the renderer to its store. */
+  /** Called after renderer init to let the app wire the renderer to its store. */
   onRendererInit?: (renderer: any) => Promise<void> | void;
 
   // --- DevTools ---
@@ -189,25 +189,25 @@ export interface BootstrapGameOptions {
   fpsPollIntervalMs?: number;
 
   // --- Feature log ---
-  /** Optional getter for active plugin names (e.g. () => gameWorld.moduleHost.listModules()).
+  /** Optional getter for active plugin names (e.g. () => appWorld.moduleHost.listModules()).
    *  Populates the `plug` field of the renderer feature log line. */
   getActiveModules?: () => string[];
 }
 
 /**
- * Bootstrap a game with the standard sequence.
+ * Bootstrap an app with the standard sequence.
  *
  * This orchestrator centralizes the common bootstrap pattern shared by all
- * games (both sim-worker and renderer-only topologies), eliminating ~1200
+ * apps (both sim-worker and renderer-only topologies), eliminating ~1200
  * lines of duplicated boilerplate and closing the deterministic-mode variance
  * gap (all gates are centralized here).
  *
- * `startGame()` wraps this and adds sim worker spawn, SAB capture, event
- * routing, engine library auto-wiring, and save store initialization. Games
- * that need full control can call `bootstrapGame()` directly. Games that need
+ * `startApp()` wraps this and adds sim worker spawn, SAB capture, event
+ * routing, engine library auto-wiring, and save store initialization. Apps
+ * that need full control can call `bootstrapApp()` directly. Apps that need
  * partial composition can use the individual hooks from `./hooks.ts` instead.
  */
-export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
+export async function bootstrapApp(opts: BootstrapAppOptions): Promise<void> {
   const bootSession = (globalThis as any).__ddSession?.session ?? null;
   const bootAborted = makeBootGuard(bootSession);
   const canvasLayer = opts.canvasLayer ?? 0;
@@ -222,14 +222,14 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     const ok = await importOrDead(Promise.resolve(opts.initRenderer(renderer)), bootSession);
     if (ok === null) return;
     if (!ok) {
-      log.error("bootstrap-game", "Renderer init failed");
+      log.error("bootstrap-app", "Renderer init failed");
       return;
     }
   }
   if (bootAborted()) return;
 
   // 4. Wire DevTools (if provided) — runs BEFORE onRendererInit so that
-  //    games can access the ProfilingBridge + __downdraftDevtools API in onReady.
+  //    apps can access the ProfilingBridge + __downdraftDevtools API in onReady.
   if (opts.devtools) {
     const devtoolsMod = await importOrDead(debugModuleP ?? import("@downdraft/engine/modules/debug"), bootSession);
     if (!devtoolsMod) return;
@@ -261,7 +261,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     // 4a. Profiling wiring — `profiling: true` allocates the SAB + bridge,
     //     but without this nothing ticks the bridge or shares the SAB with
     //     workers, so the perf tab would only ever report the main thread.
-    //     wireProfilingBridge guards against games that also call it
+    //     wireProfilingBridge guards against apps that also call it
     //     manually; worker-side attach is idempotent.
     if (opts.devtools.profiling) {
       try {
@@ -312,7 +312,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
           wireProfilingBridge({ renderer, bridge, workerHosts: hosts });
         }
       } catch (err) {
-        log.warn("bootstrap-game", `profiling wiring failed: ${err}`);
+        log.warn("bootstrap-app", `profiling wiring failed: ${err}`);
       }
     }
 
@@ -328,7 +328,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
       try {
         const uiCfg = typeof uiOpt === "object" ? uiOpt : {};
         if (uiKind === "blitz" || uiKind === "web") {
-          log.warn("bootstrap-game", `devtools.ui:"${uiKind}" was removed — the @downdraft/devtools overlay (F12) is the in-window frontend; treating as "devtools"`);
+          log.warn("bootstrap-app", `devtools.ui:"${uiKind}" was removed — the @downdraft/devtools overlay (F12) is the in-window frontend; treating as "devtools"`);
         }
         const profilingSAB =
           (globalThis as Record<string, any>).window?.__downdraftDevtools?.__getProfilingBridge?.()?.getProfilingSAB?.()
@@ -354,7 +354,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
         // In-window overlay — @downdraft/devtools is an optional peer (engine
         // can't depend on it: it depends on engine). The specifier lives in a
         // variable so Vite doesn't try to resolve it at transform time for
-        // games that don't have it installed.
+        // apps that don't have it installed.
         const dtSpecifier = "@downdraft/devtools";
         const overlayMod: any = await importOrDead(
           import(/* @vite-ignore */ dtSpecifier).catch(() => null),
@@ -368,16 +368,16 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
           });
           hooksMod.dispose(() => { try { mount.dispose(); } catch { /* ignore */ } });
         } else {
-          log.warn("bootstrap-game", "@downdraft/devtools not installed — F12 overlay unavailable (backend still serves remote viewers)");
+          log.warn("bootstrap-app", "@downdraft/devtools not installed — F12 overlay unavailable (backend still serves remote viewers)");
         }
       } catch (err) {
-        log.error("bootstrap-game", `Devtools UI init failed: ${err}`);
+        log.error("bootstrap-app", `Devtools UI init failed: ${err}`);
       }
     }
   }
 
-  // 4c. onRendererInit — library setup, sim start, game-specific wiring (onReady).
-  //     DevTools is already wired, so games can access __downdraftDevtools +
+  // 4c. onRendererInit — library setup, sim start, app-specific wiring (onReady).
+  //     DevTools is already wired, so apps can access __downdraftDevtools +
   //     the ProfilingBridge from their onReady hook.
   if (opts.onRendererInit) {
     await importOrDead(Promise.resolve(opts.onRendererInit(renderer)), bootSession);
@@ -403,7 +403,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
     deterministic,
     getActiveModules: opts.getActiveModules,
   });
-  log.info("bootstrap-game", encodeFeatureLogLine(renderFeatureLog));
+  log.info("bootstrap-app", encodeFeatureLogLine(renderFeatureLog));
 
   // 7. FPS polling (if onFpsUpdate provided). unref so the interval can't
   //    pin the runtime after the window closes (packaged mode has no session
@@ -454,7 +454,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
         await autosaveOpts.onLoad(saved);
       }
     } catch (e) {
-      log.warn("bootstrap-game", `Autosave load failed: ${e}`);
+      log.warn("bootstrap-app", `Autosave load failed: ${e}`);
     }
     // A restart landing during the load await must not leave this dead
     // generation's save interval registered into the NEXT live session.
@@ -467,7 +467,7 @@ export async function bootstrapGame(opts: BootstrapGameOptions): Promise<void> {
       try {
         await autosaveOpts.save();
       } catch (e) {
-        log.warn("bootstrap-game", `Autosave save failed: ${e}`);
+        log.warn("bootstrap-app", `Autosave save failed: ${e}`);
       } finally {
         saveInProgress = false;
       }

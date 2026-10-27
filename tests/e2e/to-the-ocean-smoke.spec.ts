@@ -1,27 +1,27 @@
 // ============================================================================
 // To The Ocean — smoke test via MCP automation harness
-// Launches the game under SwiftShader, drives it through MCP tools, and
+// Launches the app under SwiftShader, drives it through MCP tools, and
 // asserts that the simulation ticks and a screenshot can be captured.
 // ============================================================================
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
     captureAndSaveScreenshot,
-    gameAvailable,
-    launchGame,
+    appAvailable,
+    launchApp,
     parseJsonContent,
     sleep,
-    type GameProcess
+    type AppProcess
 } from "./harness";
 
 const MCP_PORT = process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined;
 
-describe.skipIf(!gameAvailable("to-the-ocean"))("to-the-ocean MCP automation smoke", () => {
-  let game: GameProcess | null = null;
+describe.skipIf(!appAvailable("to-the-ocean"))("to-the-ocean MCP automation smoke", () => {
+  let app: AppProcess | null = null;
 
   beforeAll(async () => {
-    game = await launchGame({
-      game: "to-the-ocean",
+    app = await launchApp({
+      app: "to-the-ocean",
       mcpPort: MCP_PORT,
       // Respect DOWNDRAFT_GPU from the parent env (set by `draft test --renderer=...`).
       // Default to swiftshader if not specified.
@@ -31,11 +31,11 @@ describe.skipIf(!gameAvailable("to-the-ocean"))("to-the-ocean MCP automation smo
   }, 180000);
 
   afterAll(async () => {
-    await game?.kill();
+    await app?.kill();
   }, 30000);
 
   it("exposes the automation tool set", async () => {
-    const tools = await game!.mcpClient.listTools();
+    const tools = await app!.mcpClient.listTools();
     const names = new Set(tools.map((t) => t.name));
     expect(names.has("inject_input")).toBe(true);
     expect(names.has("get_player_state")).toBe(true);
@@ -47,7 +47,7 @@ describe.skipIf(!gameAvailable("to-the-ocean"))("to-the-ocean MCP automation smo
   });
 
   it("reads a valid initial world state", async () => {
-    const result = await game!.mcpClient.callTool("get_world_state", {});
+    const result = await app!.mcpClient.callTool("get_world_state", {});
     const state = parseJsonContent(result) as {
       tick: number;
       playerCount: number;
@@ -60,7 +60,7 @@ describe.skipIf(!gameAvailable("to-the-ocean"))("to-the-ocean MCP automation smo
   });
 
   it("reads player state for player 0", async () => {
-    const result = await game!.mcpClient.callTool("get_player_state", { playerIndex: 0 });
+    const result = await app!.mcpClient.callTool("get_player_state", { playerIndex: 0 });
     const state = parseJsonContent(result) as {
       position: number[];
       health: number;
@@ -72,29 +72,29 @@ describe.skipIf(!gameAvailable("to-the-ocean"))("to-the-ocean MCP automation smo
   });
 
   it("can inject input and advance simulation ticks", async () => {
-    // Put the game into a deterministic, calm state.
-    await game!.mcpClient.callTool("set_test_state", {
+    // Put the app into a deterministic, calm state.
+    await app!.mcpClient.callTool("set_test_state", {
       weatherType: 0,
       timeOfDay: 0.5,
       simSpeed: 1,
     });
 
-    const before = parseJsonContent(await game!.mcpClient.callTool("get_world_state", {}));
+    const before = parseJsonContent(await app!.mcpClient.callTool("get_world_state", {}));
     const beforeTick = before.tick as number;
 
     // Hold W for 120 frames to drive the player forward.
-    await game!.mcpClient.callTool("inject_input", {
+    await app!.mcpClient.callTool("inject_input", {
       keys: ["W"],
       frames: 120,
     });
 
     // Wait for the simulation to process the input.
-    await game!.mcpClient.callTool("wait_for_condition", {
+    await app!.mcpClient.callTool("wait_for_condition", {
       condition: "tick > " + (beforeTick + 60),
       timeoutMs: 30000,
     });
 
-    const afterState = parseJsonContent(await game!.mcpClient.callTool("get_world_state", {})) as { tick: number };
+    const afterState = parseJsonContent(await app!.mcpClient.callTool("get_world_state", {})) as { tick: number };
     expect(afterState.tick).toBeGreaterThan(beforeTick);
   }, 90000);
 
@@ -103,7 +103,7 @@ describe.skipIf(!gameAvailable("to-the-ocean"))("to-the-ocean MCP automation smo
     await sleep(500);
 
     // Default: fullPage=true — captures the composited frame via the host.
-    const meta = await captureAndSaveScreenshot(game!, "ttol-smoke.png", true);
+    const meta = await captureAndSaveScreenshot(app!, "ttol-smoke.png", true);
 
     expect(meta.width).toBeGreaterThan(0);
     expect(meta.height).toBeGreaterThan(0);
@@ -115,11 +115,11 @@ describe.skipIf(!gameAvailable("to-the-ocean"))("to-the-ocean MCP automation smo
 
   it("clears injected input without error", async () => {
     // Inject some input then clear it immediately.
-    await game!.mcpClient.callTool("inject_input", {
+    await app!.mcpClient.callTool("inject_input", {
       keys: ["W", "A"],
       frames: 300,
     });
-    const result = await game!.mcpClient.callTool("clear_injected_input", {});
+    const result = await app!.mcpClient.callTool("clear_injected_input", {});
     const response = parseJsonContent(result) as { cleared: boolean };
     expect(response.cleared).toBe(true);
   });

@@ -1,7 +1,7 @@
 // ============================================================================
 // Prefab commands — capture an entity subtree as a reusable Prefab and
 // instantiate prefabs into the document. Backed by the existing
-// PrefabRegistry/PrefabFactory on the EngineContext's GameWorld.
+// PrefabRegistry/PrefabFactory on the EngineContext's AppWorld.
 // ============================================================================
 
 import { getColumnValue, sanitizeObject, type Entity, type Prefab } from "@downdraft/engine";

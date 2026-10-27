@@ -159,7 +159,7 @@ export class ModelRenderer {
 
   // Frame-global lighting bind group (group 2). Provides sun color, hemisphere
   // ambient, and point lights. Defaults to a neutral white-sun / no-point-light
-  // bind group so existing consumers see no visual change. Games with colored
+  // bind group so existing consumers see no visual change. Apps with colored
   // lighting call setFrameLightingBindGroup() each frame to override.
   private frameLightingLayout: GPUBindGroupLayout | null = null;
   private defaultFrameLightingBuffer: GPUBuffer | null = null;

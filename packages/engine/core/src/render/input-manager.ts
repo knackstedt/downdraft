@@ -22,10 +22,10 @@ export class InputManager {
   private pointerLockRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private pointerLockRetryCount = 0;
   // When false (the default), the canvas does not auto-grab the pointer on
-  // click. Pointer lock is an opt-in FPS-style concern; 2D click-based games
-  // (2D grid-based games, …) must not have their cursor
-  // captured/hidden. 3D games that want pointer lock either set this flag or
-  // manage pointer lock themselves (e.g. games that manage pointer lock themselves).
+  // click. Pointer lock is an opt-in FPS-style concern; 2D click-based apps
+  // (2D grid-based apps, …) must not have their cursor
+  // captured/hidden. 3D apps that want pointer lock either set this flag or
+  // manage pointer lock themselves (e.g. apps that manage pointer lock themselves).
   private enablePointerLock: boolean;
 
   private uiInputRouter: UIInputRouter | null = null;
@@ -80,8 +80,8 @@ export class InputManager {
       this.uiInputRouter?.handleKeyUp(e.keyCode);
     }) as EventListener);
 
-    // Pointer lock is opt-in: only 3D FPS-style games request it. 2D
-    // click-based games (2D grid-based games, …) must keep a visible,
+    // Pointer lock is opt-in: only 3D FPS-style apps request it. 2D
+    // click-based apps (2D grid-based apps, …) must keep a visible,
     // free-moving cursor so click-to-dig / click-to-place works.
     if (this.enablePointerLock) {
       add(this.canvas, "click", (() => {
@@ -159,8 +159,8 @@ export class InputManager {
       if (e.button === 2) this.mouseState.right = false;
     }) as EventListener);
 
-    // UI routing listens on window — game UI draws on the game canvas, but games
-    // may stack additional interactive canvases above it (e.g. a game's
+    // UI routing listens on window — app UI draws on the app canvas, but apps
+    // may stack additional interactive canvases above it (e.g. an app's
     // tile canvas). Window-level listeners see events regardless of which
     // element is on top; toCanvas() converts to backing-pixel space and
     // hit-testing bounds-checks, so off-canvas events are no-ops.

@@ -67,7 +67,7 @@ export interface AssetBakeOptions {
   gltf?: GltfBakeOptions;
   audio?: AudioBakeOptions;
   /**
-   * Glob patterns (minimatch-style, relative to game root) to include in
+   * Glob patterns (minimatch-style, relative to app root) to include in
    * baking. Default: all matched extensions.
    */
   include?: string[];

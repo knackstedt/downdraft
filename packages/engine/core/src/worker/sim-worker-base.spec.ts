@@ -156,7 +156,7 @@ describe("createSimWorker save/command plumbing", () => {
       slotName: string; meta?: { entityCount?: number }; origin?: string;
     };
     expect(savedEvt.meta?.entityCount).toBe(3);
-    // Renderer-initiated saves are tagged so game "saved" handlers don't
+    // Renderer-initiated saves are tagged so app "saved" handlers don't
     // double-write them (the caller already persists the payload).
     expect(savedEvt.origin).toBe("renderer");
     expect((await eventsOf("loaded")).length).toBe(1);
