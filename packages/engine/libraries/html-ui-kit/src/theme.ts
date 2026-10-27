@@ -144,10 +144,43 @@ body { background: var(--dd-bg); color: var(--dd-text); font-family: ${KIT_FONT_
   margin-top:2px; background:var(--dd-panel); border:1px solid var(--dd-line2);
   border-radius:4px; overflow:hidden; }
 .dd-dd[data-open="true"] .dd-menu { display:block; }
-.dd-menu .dd-mi { padding:7px 10px; font-size:12px; color:var(--dd-text); }
+.dd-menu .dd-mi { padding:7px 10px; font-size:12px; color:var(--dd-text);
+  display:flex; align-items:center; gap:6px; }
 .dd-menu .dd-mi:hover { background:var(--dd-panel2); }
 .dd-menu .dd-mi[data-on="true"] { color:var(--dd-accent); }
 .dd-menu .dd-msep { height:1px; background:var(--dd-line); }
+.dd-menu .dd-mi > span { flex:1; }
+.dd-menu .dd-mi .dd-maccel { flex:none; color:var(--dd-dim); font-size:10px; margin-left:24px; }
+.dd-menu .dd-mi .dd-ckm { flex:none; width:14px; text-align:center; }
+.dd-menu .dd-mi .dd-caret { flex:none; }
+.dd-menu .dd-mi[data-disabled="true"] { color:var(--dd-dim); }
+.dd-menu .dd-mi[data-disabled="true"]:hover { background:transparent; }
+
+/* ── application menu bar (in-window fallback for native menus) ── */
+.dd-menubar { display:flex; align-items:stretch; position:relative;
+  background:var(--dd-panel); border-bottom:1px solid var(--dd-line); }
+/* Backdrop sits above content but below the bar labels+menus (DOM order:
+   it renders first inside .dd-menubar). Tall enough to catch clicks
+   outside the menus in typical windows. */
+.dd-menubar .dd-mback { display:none; position:absolute; top:100%; left:0;
+  right:0; height:4000px; }
+.dd-menubar[data-open="true"] .dd-mback { display:block; }
+.dd-menubar .dd-mb { position:relative; }
+.dd-menubar .dd-mbl { padding:6px 12px; font-size:12px; color:var(--dd-text); }
+.dd-menubar .dd-mbl:hover { background:var(--dd-panel2); }
+.dd-menubar .dd-mb[data-open="true"] .dd-mbl { background:var(--dd-panel2); }
+.dd-menubar .dd-mb[data-disabled="true"] .dd-mbl { color:var(--dd-dim); }
+.dd-menubar .dd-mbsep { width:1px; background:var(--dd-line); margin:4px 0; }
+.dd-menubar .dd-mbm { display:none; position:absolute; top:100%; left:0;
+  min-width:190px; background:var(--dd-panel); border:1px solid var(--dd-line2);
+  border-radius:0 0 5px 5px; overflow:hidden; }
+.dd-menubar .dd-mb[data-open="true"] .dd-mbm { display:block; }
+/* Nested submenu inside a dropdown — opens on hover to the right. */
+.dd-menu .dd-msub { position:relative; }
+.dd-menu .dd-msub .dd-msubm { display:none; position:absolute; left:100%; top:0;
+  min-width:170px; background:var(--dd-panel); border:1px solid var(--dd-line2);
+  border-radius:5px; overflow:hidden; }
+.dd-menu .dd-msub:hover .dd-msubm { display:block; }
 
 /* ── list / scroll / table / tree ── */
 .dd-list { background:var(--dd-sink); border:1px solid var(--dd-line); border-radius:4px;

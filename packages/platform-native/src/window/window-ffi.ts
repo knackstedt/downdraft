@@ -290,6 +290,62 @@ export interface WindowDialogsSymbols {
   dd_notify: (optsJson: string) => number;
 }
 
+// Native app menus (muda — Windows HMENU / macOS NSMenu). dd_menu_set
+// returns 0 on platforms without native menus (Linux, Android) — the app
+// then renders the html-ui in-window fallback. Activations arrive as
+// DD_EVENT_MENU_ACTION; ids pull one-per-event via dd_menu_next_action.
+const WINDOW_MENU_SPEC: Record<string, CFunction> = {
+  dd_menu_set: { args: ["cstring"], returns: "i32" },
+  dd_menu_remove: { args: [], returns: "i32" },
+  dd_menu_set_item_enabled: { args: ["cstring", "i32"], returns: "i32" },
+  dd_menu_set_item_checked: { args: ["cstring", "i32"], returns: "i32" },
+  dd_menu_popup: { args: ["i32", "i32", "cstring"], returns: "i32" },
+  dd_menu_next_action: { args: ["ptr", "u32"], returns: "i32" },
+};
+
+let _winMenu: Partial<WindowMenuSymbols> | null = null;
+
+function loadWindowMenu(): Partial<WindowMenuSymbols> {
+  if (_winMenu) return _winMenu;
+  try {
+    const libPath = windowLibPath();
+    const { symbols } = dlopen(libPath, WINDOW_MENU_SPEC);
+    _winMenu = symbols as unknown as Partial<WindowMenuSymbols>;
+  } catch {
+    _winMenu = {};
+  }
+  return _winMenu;
+}
+
+/** Optional native-menu symbols — absent on libs predating them (and
+ *  present-but-unsupported on Linux/Android, where dd_menu_set → 0). */
+export const winMenu: Partial<WindowMenuSymbols> = new Proxy(
+  {} as Partial<WindowMenuSymbols>,
+  {
+    get(_target, prop: string) {
+      return (loadWindowMenu() as any)[prop];
+    },
+  },
+);
+
+export interface WindowMenuSymbols {
+  /** Install the model's items as the native menu. 1 installed /
+   *  0 unsupported platform (use the in-window fallback) / -1 error. */
+  dd_menu_set: (modelJson: string) => number;
+  /** Detach the installed native menu. 1 removed / 0 none installed. */
+  dd_menu_remove: () => number;
+  /** 1 applied / 0 unknown id or no menu installed. */
+  dd_menu_set_item_enabled: (id: string, on: number) => number;
+  /** 1 applied / 0 unknown id, non-check item, or no menu. */
+  dd_menu_set_item_checked: (id: string, checked: number) => number;
+  /** Show a context menu on the primary window at physical client
+   *  coords. 1 shown / 0 unsupported. */
+  dd_menu_popup: (x: number, y: number, modelJson: string) => number;
+  /** Pull the next queued action id — snprintf semantics; out=null
+   *  sizes without consuming. 0 = none queued. */
+  dd_menu_next_action: (out: ptr, maxLen: number) => number;
+}
+
 export interface MultiWindowSymbols {
   dd_window_secondary_create: (
     title: string,
@@ -416,6 +472,9 @@ export const DD_EVENT_THEME_CHANGED = 23;
 // A dd_dialog_* request completed — slot0 = req_id, slot1 = kind
 // (0 cancel / 1 ok / 2 error). Paths are pulled with dd_dialog_result_paths.
 export const DD_EVENT_DIALOG_RESULT = 24;
+// A native menu item was activated — the item id is pulled with
+// dd_menu_next_action (one queued id per event).
+export const DD_EVENT_MENU_ACTION = 25;
 
 // Key-modifier bitmask (native-rs wire values)
 export const KMOD_SHIFT = 0x0001 | 0x0002; // LSHIFT | RSHIFT

@@ -25,8 +25,7 @@
 // scroll → onChange(id,"scroll",{top,left}), focus/blur/key/click/etc → onEvent.
 // ============================================================================
 
-import type { UiPanelHandle } from "@downdraft/engine/modules/html-ui";
-import type { OsrDomEvent, DocMutation } from "@downdraft/engine/modules/html-ui";
+import type { DocMutation, OsrDomEvent, UiPanelHandle } from "@downdraft/engine/modules/html-ui";
 
 export interface KitDelegate {
   /** State-changing widgets: toggles, selects, sliders, inputs, scrolls. */
@@ -154,6 +153,65 @@ export function bindKit(handle: UiPanelHandle, delegate: KitDelegate = {}): KitB
           handle.setAttr(`#${id}`, "data-open", "false");
           delegate.onAction?.("ctx", { id, value: d.value ?? "" }, ev);
           return;
+        case "kit:menuopen": {
+          // Bar label — data-open on the label mirrors its .dd-mb wrapper.
+          const i = Number(d.i ?? 0), n = Number(d.count ?? 0);
+          const open = d.open !== "true";
+          const ops: DocMutation[] = [
+            { op: "attr", sel: `#${id}`, name: "data-open", value: open ? "true" : "false" },
+          ];
+          for (let k = 0; k < n; k++) {
+            const v = open && k === i ? "true" : "false";
+            ops.push({ op: "attr", sel: `#${id} .dd-mb[data-i="${k}"]`, name: "data-open", value: v });
+            ops.push({ op: "attr", sel: `#${id} .dd-mbl[data-i="${k}"]`, name: "data-open", value: v });
+          }
+          handle.mutate(ops);
+          delegate.onChange?.(id, "menuopen", open ? i : -1, ev);
+          return;
+        }
+        case "kit:menudismiss": {
+          const n = Number(d.count ?? 0);
+          const ops: DocMutation[] = [{ op: "attr", sel: `#${id}`, name: "data-open", value: "false" }];
+          for (let k = 0; k < n; k++) {
+            ops.push({ op: "attr", sel: `#${id} .dd-mb[data-i="${k}"]`, name: "data-open", value: "false" });
+            ops.push({ op: "attr", sel: `#${id} .dd-mbl[data-i="${k}"]`, name: "data-open", value: "false" });
+          }
+          handle.mutate(ops);
+          delegate.onChange?.(id, "menuopen", -1, ev);
+          return;
+        }
+        case "kit:menuitem": {
+          // Disabled items swallow the click — menu stays open, no action.
+          if (d.disabled === "true") return;
+          const mb = d.mb ?? "";
+          const ops: DocMutation[] = [
+            { op: "attr", sel: `#${mb}`, name: "data-open", value: "false" },
+          ];
+          if (d.mbi !== undefined) {
+            ops.push({
+              op: "attr",
+              sel: `#${mb} .dd-mb[data-i="${d.mbi}"]`,
+              name: "data-open",
+              value: "false",
+            });
+            ops.push({
+              op: "attr",
+              sel: `#${mb} .dd-mbl[data-i="${d.mbi}"]`,
+              name: "data-open",
+              value: "false",
+            });
+          }
+          if (d.mi) {
+            // Check item — flip the mark (the app still owns the truth;
+            // this mirrors native check-item auto-toggle feedback).
+            const on = d.on !== "true";
+            ops.push(setOn(`#${d.mi}`, on));
+            ops.push({ op: "text", sel: `#${d.mi} .dd-ckm`, text: on ? "✓" : "" });
+          }
+          handle.mutate(ops);
+          delegate.onAction?.("menuitem", { id: mb, mid: d.mid ?? "" }, ev);
+          return;
+        }
         case "kit:dismiss":
           handle.setStyle(`#${id}`, "display", "none");
           delegate.onAction?.("dismiss", { id }, ev);

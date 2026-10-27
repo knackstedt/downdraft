@@ -122,6 +122,8 @@ export interface HostEventMap {
   "debug-mode": boolean;
   "devtools-toggle": undefined;
   "theme-changed": HostTheme;
+  /** A menu item was activated — payload is the item id. */
+  "menu-action": string;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,6 +164,73 @@ export interface HostNotifyOptions {
 /** Effective system/window theme — "unknown" where the platform doesn't
  *  report it (e.g. X11 without a portal). */
 export type HostTheme = "light" | "dark" | "unknown";
+
+// ---------------------------------------------------------------------------
+// Application menus (native where supported, html-ui in-window elsewhere)
+// ---------------------------------------------------------------------------
+
+/** Platform-predefined menu items — the OS supplies icon/label/behavior
+ *  (e.g. macOS services, Win32 edit commands). */
+export type AppMenuPredefinedKind =
+  | "separator"
+  | "copy"
+  | "cut"
+  | "paste"
+  | "selectAll"
+  | "undo"
+  | "redo"
+  | "quit"
+  | "about"
+  | "minimize"
+  | "maximize"
+  | "closeWindow"
+  | "fullscreen"
+  | "hide"
+  | "hideOthers"
+  | "showAll"
+  | "services"
+  | "bringAllToFront";
+
+/** A single menu entry. `id` is required on "item"/"check" — it is what
+ *  arrives back through onMenuAction. `accelerator` uses muda/electron
+ *  syntax: "CmdOrCtrl+O", "Shift+Alt+F12", "CmdOrCtrl+Shift+Z". */
+export type AppMenuItem =
+  | {
+      type?: "item";
+      id: string;
+      label: string;
+      accelerator?: string;
+      enabled?: boolean;
+    }
+  | {
+      type: "check";
+      id: string;
+      label: string;
+      checked?: boolean;
+      accelerator?: string;
+      enabled?: boolean;
+    }
+  | { type: "separator" }
+  | { type: "predefined"; kind: AppMenuPredefinedKind; label?: string; id?: string }
+  | {
+      type: "submenu";
+      id?: string;
+      label: string;
+      enabled?: boolean;
+      items: AppMenuItem[];
+    };
+
+/** Top-level menu model — each item is typically a submenu (File/Edit/…).
+ *  The same shape drives the native menu and the in-window fallback. */
+export interface AppMenuModel {
+  items: AppMenuItem[];
+}
+
+/** Where the menu actually rendered: "native" = OS menu (Windows HMENU,
+ *  macOS NSMenu), "inwindow" = the app should render the html-ui kit
+ *  MenuBar (Linux/Android, or DD_MENU=inwindow), "unavailable" = neither
+ *  (no native lib, no symbols). */
+export type AppMenuBackend = "native" | "inwindow" | "unavailable";
 
 // ---------------------------------------------------------------------------
 // MCP Proxy
@@ -350,6 +419,23 @@ export interface HostAPI {
   getTheme?(): HostTheme;
   /** Theme-change subscription — returns an unsubscribe fn. */
   onThemeChanged?(cb: (theme: HostTheme) => void): () => void;
+
+  // ── Application menu (optional — native where supported; the return
+  //  tells the caller which backend is in effect). ──
+  /** Install/replace the app menu — null removes it. Returns the backend
+   *  in effect; "inwindow" means render the html-ui kit MenuBar yourself. */
+  setMenu?(model: AppMenuModel | null): AppMenuBackend;
+  /** Toggle an item's enabled state (native menus; in-window the app
+   *  re-renders). No-op when the id/menu is unknown. */
+  setMenuItemEnabled?(id: string, enabled: boolean): void;
+  /** Toggle a check item's state — same contract as setMenuItemEnabled. */
+  setMenuItemChecked?(id: string, checked: boolean): void;
+  /** Context menu at physical client coords on the primary window.
+   *  Returns false when the platform lacks native popups (render the
+   *  html-ui PopupMenu fallback instead). */
+  showContextMenu?(x: number, y: number, model: AppMenuModel): boolean;
+  /** Menu activation — the activated item's id, native or fallback. */
+  onMenuAction?(cb: (id: string) => void): () => void;
   /** Host system GPU probe (nvidia-smi); null when unavailable. */
   getGPUSystemInfo(): Promise<GPUSystemInfo | null>;
   /** GPU adapter identity + negotiated features (wgpu on native). */

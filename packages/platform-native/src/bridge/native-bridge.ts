@@ -42,6 +42,7 @@ import { createWebUiHost } from "../webui/webui-host";
 import type { NativeSurface } from "../window/native-surface";
 import type { NativeWindow } from "../window/native-window";
 import { createNativeDialogs } from "./dialogs";
+import { createNativeMenus } from "./menus";
 
 const log = createLogger("info");
 
@@ -117,6 +118,10 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
   // ── Native dialogs/notifications (optional FFI group — the helper
   //  degrades to null/false when the cdylib predates it) ──
   const dialogs = createNativeDialogs(opts.window);
+
+  // ── Native app menus (muda — win/mac native; the "inwindow" return
+  //  routes apps to the html-ui kit MenuBar fallback on Linux/Android) ──
+  const menus = createNativeMenus(opts.window, emit);
 
   // ── Services (save store + import cache) — worker-backed by default ──
   const services = opts.services;
@@ -238,6 +243,12 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
     notify: (notifyOpts) => dialogs.notify(notifyOpts),
     getTheme: () => opts.window.getTheme(),
     onThemeChanged: (cb: (theme: HostTheme) => void) => on("theme-changed", cb),
+
+    setMenu: (model) => menus.setMenu(model),
+    setMenuItemEnabled: (id, enabled) => menus.setMenuItemEnabled(id, enabled),
+    setMenuItemChecked: (id, checked) => menus.setMenuItemChecked(id, checked),
+    showContextMenu: (x, y, model) => menus.showContextMenu(x, y, model),
+    onMenuAction: (cb: (id: string) => void) => on("menu-action", cb),
 
     // ── GPU info ──
     getGPUSystemInfo: () => queryNvidiaSmi(),

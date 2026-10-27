@@ -78,7 +78,7 @@ fn mock_path() -> String {
 
 /// Read a required C string as JSON; null/invalid → empty object.
 #[cfg(not(target_os = "android"))]
-fn parse_opts(opts_json: *const c_char) -> serde_json::Value {
+pub(crate) fn parse_opts(opts_json: *const c_char) -> serde_json::Value {
     if opts_json.is_null() {
         return serde_json::Value::Object(serde_json::Map::new());
     }
@@ -89,12 +89,12 @@ fn parse_opts(opts_json: *const c_char) -> serde_json::Value {
 }
 
 #[cfg(not(target_os = "android"))]
-fn opt_str<'a>(v: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+pub(crate) fn opt_str<'a>(v: &'a serde_json::Value, key: &str) -> Option<&'a str> {
     v.get(key).and_then(|x| x.as_str()).filter(|s| !s.is_empty())
 }
 
 #[cfg(not(target_os = "android"))]
-fn opt_bool(v: &serde_json::Value, key: &str) -> bool {
+pub(crate) fn opt_bool(v: &serde_json::Value, key: &str) -> bool {
     v.get(key).and_then(|x| x.as_bool()).unwrap_or(false)
 }
 

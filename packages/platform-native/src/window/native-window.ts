@@ -24,6 +24,7 @@ import {
     DD_EVENT_HOTKEY,
     DD_EVENT_KEY_DOWN,
     DD_EVENT_KEY_UP,
+    DD_EVENT_MENU_ACTION,
     DD_EVENT_MOUSE_DOWN,
     DD_EVENT_MOUSE_MOVE,
     DD_EVENT_MOUSE_UP,
@@ -1057,6 +1058,13 @@ export class NativeWindow extends MiniEventTarget {
           reqId: eventView[0],
           kind: eventView[1],
         });
+        break;
+
+      case DD_EVENT_MENU_ACTION:
+        // A native menu item was activated — the id is pulled with
+        // dd_menu_next_action by the bridge's menus helper (payload
+        // arrives out-of-band; the event is just the wake-up).
+        this.dispatchEvent({ type: "menuaction" });
         break;
 
       case DD_EVENT_HOTKEY:

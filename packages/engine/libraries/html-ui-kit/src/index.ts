@@ -14,6 +14,8 @@ export {
     toolbar, tooltipWrap, treeView
 } from "./components";
 export type { AccordionSection, ButtonOpts, DropdownOpts, InputOpts, ListOpts, MenuItem, NumberFieldOpts, RadioOpts, SegmentedOpts, SliderOpts, TableOpts, TabsOpts, Toast, ToastKind, ToggleOpts, TreeNode } from "./components";
+export { acceleratorText, matchAccelerator, menuAccelerators, menuBar, parseAccelerator, popupMenu } from "./menus";
+export type { MenuBarOpts, ParsedAccelerator, PopupMenuOpts } from "./menus";
 export { NavController } from "./nav/nav-controller";
 export type { NavAction, NavControllerOptions, NavDirection } from "./nav/nav-controller";
 export { keyToNavAction, PadNavDriver } from "./nav/nav-input";

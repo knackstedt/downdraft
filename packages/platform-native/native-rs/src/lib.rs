@@ -41,6 +41,7 @@ mod ffi;
 mod dialog;
 mod gpu;
 mod image;
+mod menu;
 #[cfg(not(target_os = "android"))]
 mod pty;
 pub mod text;

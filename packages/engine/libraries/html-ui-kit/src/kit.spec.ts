@@ -13,6 +13,7 @@ import { createDocCore } from "@downdraft/engine/modules/html-ui";
 import { describe, expect, test } from "bun:test";
 import { bindKit, type KitDelegate } from "./behaviors";
 import { button, checkbox, dropdown, esc, modal, segmented, slider, toastStack, treeView } from "./components";
+import { acceleratorText, matchAccelerator, menuAccelerators, menuBar, parseAccelerator } from "./menus";
 import { kitStyleTag } from "./theme";
 
 const hasLib = loadOsrLib() !== null;
@@ -243,6 +244,135 @@ describe.skipIf(!hasLib)("html-ui-kit behaviors", () => {
         expect(await p.handle.getAttr(`#s2 [data-i="1"]`, "data-on")).toBe("true");
         expect(await p.handle.getAttr(`#s2 [data-i="0"]`, "data-on")).toBe("false");
         p.dispose();
+    });
+});
+
+describe.skipIf(!hasLib)("html-ui-kit menus", () => {
+    const menuModel = {
+        items: [
+            {
+                type: "submenu", id: "file", label: "File",
+                items: [
+                    { type: "item", id: "file.open", label: "Open", accelerator: "CmdOrCtrl+O" },
+                    { type: "check", id: "file.wrap", label: "Wrap", checked: false },
+                    { type: "item", id: "file.dead", label: "Dead", enabled: false },
+                    { type: "separator" },
+                    { type: "predefined", kind: "quit" },
+                ],
+            },
+            {
+                type: "submenu", id: "edit", label: "Edit",
+                items: [{ type: "item", id: "edit.copy", label: "Copy" }],
+            },
+        ],
+    } as const;
+
+    test("kit:menuopen toggles a menu and enforces single-open", async () => {
+        const p = docPanel(page(menuBar({ model: menuModel as never })), 400, 300);
+        bindKit(p.handle);
+        const file = await p.handle.getRect(`#dd-menubar .dd-mbl[data-i="0"]`);
+        p.click(file!.x + 10, file!.y + 4);
+        expect(await p.handle.getAttr("#dd-menubar", "data-open")).toBe("true");
+        expect(await p.handle.getAttr(`#dd-menubar .dd-mb[data-i="0"]`, "data-open")).toBe("true");
+        // Opening Edit closes File — only one menu open at a time.
+        const edit = await p.handle.getRect(`#dd-menubar .dd-mbl[data-i="1"]`);
+        p.click(edit!.x + 10, edit!.y + 4);
+        expect(await p.handle.getAttr(`#dd-menubar .dd-mb[data-i="0"]`, "data-open")).toBe("false");
+        expect(await p.handle.getAttr(`#dd-menubar .dd-mb[data-i="1"]`, "data-open")).toBe("true");
+        // Re-click closes.
+        p.click(edit!.x + 10, edit!.y + 4);
+        expect(await p.handle.getAttr("#dd-menubar", "data-open")).toBe("false");
+        p.dispose();
+    });
+
+    test("kit:menuitem fires the item id and closes the menu", async () => {
+        const p = docPanel(page(menuBar({ model: menuModel as never })), 400, 300);
+        const acts: Array<Record<string, string>> = [];
+        bindKit(p.handle, { onAction: (verb, d) => { if (verb === "menuitem") acts.push(d); } });
+        const file = await p.handle.getRect(`#dd-menubar .dd-mbl[data-i="0"]`);
+        p.click(file!.x + 10, file!.y + 4);
+        const item = await p.handle.getRect(`#dd-menubar .dd-mi[data-mid="file.open"]`);
+        expect(item).toBeTruthy();
+        p.click(item!.x + 10, item!.y + 4);
+        expect(acts).toEqual([{ id: "dd-menubar", mid: "file.open" }]);
+        expect(await p.handle.getAttr("#dd-menubar", "data-open")).toBe("false");
+        p.dispose();
+    });
+
+    test("disabled items swallow the click — no action, menu stays open", async () => {
+        const p = docPanel(page(menuBar({ model: menuModel as never })), 400, 300);
+        const acts: string[] = [];
+        bindKit(p.handle, { onAction: (verb) => acts.push(verb) });
+        const file = await p.handle.getRect(`#dd-menubar .dd-mbl[data-i="0"]`);
+        p.click(file!.x + 10, file!.y + 4);
+        const dead = await p.handle.getRect(`#dd-menubar .dd-mi[data-mid="file.dead"]`);
+        p.click(dead!.x + 10, dead!.y + 4);
+        expect(acts).toEqual([]);
+        expect(await p.handle.getAttr(`#dd-menubar .dd-mb[data-i="0"]`, "data-open")).toBe("true");
+        p.dispose();
+    });
+
+    test("check items flip the mark on pick", async () => {
+        const p = docPanel(page(menuBar({ model: menuModel as never })), 400, 300);
+        bindKit(p.handle);
+        const file = await p.handle.getRect(`#dd-menubar .dd-mbl[data-i="0"]`);
+        p.click(file!.x + 10, file!.y + 4);
+        const wrap = await p.handle.getRect(`#dd-menubar .dd-mi[data-mid="file.wrap"]`);
+        p.click(wrap!.x + 10, wrap!.y + 4);
+        expect(await p.handle.getAttr(`#m-dd-menubar-0-1`, "data-on")).toBe("true");
+        p.dispose();
+    });
+
+    test("kit:menudismiss on the backdrop closes an open menu", async () => {
+        const p = docPanel(page(menuBar({ model: menuModel as never })), 400, 300);
+        bindKit(p.handle);
+        const file = await p.handle.getRect(`#dd-menubar .dd-mbl[data-i="0"]`);
+        p.click(file!.x + 10, file!.y + 4);
+        const back = await p.handle.getRect("#dd-menubar .dd-mback");
+        expect(back).toBeTruthy();
+        p.click(back!.x + 20, back!.y + 20);
+        expect(await p.handle.getAttr("#dd-menubar", "data-open")).toBe("false");
+        p.dispose();
+    });
+});
+
+describe("menu accelerator helpers", () => {
+    test("parseAccelerator splits modifiers and normalizes the key", () => {
+        expect(parseAccelerator("CmdOrCtrl+O")).toEqual({ ctrl: true, meta: false, shift: false, alt: false, key: "o" });
+        expect(parseAccelerator("Shift+Alt+F12")).toEqual({ ctrl: false, meta: false, shift: true, alt: true, key: "f12" });
+        expect(parseAccelerator("Ctrl+Shift+Z")).toEqual({ ctrl: true, meta: false, shift: true, alt: false, key: "z" });
+        expect(parseAccelerator("Super+Q")).toEqual({ ctrl: false, meta: true, shift: false, alt: false, key: "q" });
+        expect(parseAccelerator("")).toBeNull();
+        expect(parseAccelerator("Ctrl+")).toBeNull();
+    });
+
+    test("matchAccelerator accepts either primary modifier for CmdOrCtrl", () => {
+        const acc = parseAccelerator("CmdOrCtrl+O")!;
+        expect(matchAccelerator(acc, { ctrlKey: true, key: "o" })).toBe(true);
+        expect(matchAccelerator(acc, { metaKey: true, key: "o" })).toBe(true);
+        expect(matchAccelerator(acc, { key: "o" })).toBe(false);
+        expect(matchAccelerator(acc, { ctrlKey: true, key: "p" })).toBe(false);
+        expect(matchAccelerator(acc, { ctrlKey: true, shiftKey: true, key: "o" })).toBe(false);
+    });
+
+    test("menuAccelerators skips disabled items and walks submenus", () => {
+        const accs = menuAccelerators({
+            items: [
+                {
+                    type: "submenu", label: "File", items: [
+                        { type: "item", id: "a", label: "A", accelerator: "Ctrl+A" },
+                        { type: "item", id: "b", label: "B", accelerator: "Ctrl+B", enabled: false },
+                        { type: "check", id: "c", label: "C", accelerator: "Ctrl+C" },
+                    ],
+                },
+            ],
+        });
+        expect(accs.map((a) => a.id).sort()).toEqual(["a", "c"]);
+    });
+
+    test("acceleratorText renders the display form", () => {
+        expect(acceleratorText("CmdOrCtrl+O")).toBe("Ctrl+O");
+        expect(acceleratorText("Ctrl+Shift+z")).toBe("Ctrl+Shift+Z");
     });
 });
 

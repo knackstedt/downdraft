@@ -53,6 +53,10 @@ const THEME_CHANGED: i32 = 23;
 /// slot1 = kind (0 cancel, 1 ok, 2 error). Paths are too long for slots:
 /// JS pulls them with dd_dialog_result_paths. wid is meaningless (0).
 const DIALOG_RESULT: i32 = 24;
+/// A native menu item was activated (muda). The item id is a string —
+/// JS pulls it with dd_menu_next_action (FIFO, one id per event).
+/// wid is meaningless (0).
+const MENU_ACTION: i32 = 25;
 
 /// Line-detent approximation for pixel-precise scroll deltas (PixelDelta
 /// arrives from touchpads; the wire format always reports line units).
@@ -138,6 +142,10 @@ pub enum Ev {
     /// dialog.rs's detached rfd threads; not window-scoped (wid 0).
     #[cfg_attr(target_os = "android", allow(dead_code))]
     DialogResult { req_id: i32, kind: i32 },
+    /// A native menu item was activated — id pulled via
+    /// dd_menu_next_action. Not window-scoped (wid 0).
+    #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+    MenuAction,
     /// Global hotkey pressed — carries the grab id from
     /// dd_hotkey_grab. Not window-scoped.
     Hotkey {
@@ -370,6 +378,7 @@ pub fn write(wid: u32, ev: Ev, out_data: *mut c_void) -> i32 {
                 *iout.add(1) = kind;
                 DIALOG_RESULT
             }
+            Ev::MenuAction => MENU_ACTION,
             Ev::Hotkey { id } => {
                 *iout.add(0) = id;
                 HOTKEY

@@ -36,6 +36,12 @@ rfd = "0.17"
 notify-rust = "4"
 portable-pty = "0.9"
 
+# Native app menus — win32 HMENU / NSMenu only. muda's Linux backend needs a
+# gtk::Window we don't have (our window is a raw winit surface), so Linux
+# stubs report unsupported and the html-ui in-window menu bar takes over.
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+muda = "0.21"
+
 # Dialog/notify opts arrive as JSON from the JS bridge.
 [target.'cfg(not(target_os = "android"))'.dependencies.serde_json]
 version = "1"

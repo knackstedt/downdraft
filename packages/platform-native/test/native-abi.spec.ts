@@ -193,6 +193,16 @@ const GROUPS: Record<string, string[]> = {
     "dd_message_box",
     "dd_notify",
   ],
+  // Native app menus (optional FFI group winMenu — muda on win/mac,
+  // unsupported→0 on Linux/Android where the kit MenuBar fallback runs).
+  menus: [
+    "dd_menu_set",
+    "dd_menu_remove",
+    "dd_menu_set_item_enabled",
+    "dd_menu_set_item_checked",
+    "dd_menu_popup",
+    "dd_menu_next_action",
+  ],
 };
 
 const specFor = (symbols: string[]) =>
