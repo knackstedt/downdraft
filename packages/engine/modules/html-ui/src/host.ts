@@ -30,6 +30,10 @@ export interface PanelSpec {
    *  displays a `src` sub-region of a taller texture (scrollable views that
    *  scroll via `setSrcRect` without any doc repaint). */
   docH?: number;
+  /** Doc layout width when it differs from rect.w (a doc wider than its
+   *  display box — e.g. a feed chart rasterized one sample-slot past the
+   *  right edge so `setSrcRect` can slide the newest slot in). */
+  docW?: number;
   /** Paint order — higher draws later (on top). Default: insertion order. */
   z?: number;
   /** Supersample factor (raster size = rect * scale). Default 2 — crisper text. */
@@ -43,7 +47,7 @@ export interface PanelSpec {
   zoom?: number;
   /** Surface-fit: the rect always covers the whole surface and zoom tracks
    *  the live display scale factor — the fullscreen-panel case that
-   *  otherwise needs every game to re-derive buffer-px rects + zoom on each
+   *  otherwise needs every app to re-derive buffer-px rects + zoom on each
    *  resize. Getting that math wrong across monitors with different scale
    *  factors leaves the quad covering only part of the surface — a black
    *  border on the bottom/right edges. The compositor quad follows every
@@ -64,6 +68,13 @@ export interface PanelSpec {
   /** When false the panel never receives pointer input and `panelAt` skips
    *  it — overlay/cursor/HUD layers that must not eat clicks. Default true. */
   interactive?: boolean;
+  /** Wheel interception — called when a wheel event targets this panel,
+   *  BEFORE the doc sees it, in panel-local CSS px (deltas already
+   *  zoom-divided). Return true to consume: the event never reaches the doc
+   *  (no internal scroll, no scrollbar animation) — the caller scrolls via
+   *  `setSrcRect` instead, which is repaint-free. This is the texture-window
+   *  scroll path for `docH` panels. */
+  onWheel?: (e: { x: number; y: number; deltaX: number; deltaY: number; mods: string[] }) => boolean | void;
   /** Per-panel DOM event hook — receives events whose target is in this doc. */
   onEvent?: (ev: OsrDomEvent) => void;
 }
@@ -96,6 +107,8 @@ interface Panel {
   zoom: number;
   /** Doc layout height when it differs from rect.h (scrollable texture). */
   docH: number | null;
+  /** Doc layout width when it differs from rect.w (offscreen feed slot). */
+  docW: number | null;
   /** Texture sub-region in texel px — displayed at `rect` (GPU scroll). */
   src: { x: number; y: number; w: number; h: number } | null;
   texture: GPUTexture | null;
@@ -175,6 +188,9 @@ export interface UiPanelHandle {
    *  pair with `setSrcRect` for scroll views rasterized at full content
    *  height. */
   setDocHeight(h: number): void;
+  /** Resize the doc's layout width without moving the display rect —
+   *  pair with `setSrcRect` for feed charts rasterized one slot wide. */
+  setDocWidth(w: number): void;
   /** Set the texture sub-region (texel px) drawn at `rect`, or null for the
    *  full texture. Pure compositor state — no doc repaint, so this is the
    *  cheap per-frame scroll path. */
@@ -182,7 +198,7 @@ export interface UiPanelHandle {
   setZ(z: number): void;
   /** Toggle pointer-input eligibility at runtime — `panelAt` skips
    *  non-interactive panels. HUD strips use this to stop eating clicks
-   *  while the game holds pointer lock. */
+   *  while the app holds pointer lock. */
   setInteractive(on: boolean): void;
   onEvent(fn: PanelEventHandler): () => void;
   getAttr(target: number | string, name: string): Promise<string | null>;
@@ -370,7 +386,7 @@ export class HtmlUiHost {
     const zoom = spec.zoom && spec.zoom > 0 ? spec.zoom : 1;
     const panel: Panel = {
       id, spec, rect: { ...spec.rect }, z: spec.z ?? 0, scale, zoom,
-      docH: spec.docH ?? null, src: null,
+      docH: spec.docH ?? null, docW: spec.docW ?? null, src: null,
       texture: null, texW: 0, texH: 0, ubo: null, bindGroup: null,
       handlers: new Set(spec.onEvent ? [spec.onEvent] : []),
       editing: false, sab: null, sabI32: null, lastSeq: 0, lastRect: null,
@@ -385,7 +401,7 @@ export class HtmlUiHost {
     // Doc viewport scale = raster px per CSS px = scale * zoom; layout size
     // is rect/zoom CSS px so the raster still covers rect*scale texture px.
     const eff = zoom * this.userZoom;
-    this.send({ type: "create", id, cssW: spec.rect.w / eff, cssH: spec.docH ?? spec.rect.h / eff, scale: scale * eff, html: spec.html, maxFps: spec.maxFps, smoothWheel: spec.smoothWheel });
+    this.send({ type: "create", id, cssW: spec.docW ?? spec.rect.w / eff, cssH: spec.docH ?? spec.rect.h / eff, scale: scale * eff, html: spec.html, maxFps: spec.maxFps, smoothWheel: spec.smoothWheel });
     // GPU-direct: create the panel texture eagerly so the worker's texBind
     // lands before its first upload — the host knows raster dims at mount.
     if (this.gpuReady) this.bindPanelTex(panel);
@@ -450,14 +466,28 @@ export class HtmlUiHost {
         const r = p.rect;
         const z = zoom && zoom > 0 ? zoom : p.zoom;
         if (r.x === rect.x && r.y === rect.y && r.w === rect.w && r.h === rect.h && z === p.zoom) return;
+        // docW/docH override the layout size — a rect change in an
+        // overridden dimension is display-only, not a doc resize.
+        const resized = (p.docW === null && r.w !== rect.w)
+          || (p.docH === null && r.h !== rect.h) || z !== p.zoom;
         p.rect = { ...rect };
         p.zoom = z;
         this.markDirty();
-        this.sendPanelResize(p);
+        // Pure moves (same size/zoom) are compositor-only — the doc layout
+        // depends on cssW/cssH, which is unchanged, so skip the resize +
+        // texture realloc. This is the cheap path for panels that track a
+        // scrolled ancestor's content (chart overlays on docH bodies).
+        if (resized) this.sendPanelResize(p);
       },
       setDocHeight: (h) => {
         if (p.docH === h) return;
         p.docH = h;
+        this.markDirty();
+        this.sendPanelResize(p);
+      },
+      setDocWidth: (w) => {
+        if (p.docW === w) return;
+        p.docW = w;
         this.markDirty();
         this.sendPanelResize(p);
       },
@@ -503,11 +533,16 @@ export class HtmlUiHost {
       sendKey: (down, key, opts) =>
         this.send({ type: "input", id: p.id, msg: { kind: "key", down, key, code: opts?.code, text: opts?.text, mods: opts?.mods } }),
       // Callers pass panel-local display px (like real pointer events) —
-      // convert to doc CSS px here the same way local() does.
-      sendPointer: (msg) => this.input(p.id,
-        msg.kind === "wheel"
-          ? { ...msg, x: msg.x / this.effZoom(p), y: msg.y / this.effZoom(p), deltaX: msg.deltaX / this.effZoom(p), deltaY: msg.deltaY / this.effZoom(p) }
-          : { ...msg, x: msg.x / this.effZoom(p), y: msg.y / this.effZoom(p) }),
+      // convert to doc CSS px here the same way local() does, including the
+      // srcRect window offset on docH panels.
+      sendPointer: (msg) => {
+        const z = this.effZoom(p), k = z * p.scale;
+        const sx = p.src ? p.src.x / k : 0, sy = p.src ? p.src.y / k : 0;
+        this.input(p.id,
+          msg.kind === "wheel"
+            ? { ...msg, x: msg.x / z + sx, y: msg.y / z + sy, deltaX: msg.deltaX / z, deltaY: msg.deltaY / z }
+            : { ...msg, x: msg.x / z + sx, y: msg.y / z + sy });
+      },
       navSnapshot: (sel) => new Promise((resolve) => {
         const reqId = this.nextReqId++;
         this.navReqs.set(reqId, resolve);
@@ -570,7 +605,7 @@ export class HtmlUiHost {
   /** Doc `resize` + GPU-direct rebind for the panel's current rect/zoom. */
   private sendPanelResize(p: Panel): void {
     const z = this.effZoom(p);
-    this.send({ type: "resize", id: p.id, cssW: p.rect.w / z, cssH: p.docH ?? p.rect.h / z, scale: p.scale * z });
+    this.send({ type: "resize", id: p.id, cssW: p.docW ?? p.rect.w / z, cssH: p.docH ?? p.rect.h / z, scale: p.scale * z });
     this.bindPanelTex(p); // rebind the worker to the resized texture
   }
 
@@ -624,7 +659,7 @@ export class HtmlUiHost {
   /** Which doc backend is live — "worker" (raster off-thread) or "local". */
   get backendKind(): "worker" | "local" { return this.backend.kind; }
 
-  /** Damage flag for GameRenderer's damage gate — set wherever the
+  /** Damage flag for AppRenderer's damage gate — set wherever the
    *  composited output can change (new pixels, quad moves, panel
    *  add/remove); polled + cleared by the renderer each tick. Starts
    *  dirty: the first frames must draw before any producer marks. */
@@ -635,7 +670,7 @@ export class HtmlUiHost {
   onDamage: (() => void) | null = null;
   private markDirty(): void { this.uiDirty = true; this.onDamage?.(); }
 
-  /** Compositor surface for GameRenderer's end-of-frame UI pass. */
+  /** Compositor surface for AppRenderer's end-of-frame UI pass. */
   get compositor(): { hasContent(): boolean; takeDirty(): boolean; render(pass: GPURenderPassEncoder, w: number, h: number): void } {
     return {
       // Polling here too: under damageOnly the render chain parks on a
@@ -726,7 +761,7 @@ export class HtmlUiHost {
 
   // ── Input ──
 
-  /** Attach to the renderer input bus at UI priority (before game handlers). */
+  /** Attach to the renderer input bus at UI priority (before app handlers). */
   bindInput(bus: RendererInputBus): void {
     const modsOf = (e: { shiftKey?: boolean; ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean }) => {
       const m: string[] = [];
@@ -737,9 +772,17 @@ export class HtmlUiHost {
       return m;
     };
     const input = (id: string, msg: DocInputMsg) => this.input(id, msg);
-    const local = (p: Panel, e: { clientX: number; clientY: number }) => ({
-      x: (e.clientX - p.rect.x) / this.effZoom(p), y: (e.clientY - p.rect.y) / this.effZoom(p),
-    });
+    // Screen px → doc CSS px: divide by the panel zoom, then add the srcRect
+    // window's doc-space offset — on docH (full-content-height) panels the
+    // visible texel window starts at src.y, so hit tests must see the same
+    // shifted coordinates the doc laid out.
+    const local = (p: Panel, e: { clientX: number; clientY: number }) => {
+      const z = this.effZoom(p), k = z * p.scale;
+      return {
+        x: (e.clientX - p.rect.x) / z + (p.src ? p.src.x / k : 0),
+        y: (e.clientY - p.rect.y) / z + (p.src ? p.src.y / k : 0),
+      };
+    };
 
     // App zoom keys (opt-in via ctor `zoomKeys`) — browser convention:
     // Ctrl+= / Ctrl+- step the UI zoom, Ctrl+0 resets. Priority -30 puts
@@ -799,13 +842,16 @@ export class HtmlUiHost {
         const p = this.panelAt(e.clientX, e.clientY);
         if (!p) return;
         ctrl.stopPropagation();
-        input(p.id, { kind: "wheel", ...local(p, e), deltaX: e.deltaX / this.effZoom(p), deltaY: e.deltaY / this.effZoom(p), mods: modsOf(e) });
+        const z = this.effZoom(p);
+        const c = local(p, e);
+        if (p.spec.onWheel?.({ ...c, deltaX: e.deltaX / z, deltaY: e.deltaY / z, mods: modsOf(e) }) === true) return;
+        input(p.id, { kind: "wheel", ...c, deltaX: e.deltaX / z, deltaY: e.deltaY / z, mods: modsOf(e) });
       }, -10),
       bus.onKeyDown((e: KeyboardEvent, ctrl: InputEventControl) => {
         const p = this.focusedPanel ? this.panels.get(this.focusedPanel) : null;
         if (!p) return;
         // Only eat keys while a text-editable element holds focus — otherwise
-        // game hotkeys stay live even when a panel is focused.
+        // app hotkeys stay live even when a panel is focused.
         if (p.editing) ctrl.stopPropagation();
         input(p.id, { kind: "key", down: true, key: e.key, code: e.code, text: e.key.length === 1 ? e.key : undefined, mods: modsOf(e) });
       }, -10),
@@ -1080,8 +1126,8 @@ export class HtmlUiHost {
    */
   private bindPanelTex(p: Panel): void {
     if (!this.gpuReady || this.backend.kind !== "worker") return;
-    const pw = Math.max(1, Math.round(p.rect.w * p.scale));
-    // docH is a layout-px override: it scales by zoom like the doc does.
+    // docW/docH are layout-px overrides: they scale by zoom like the doc.
+    const pw = Math.max(1, Math.round((p.docW !== null ? p.docW * this.effZoom(p) : p.rect.w) * p.scale));
     const ph = Math.max(1, Math.round((p.docH !== null ? p.docH * this.effZoom(p) : p.rect.h) * p.scale));
     this.ensureTexture(p, pw, ph);
     if (!p.texture) return;
