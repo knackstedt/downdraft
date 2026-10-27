@@ -7,6 +7,8 @@
 // ============================================================================
 
 import { createLogger } from "@downdraft/engine/util/logger";
+import type { GpuPolicyInput } from "./adapter-policy";
+import { applyStickyIcdFilter } from "./icd-sticky";
 import { WgpuGPU } from "./wgpu-wrapper";
 
 const log = createLogger();
@@ -237,7 +239,7 @@ function installGPUConstants(): void {
   };
 }
 
-export function installGPU(adopted?: WgpuGPU): WgpuGPU {
+export function installGPU(adopted?: WgpuGPU, policyInput?: GpuPolicyInput): WgpuGPU {
   if (!IS_MAIN_THREAD) {
     throw new Error(
       "installGPU() must run on the thread that owns the native GPU device. " +
@@ -258,6 +260,7 @@ export function installGPU(adopted?: WgpuGPU): WgpuGPU {
   // (native WebGPU), so plain assignment throws — defineProperty overrides it.
   // `adopted` reuses an already-live WgpuGPU (the dev shell's early-boot
   // path creates the instance before the full host graph finishes loading).
+  if (!adopted) applyStickyIcdFilter(policyInput);
   const gpu = adopted ?? new WgpuGPU();
   try {
     (globalThis as any).navigator.gpu = gpu;

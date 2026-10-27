@@ -89,6 +89,8 @@ export async function bootEarlyHost(cfg: {
     // its transform overlaps the WM-visible window instead of blocking it.
     const { WgpuGPU } = await import("../gpu/wgpu-device");
     const { acquireAdapterAndDevice } = await import("../gpu/adapter-boot");
+    const { applyStickyIcdFilter } = await import("../gpu/icd-sticky");
+    applyStickyIcdFilter({ appId: cfg.appId });
     const gpu = new WgpuGPU();
     (globalThis as any).__wgpuInstancePtr = gpu.getInstancePtr();
 

@@ -325,6 +325,44 @@ fn backend_selector(id: i32) -> Option<Backends> {
     }
 }
 
+/// Host-pinned ICD allowlist — the JS side sets this before instance
+/// creation when a persisted adapter identity lets it skip enumerating ICDs
+/// for vendors that lost last boot (each probe dlopens the driver; mesa ICDs
+/// pull in a ~40MB libLLVM). A NULL/empty pointer clears it. An allowlist
+/// that would empty the detected set is ignored — the pinned hardware is
+/// gone and starving every adapter is never the right answer.
+#[cfg(target_os = "linux")]
+static ICD_ALLOWLIST: LazyLock<Mutex<Option<Vec<String>>>> = LazyLock::new(|| Mutex::new(None));
+
+/// Set the ICD allowlist applied by the next `apply_vulkan_icd_filter` call —
+/// a ':'-separated list of ICD base names ("nvidia_icd:radeon_icd"). NULL or
+/// empty clears it. Not a per-instance concept: the filter consumes whatever
+/// is set at vkCreateInstance time, so the host installs/clears it around
+/// instance creation.
+#[no_mangle]
+pub extern "C" fn wgpu_shim_set_icd_allowlist(ptr: *const u8, len: usize) {
+    ffi!((), {
+        #[cfg(target_os = "linux")]
+        {
+            let parsed = if ptr.is_null() || len == 0 {
+                None
+            } else {
+                let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+                std::str::from_utf8(bytes).ok().map(|s| {
+                    s.split(':')
+                        .map(str::trim)
+                        .filter(|n| !n.is_empty())
+                        .map(String::from)
+                        .collect::<Vec<_>>()
+                })
+            };
+            if let Ok(mut g) = ICD_ALLOWLIST.lock() {
+                *g = parsed.filter(|v| !v.is_empty());
+            }
+        }
+    });
+}
+
 /// Restrict the Vulkan loader's ICD set to drivers that can plausibly serve
 /// this machine. The loader enumerates every /usr/share/vulkan/icd.d entry at
 /// vkCreateInstance — on a typical distro that's 8-12 vendor drivers (radv,
@@ -423,6 +461,21 @@ fn apply_vulkan_icd_filter(include_software: bool) {
     }
     if want.is_empty() {
         return;
+    }
+    // Host-pinned narrowing: keep only the allowlisted ICDs, but never let
+    // the pin empty the set — the pinned hardware may be gone, and full
+    // enumeration is the correct fallback, not "no adapters at all".
+    if let Ok(g) = ICD_ALLOWLIST.lock() {
+        if let Some(allow) = g.as_ref() {
+            let kept: BTreeSet<&'static str> = want
+                .iter()
+                .filter(|icd| allow.iter().any(|a| a == *icd))
+                .copied()
+                .collect();
+            if !kept.is_empty() {
+                want = kept;
+            }
+        }
     }
     if include_software {
         want.insert("lvp_icd");

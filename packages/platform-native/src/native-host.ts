@@ -169,7 +169,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   const earlyDeviceOk = earlyWindowOk && early?.device != null && early?.adapter != null;
 
   // 1. Install polyfills
-  const gpu = installGPU(earlyWindowOk ? early?.gpu : undefined);
+  const gpu = installGPU(earlyWindowOk ? early?.gpu : undefined, { appId: config.appId });
   installImagePolyfills();
   installAssetGlob();
   mark("polyfills");

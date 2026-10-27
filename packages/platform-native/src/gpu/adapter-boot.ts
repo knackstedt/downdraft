@@ -25,6 +25,7 @@ import { createLogger } from "@downdraft/engine/util/logger";
 import type { ptr } from "../ffi/ffi-adapter";
 import { denyReasonForAdapter, planGpuBoot, recordHardwareAttempt, type GpuBootPlan, type GpuPolicyInput } from "./adapter-policy";
 import { computeDeviceDescriptor } from "./device-request";
+import { clearIcdAllowlist, icdFilterNarrowed } from "./icd-sticky";
 import { WgpuGPU, type NativeAdapterInfo, type WgpuAdapter, type WgpuDevice } from "./wgpu-device";
 
 const log = createLogger("info");
@@ -122,6 +123,20 @@ export async function acquireAdapterAndDevice(
 
   if (plan.tryHardwareFirst && !adapter) {
     adapter = await requestAdapter(false);
+    if (!adapter && icdFilterNarrowed()) {
+      // The primary instance's ICD set was pinned to the last winning
+      // vendor (icd-sticky.ts). A null adapter may mean the pin hid a
+      // still-present non-sticky adapter — widen and retry once on a
+      // fresh instance before conceding to the fallback tiers.
+      log.warn("gpu", "no adapter on the vendor-narrowed instance — widening the ICD set and retrying");
+      clearIcdAllowlist();
+      const wide = new WgpuGPU();
+      const wideAdapter = await wide.requestAdapter({ powerPreference });
+      if (wideAdapter) {
+        adapter = wideAdapter;
+        adoptGpuInstance(wide, gpu, opts.window);
+      }
+    }
     if (adapter) {
       const reason = denyReasonForAdapter(adapter.nativeInfo, policy.deny);
       if (reason) {

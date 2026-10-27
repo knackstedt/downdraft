@@ -293,6 +293,43 @@ export function recordHardwareAttempt(
   writeGpuState(input, state);
 }
 
+// ── Sticky-vendor ICD narrowing ──
+//
+// The Rust ICD filter keeps every ICD matching *present* hardware — on a
+// multi-GPU host that still probes (and maps) drivers the adapter picker
+// will never choose (radv pulls a ~40MB libLLVM just to lose to the dGPU).
+// When a persisted lastHardwareAdapterInfo says which vendor won last boot
+// and policy doesn't object, the boot can pin the ICD set to that vendor's
+// ICD(s). Recovery when the pin is wrong is two-layered: the Rust filter
+// ignores an allowlist that would empty the detected set (hardware
+// removed/changed → full enumeration), and adapter-boot retries on a
+// widened instance when a narrowed instance yields no adapter at all.
+
+/** PCI vendor id → ICD base names matching the sysfs-derived filter set. */
+const VENDOR_ICDS: Record<number, string[]> = {
+  0x10de: ["nvidia_icd"],
+  0x1002: ["radeon_icd"],
+  0x8086: ["intel_icd", "intel_hasvk_icd"],
+};
+
+/**
+ * ICD base names the next primary instance may restrict itself to, or null
+ * when no narrowing applies (first boot, explicit GPU choice, software
+ * latch, non-Vulkan last winner, unknown vendor, or user ICD control).
+ */
+export function stickyIcdAllowlist(input: GpuPolicyInput = {}): string[] | null {
+  if (process.platform !== "linux") return null;
+  if (process.env.DOWNDRAFT_VULKAN_ICD) return null;
+  const policy = resolveGpuPolicy(input);
+  if (policy.adapter === "software") return null;
+  if (policy.backend !== "auto" && policy.backend !== "vulkan") return null;
+  const state = readGpuState(input);
+  if (state.latchedAdapter === "software") return null;
+  const info = state.lastHardwareAdapterInfo;
+  if (info?.backend !== "vulkan" || info.vendor === undefined) return null;
+  return VENDOR_ICDS[info.vendor] ?? null;
+}
+
 // ── Policy resolution ──
 
 function parseBool(v: unknown): boolean | undefined {

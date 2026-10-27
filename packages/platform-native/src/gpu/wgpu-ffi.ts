@@ -382,18 +382,23 @@ const WGPU_ASYNC_SPEC: Record<string, CFunction> = {
 //   wgpu_shim_request_adapter_ex      — per-request force_fallback flag for
 //                                       the software-adapter retry path
 //   wgpu_shim_request_adapter_async_ex
+//   wgpu_shim_set_icd_allowlist       — pins the next instance's ICD set to
+//                                       named ICDs (sticky-vendor narrowing;
+//                                       see gpu/icd-sticky.ts)
 // Same dlopen-optional pattern as WGPU_ASYNC_SPEC: a lib that predates them
 // fails only this load.
 const WGPU_EX_SPEC: Record<string, CFunction> = {
   wgpu_shim_create_instance_ex: { args: ["i32"], returns: "ptr" },
   wgpu_shim_request_adapter_ex: { args: ["ptr", "i32", "i32"], returns: "ptr" },
   wgpu_shim_request_adapter_async_ex: { args: ["ptr", "i32", "i32"], returns: "u64" },
+  wgpu_shim_set_icd_allowlist: { args: ["ptr", "usize"], returns: "void" },
 };
 
 export interface WgpuExSymbols {
   wgpu_shim_create_instance_ex: (backendId: number) => ptr;
   wgpu_shim_request_adapter_ex: (instance: ptr, powerPreference: number, forceFallback: number) => ptr;
   wgpu_shim_request_adapter_async_ex: (instance: ptr, powerPreference: number, forceFallback: number) => number | bigint;
+  wgpu_shim_set_icd_allowlist: (list: ptr, len: number) => void;
 }
 
 export interface WgpuAsyncSymbols {
