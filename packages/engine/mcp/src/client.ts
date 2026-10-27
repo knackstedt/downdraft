@@ -272,7 +272,10 @@ export class AppClient {
                         : "."),
                 );
             }
-            url = `http://localhost:${instPort}/mcp`;
+            // 127.0.0.1 literal: the transport binds IPv4 loopback only, and
+            // nss may resolve "localhost" to ::1 first (myhostname) — Bun's
+            // fetch doesn't happy-eyeball back to v4 → ConnectionRefused.
+            url = `http://127.0.0.1:${instPort}/mcp`;
             token ??= endpoint === "editor" ? (inst.editorToken ?? inst.token) : inst.token;
             pid = inst.pid;
         }
@@ -733,7 +736,7 @@ export async function launchApp(opts: LaunchAppOptions = {}): Promise<LaunchedAp
     }
 
     const client = await AppClient.connect({
-        url: `http://localhost:${port}/mcp`,
+        url: `http://127.0.0.1:${port}/mcp`,
         token,
         timeoutMs: opts.timeoutMs,
     }).catch(async (e) => { await kill(); throw e; });
