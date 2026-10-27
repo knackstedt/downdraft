@@ -33,7 +33,12 @@ x11rb = "0.14"
 [target.'cfg(not(target_os = "android"))'.dependencies]
 arboard = "3"
 rfd = "0.17"
+notify-rust = "4"
 portable-pty = "0.9"
+
+# Dialog/notify opts arrive as JSON from the JS bridge.
+[target.'cfg(not(target_os = "android"))'.dependencies.serde_json]
+version = "1"
 
 # android-activity requires the leaf crate to pick a backend; native-activity
 # matches our NativeActivity-based shell (no Java GameActivity needed).

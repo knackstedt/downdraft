@@ -17,6 +17,7 @@ import { fireGlobalHotkey } from "./global-hotkeys";
 import { NativeSurface } from "./native-surface";
 import {
     DD_EVENT_CLOSE_REQUEST,
+    DD_EVENT_DIALOG_RESULT,
     DD_EVENT_DROP_FILE,
     DD_EVENT_FOCUS_GAINED,
     DD_EVENT_FOCUS_LOST,
@@ -1044,6 +1045,19 @@ export class NativeWindow extends MiniEventTarget {
         this.dispatchEvent({ type: "themechanged", theme });
         break;
       }
+
+      case DD_EVENT_DIALOG_RESULT:
+        // A dd_dialog_* picker resolved on its detached thread — req_id +
+        // kind arrive in slots; the selected paths are pulled separately
+        // (dd_dialog_result_paths). Routed to every listener that
+        // registered for "dialogresult"; the bridge's dialog helper owns
+        // resolution by req_id.
+        this.dispatchEvent({
+          type: "dialogresult",
+          reqId: eventView[0],
+          kind: eventView[1],
+        });
+        break;
 
       case DD_EVENT_HOTKEY:
         // Global key grab (XGrabKey) — not window-scoped; invoke the

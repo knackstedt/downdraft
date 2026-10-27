@@ -49,6 +49,10 @@ const CLOSE_REQUEST: i32 = 21;
 const OCCLUDED: i32 = 22;
 /// System/window theme changed — slot0 = 0 unknown, 1 light, 2 dark.
 const THEME_CHANGED: i32 = 23;
+/// A detached dd_dialog_* file-picker request completed — slot0 = req_id,
+/// slot1 = kind (0 cancel, 1 ok, 2 error). Paths are too long for slots:
+/// JS pulls them with dd_dialog_result_paths. wid is meaningless (0).
+const DIALOG_RESULT: i32 = 24;
 
 /// Line-detent approximation for pixel-precise scroll deltas (PixelDelta
 /// arrives from touchpads; the wire format always reports line units).
@@ -130,6 +134,10 @@ pub enum Ev {
     Occluded(bool),
     /// System or window theme changed — 0 unknown, 1 light, 2 dark.
     ThemeChanged(i32),
+    /// A dd_dialog_* picker finished — req_id + result kind. Pushed by
+    /// dialog.rs's detached rfd threads; not window-scoped (wid 0).
+    #[cfg_attr(target_os = "android", allow(dead_code))]
+    DialogResult { req_id: i32, kind: i32 },
     /// Global hotkey pressed — carries the grab id from
     /// dd_hotkey_grab. Not window-scoped.
     Hotkey {
@@ -356,6 +364,11 @@ pub fn write(wid: u32, ev: Ev, out_data: *mut c_void) -> i32 {
             Ev::ThemeChanged(code) => {
                 *iout.add(0) = code;
                 THEME_CHANGED
+            }
+            Ev::DialogResult { req_id, kind } => {
+                *iout.add(0) = req_id;
+                *iout.add(1) = kind;
+                DIALOG_RESULT
             }
             Ev::Hotkey { id } => {
                 *iout.add(0) = id;

@@ -121,7 +121,47 @@ export interface HostEventMap {
   "perf-stats": PerfStatsData;
   "debug-mode": boolean;
   "devtools-toggle": undefined;
+  "theme-changed": HostTheme;
 }
+
+// ---------------------------------------------------------------------------
+// Dialogs, notifications, theme (native host — optional on the contract)
+// ---------------------------------------------------------------------------
+
+export interface HostFileDialogOptions {
+  title?: string;
+  /** Starting directory. */
+  directory?: string;
+  /** Suggested filename (save dialog). */
+  defaultName?: string;
+  filters?: { name: string; extensions: string[] }[];
+  /** Allow multiple selection (open/folder pickers). */
+  multi?: boolean;
+  /** Owning native-window handle for parenting — defaults to the primary. */
+  window?: number;
+}
+
+export interface HostMessageBoxOptions {
+  title?: string;
+  message: string;
+  level?: "info" | "warning" | "error";
+  buttons?: "ok" | "okcancel" | "yesno" | "yesnocancel";
+  window?: number;
+}
+
+export interface HostNotifyOptions {
+  title: string;
+  body?: string;
+  /** Icon name or absolute path (platform-resolved). */
+  icon?: string;
+  appName?: string;
+  /** Auto-dismiss timeout; platform-honored where supported. */
+  timeoutMs?: number;
+}
+
+/** Effective system/window theme — "unknown" where the platform doesn't
+ *  report it (e.g. X11 without a portal). */
+export type HostTheme = "light" | "dark" | "unknown";
 
 // ---------------------------------------------------------------------------
 // MCP Proxy
@@ -292,6 +332,24 @@ export interface HostAPI {
   toggleFullscreen(): void;
   getDisplayInfo(): Promise<DisplayInfoData>;
   openExternal(url: string): void;
+
+  // ── Dialogs, notifications, theme (optional — native host provides them;
+  //  other hosts omit the methods; callers gate on presence or null). ──
+  /** File-open picker — selected paths, or null on cancel/error. */
+  showOpenDialog?(opts?: HostFileDialogOptions): Promise<string[] | null>;
+  /** Save picker — the chosen path, or null on cancel/error. */
+  showSaveDialog?(opts?: HostFileDialogOptions): Promise<string | null>;
+  /** Directory picker — selected paths, or null on cancel/error. */
+  pickFolder?(opts?: HostFileDialogOptions): Promise<string[] | null>;
+  /** Modal message box — resolves to the pressed-button index
+   *  (0 = Ok/Yes, 1 = No/Cancel, 2 = Cancel for yes-no-cancel). */
+  showMessageBox?(opts: HostMessageBoxOptions): Promise<number>;
+  /** OS notification — resolves false when the host can't post one. */
+  notify?(opts: HostNotifyOptions): Promise<boolean>;
+  /** Effective system/window theme. */
+  getTheme?(): HostTheme;
+  /** Theme-change subscription — returns an unsubscribe fn. */
+  onThemeChanged?(cb: (theme: HostTheme) => void): () => void;
   /** Host system GPU probe (nvidia-smi); null when unavailable. */
   getGPUSystemInfo(): Promise<GPUSystemInfo | null>;
   /** GPU adapter identity + negotiated features (wgpu on native). */

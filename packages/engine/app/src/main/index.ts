@@ -46,6 +46,13 @@ const stubBridge: Host = {
   toggleFullscreen: noop,
   getDisplayInfo: () => Promise.resolve({ refreshRate: 0 }),
   openExternal: noop,
+  showOpenDialog: () => Promise.resolve(null),
+  showSaveDialog: () => Promise.resolve(null),
+  pickFolder: () => Promise.resolve(null),
+  showMessageBox: () => Promise.resolve(0),
+  notify: () => Promise.resolve(false),
+  getTheme: () => "unknown",
+  onThemeChanged: () => noop,
   getGPUSystemInfo: () => Promise.resolve(null),
   getGpuInfo: () => Promise.resolve(null),
   getFeatureLog: () => Promise.resolve(null),
@@ -100,21 +107,16 @@ export { createHostImportCache } from "./import-cache";
 
 // Bootstrap orchestrator + composable hooks
 export type { AppRendererLike } from "@downdraft/engine";
-export { bootstrapApp } from "./bootstrap";
-export type { BootstrapAutosaveOptions, BootstrapDevToolsOptions, BootstrapAppOptions } from "./bootstrap";
 export { startApp } from "./app-module";
 export type {
     AppContext,
-    AppModule,
-    SaveConfig,
-    SaveSource,
-    SimWorker, UiHandle,
-    PluginRuntimeConfig,
-    RendererFactory,
-    SimEventMap,
-    SimWorkerFactory,
-    SimWorkerSeed
+    AppModule, PluginRuntimeConfig,
+    RendererFactory, SaveConfig,
+    SaveSource, SimEventMap, SimWorker, SimWorkerFactory,
+    SimWorkerSeed, UiHandle
 } from "./app-module";
+export { bootstrapApp } from "./bootstrap";
+export type { BootstrapAppOptions, BootstrapAutosaveOptions, BootstrapDevToolsOptions } from "./bootstrap";
 export { useDeterministicRenderPause, useDisplayInfo, useFpsPolling, useHotReloadDispose } from "./hooks";
 export { installSimHotReload, restoreHotReloadState } from "./hot-reload";
 export type { HotReloadableSim, SimHotReloadDeps } from "./hot-reload";

@@ -54,7 +54,7 @@
 
 #[cfg(target_os = "android")]
 pub mod android;
-mod events;
+pub(crate) mod events;
 mod hotkey;
 mod keys;
 
@@ -147,7 +147,7 @@ pub(crate) fn window_by_id(ctx: &Ctx, id: WindowId) -> Option<Arc<Window>> {
 }
 
 /// Resolve a shim handle (0 = primary) to its Arc.
-fn window_by_handle(h: u32) -> Option<Arc<Window>> {
+pub(crate) fn window_by_handle(h: u32) -> Option<Arc<Window>> {
     let guard = CTX.lock().unwrap();
     let ctx = guard.as_ref()?;
     if h == 0 {

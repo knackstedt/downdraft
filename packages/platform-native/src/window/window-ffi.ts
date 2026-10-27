@@ -240,6 +240,56 @@ export interface WindowDesktopSymbols {
   dd_window_secondary_set_close_intercept: (handle: number, on: number) => void;
 }
 
+// Native dialogs/notifications (0.10+): detached rfd pickers resolve via
+// DD_EVENT_DIALOG_RESULT; paths pull through dd_dialog_result_paths.
+const WINDOW_DIALOGS_SPEC: Record<string, CFunction> = {
+  dd_dialog_open: { args: ["cstring"], returns: "i32" },
+  dd_dialog_save: { args: ["cstring"], returns: "i32" },
+  dd_dialog_pick_folder: { args: ["cstring"], returns: "i32" },
+  dd_dialog_result_paths: { args: ["i32", "ptr", "u32"], returns: "i32" },
+  dd_message_box: { args: ["cstring"], returns: "i32" },
+  dd_notify: { args: ["cstring"], returns: "i32" },
+};
+
+let _winDialogs: Partial<WindowDialogsSymbols> | null = null;
+
+function loadWindowDialogs(): Partial<WindowDialogsSymbols> {
+  if (_winDialogs) return _winDialogs;
+  try {
+    const libPath = windowLibPath();
+    const { symbols } = dlopen(libPath, WINDOW_DIALOGS_SPEC);
+    _winDialogs = symbols as unknown as Partial<WindowDialogsSymbols>;
+  } catch {
+    _winDialogs = {};
+  }
+  return _winDialogs;
+}
+
+/** Optional dialog/notify symbols — absent on libs predating them. */
+export const winDialogs: Partial<WindowDialogsSymbols> = new Proxy(
+  {} as Partial<WindowDialogsSymbols>,
+  {
+    get(_target, prop: string) {
+      return (loadWindowDialogs() as any)[prop];
+    },
+  },
+);
+
+export interface WindowDialogsSymbols {
+  /** All take a JSON opts cstring. The pickers return a request id; the
+   *  result arrives as DD_EVENT_DIALOG_RESULT (slot0=req_id, slot1=kind
+   *  0 cancel / 1 ok / 2 error). */
+  dd_dialog_open: (optsJson: string) => number;
+  dd_dialog_save: (optsJson: string) => number;
+  dd_dialog_pick_folder: (optsJson: string) => number;
+  /** snprintf semantics — returns needed byte count, consumes the result
+   *  on a successful pull (second call returns 0). */
+  dd_dialog_result_paths: (reqId: number, out: ptr, maxLen: number) => number;
+  /** Synchronous modal — returns the pressed-button index. */
+  dd_message_box: (optsJson: string) => number;
+  dd_notify: (optsJson: string) => number;
+}
+
 export interface MultiWindowSymbols {
   dd_window_secondary_create: (
     title: string,
@@ -363,6 +413,9 @@ export const DD_EVENT_CLOSE_REQUEST = 21;
 export const DD_EVENT_OCCLUDED = 22;
 // Theme changed — slot0 = 0 unknown / 1 light / 2 dark.
 export const DD_EVENT_THEME_CHANGED = 23;
+// A dd_dialog_* request completed — slot0 = req_id, slot1 = kind
+// (0 cancel / 1 ok / 2 error). Paths are pulled with dd_dialog_result_paths.
+export const DD_EVENT_DIALOG_RESULT = 24;
 
 // Key-modifier bitmask (native-rs wire values)
 export const KMOD_SHIFT = 0x0001 | 0x0002; // LSHIFT | RSHIFT

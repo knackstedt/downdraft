@@ -38,6 +38,7 @@ pub extern "C" fn dd_abi_version() -> u32 {
 
 #[macro_use]
 mod ffi;
+mod dialog;
 mod gpu;
 mod image;
 #[cfg(not(target_os = "android"))]

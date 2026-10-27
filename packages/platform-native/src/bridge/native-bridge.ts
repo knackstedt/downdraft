@@ -18,6 +18,7 @@ import type {
     HostAPI,
     HostGpuInfo,
     HostOsrAPI,
+    HostTheme,
     ImportCacheEntry,
     McpRequest,
     McpResponse,
@@ -40,6 +41,7 @@ import type { HostServices } from "../services/host-services";
 import { createWebUiHost } from "../webui/webui-host";
 import type { NativeSurface } from "../window/native-surface";
 import type { NativeWindow } from "../window/native-window";
+import { createNativeDialogs } from "./dialogs";
 
 const log = createLogger("info");
 
@@ -108,6 +110,13 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
     emit("display-info", { refreshRate: opts.window.getDisplayInfo().refreshRate } satisfies DisplayInfoData);
     checkScaleFactor();
   });
+  opts.window.addEventListener("themechanged", (e: { theme: HostTheme }) => {
+    emit("theme-changed", e.theme);
+  });
+
+  // ── Native dialogs/notifications (optional FFI group — the helper
+  //  degrades to null/false when the cdylib predates it) ──
+  const dialogs = createNativeDialogs(opts.window);
 
   // ── Services (save store + import cache) — worker-backed by default ──
   const services = opts.services;
@@ -220,6 +229,15 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
     openExternal: (url: string) => {
       openExternal(url);
     },
+
+    // ── Dialogs, notifications, theme ──
+    showOpenDialog: (dialogOpts) => dialogs.showOpenDialog(dialogOpts),
+    showSaveDialog: (dialogOpts) => dialogs.showSaveDialog(dialogOpts),
+    pickFolder: (dialogOpts) => dialogs.pickFolder(dialogOpts),
+    showMessageBox: (dialogOpts) => dialogs.showMessageBox(dialogOpts),
+    notify: (notifyOpts) => dialogs.notify(notifyOpts),
+    getTheme: () => opts.window.getTheme(),
+    onThemeChanged: (cb: (theme: HostTheme) => void) => on("theme-changed", cb),
 
     // ── GPU info ──
     getGPUSystemInfo: () => queryNvidiaSmi(),

@@ -1,8 +1,9 @@
 // ============================================================================
 // native-fs-bridge.ts — native implementation of the model-viewer `mv` bridge
 //
-// `downdraft.mv` is implemented directly over node:fs — file dialogs go
-// through zenity/kdialog when available (winit has no file dialog).
+// `downdraft.mv` is implemented directly over node:fs — file dialogs prefer
+// the native dd_dialog_* group (rfd pickers via dialogs.ts) and fall back to
+// zenity/kdialog when the cdylib predates it.
 //
 // Attach from an app's native entry:
 //   (globalThis as any).downdraft.mv = createNativeMvBridge(host.window, { ... });
@@ -14,6 +15,7 @@ import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { NativeWindow } from "../window/native-window";
+import { createNativeDialogs } from "./dialogs";
 
 export interface NativeFsTreeEntry {
   name: string;
@@ -89,7 +91,15 @@ export function createNativeMvBridge(window: NativeWindow, opts: NativeMvBridgeO
   const cliPaths = (): string[] =>
     opts.initialPaths ?? process.argv.slice(2).filter((a) => !a.startsWith("-")).map((a) => resolve(a));
 
+  // Native rfd pickers — preferred when the dd_dialog_* group is present.
+  const dialogs = createNativeDialogs(window);
+
   const openDialog = async (mode: "files" | "folder"): Promise<string[] | null> => {
+    if (dialogs.available && !opts.dialogTool) {
+      return mode === "folder"
+        ? dialogs.pickFolder({ multi: true })
+        : dialogs.showOpenDialog({ multi: true });
+    }
     const tool = opts.dialogTool ?? "zenity";
     const argv = tool === "kdialog"
       ? (mode === "folder" ? [tool, "--getexistingdirectory"] : [tool, "--getopenfilename", "", "*", "--multiple", "--separate-output"])
@@ -100,7 +110,14 @@ export function createNativeMvBridge(window: NativeWindow, opts: NativeMvBridgeO
     return out ? out.split("\n").filter(Boolean) : null;
   };
 
-  const saveDialog = async (defaultName: string, _filterName: string, ext: string): Promise<string | null> => {
+  const saveDialog = async (defaultName: string, filterName: string, ext: string): Promise<string | null> => {
+    if (dialogs.available && !opts.dialogTool) {
+      return dialogs.showSaveDialog({
+        directory: homedir(),
+        defaultName: `${defaultName}.${ext}`,
+        filters: [{ name: filterName, extensions: [ext] }],
+      });
+    }
     const tool = opts.dialogTool ?? "zenity";
     const suggested = join(homedir(), `${defaultName}.${ext}`);
     const argv = tool === "kdialog"

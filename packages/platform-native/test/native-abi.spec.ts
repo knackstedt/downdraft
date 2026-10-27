@@ -182,6 +182,17 @@ const GROUPS: Record<string, string[]> = {
     "dd_window_secondary_get_theme",
     "dd_window_secondary_set_close_intercept",
   ],
+  // Native dialogs + notifications (optional FFI group winDialogs): detached
+  // rfd pickers resolve via DD_EVENT_DIALOG_RESULT; paths pull through
+  // dd_dialog_result_paths.
+  dialogs: [
+    "dd_dialog_open",
+    "dd_dialog_save",
+    "dd_dialog_pick_folder",
+    "dd_dialog_result_paths",
+    "dd_message_box",
+    "dd_notify",
+  ],
 };
 
 const specFor = (symbols: string[]) =>
