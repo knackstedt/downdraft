@@ -652,6 +652,32 @@ export class NativeWindow extends MiniEventTarget {
    * + destroy. Use after a "closerequest" resolves accept — or anywhere a
    * programmatic close is wanted.
    */
+  /**
+   * Run the vetoable-close path — dispatch a cancelable "closerequest" and
+   * apply the policy default when nobody vetoes (lastWindow → close,
+   * explicit → hide). Called by the DD_EVENT_CLOSE_REQUEST wire event when
+   * the intercept is armed, and directly by apps/tests simulating a close
+   * without the OS gesture.
+   */
+  requestClose(): void {
+    const ev = {
+      type: "closerequest",
+      defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true; },
+    };
+    this.dispatchEvent(ev);
+    if (!ev.defaultPrevented) {
+      if (this.closePolicy === "explicit") this.setWindowVisible(false);
+      else this.close();
+    }
+  }
+
+  /** Event-pump counters — iteration/wait/event rates for idle-CPU checks
+   *  (damage-gated apps should show near-zero iteration rates when parked). */
+  getPumpStats(): { iters: number; waits: number; emptyWaits: number; events: number; dispatches: number } {
+    return { ...this.pumpStats };
+  }
+
   close(): void {
     if (this.windowHandle === 0) {
       this.requestQuit();
@@ -1015,25 +1041,9 @@ export class NativeWindow extends MiniEventTarget {
         this.close();
         break;
 
-      case DD_EVENT_CLOSE_REQUEST: {
-        // Vetoable close — the Rust side skipped hide+Quit because this
-        // window's intercept is armed. Dispatch a cancelable event; only a
-        // listener that calls preventDefault() vetoes. Nothing prevented →
-        // the close policy decides: lastWindow proceeds exactly as the
-        // unarmed path would have, explicit hides the window and keeps
-        // the process alive (quit() still exits).
-        const ev = {
-          type: "closerequest",
-          defaultPrevented: false,
-          preventDefault() { this.defaultPrevented = true; },
-        };
-        this.dispatchEvent(ev);
-        if (!ev.defaultPrevented) {
-          if (this.closePolicy === "explicit") this.setWindowVisible(false);
-          else this.close();
-        }
+      case DD_EVENT_CLOSE_REQUEST:
+        this.requestClose();
         break;
-      }
 
       case DD_EVENT_OCCLUDED:
         // OS reports the window fully covered/hidden (or revealed again).

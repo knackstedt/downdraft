@@ -23,8 +23,8 @@ describe("app settings", () => {
     expect(s.get("missing", 42)).toBe(42);
     s.set("theme", "dark");
     s.set("volume", 0.5);
-    expect(s.get("theme")).toBe("dark");
-    expect(s.get("volume")).toBe(0.5);
+    expect(s.get<string>("theme")).toBe("dark");
+    expect(s.get<number>("volume")).toBe(0.5);
     expect(s.getAll()).toEqual({ theme: "dark", volume: 0.5 });
   });
 
@@ -56,7 +56,7 @@ describe("app settings", () => {
     expect(raw.schemaVersion).toBe(1);
     // New instance over the same dir sees the persisted state.
     const s2 = createAppSettings(dir);
-    expect(s2.get("persisted")).toEqual({ nested: [1, 2, 3] });
+    expect(s2.get<{ nested: number[] }>("persisted")).toEqual({ nested: [1, 2, 3] });
   });
 
   test("corrupt file degrades to empty store (and recovers on write)", () => {
@@ -69,7 +69,7 @@ describe("app settings", () => {
     s.set("recovered", true);
     s.flush();
     const s2 = createAppSettings(badDir);
-    expect(s2.get("recovered")).toBe(true);
+    expect(s2.get<boolean>("recovered")).toBe(true);
   });
 });
 
