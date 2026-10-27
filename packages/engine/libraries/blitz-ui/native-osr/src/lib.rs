@@ -169,6 +169,9 @@ pub struct OsrDoc {
     renderer: VelloCpuImageRenderer,
     pixels: Vec<u8>,
     /// Previous frame's pixels — diffed against to produce the dirty rect.
+    /// Only maintained while no frame buffer is bound; a bound SAB already
+    /// retains the last delivered frame and serves as the diff reference,
+    /// so SAB-path docs keep this empty.
     prev_pixels: Vec<u8>,
     /// Pixel-space bounding box [x,y,w,h] of the last frame()'s changes.
     dirty_rect: [u32; 4],
@@ -325,10 +328,12 @@ fn dispatch(d: &mut OsrDoc, ui_event: UiEvent) {
 }
 
 /// Pixel-space bounding box of the difference between `prev` and `cur`
-/// (w = row width in px), or None when identical. Size mismatch → full rect.
-fn diff_rect(prev: &[u8], cur: &[u8], w: usize) -> Option<[u32; 4]> {
+/// (w = row width in px, prev_stride = byte offset between `prev` rows —
+/// the bound frame buffer pads rows to 256B), or None when identical.
+/// A `prev` too short to hold h strided rows → full rect.
+fn diff_rect(prev: &[u8], prev_stride: usize, cur: &[u8], w: usize) -> Option<[u32; 4]> {
     let h = if w > 0 { cur.len() / (w * 4) } else { 0 };
-    if prev.len() != cur.len() || h == 0 {
+    if prev_stride < w * 4 || prev.len() < prev_stride * h || h == 0 {
         return Some([0, 0, w as u32, h as u32]);
     }
     let mut min_x = w;
@@ -338,7 +343,7 @@ fn diff_rect(prev: &[u8], cur: &[u8], w: usize) -> Option<[u32; 4]> {
     for y in 0..h {
         let rs = y * w * 4;
         let row = &cur[rs..rs + w * 4];
-        let prow = &prev[rs..rs + w * 4];
+        let prow = &prev[y * prev_stride..y * prev_stride + w * 4];
         if row == prow {
             continue;
         }
@@ -556,8 +561,30 @@ fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
     d.dirty = inner.is_animating();
     drop(inner);
     let t2 = Instant::now();
-    // Diff against the retained frame — identical output means no upload.
-    let rect = diff_rect(&d.prev_pixels, &d.pixels, w as usize);
+    // Diff source: a bound frame buffer already holds exactly what the host
+    // last received, so it doubles as the previous-frame reference and the
+    // doc needs no private copy (the SAB's only writer is write_bound_frame,
+    // serialized with this call by the doc's busy flag; a freshly bound SAB
+    // is zeroed, which diffs to a full frame — rebind recovery for free).
+    // Docs on the pointer path (no bound buffer) keep the prev_pixels copy.
+    let wu = w as usize;
+    let hu = if wu > 0 { d.pixels.len() / (wu * 4) } else { 0 };
+    let sab_prev = d.frame_buf.as_ref().is_some_and(|b| b.len >= needed_buf_len(d));
+    let rect = if sab_prev {
+        let buf = d.frame_buf.as_ref().unwrap();
+        let stride = align256(wu * 4);
+        // SAFETY: buf.len >= FRAME_HEADER + stride*ph (needed_buf_len) and
+        // ph == hu, so the pixel rows are in bounds. The SAB is stable here:
+        // reads race nothing — its only writer is this thread.
+        let prev = unsafe {
+            std::slice::from_raw_parts(buf.ptr.add(FRAME_HEADER), stride * hu)
+        };
+        diff_rect(prev, stride, &d.pixels, wu)
+    } else if d.prev_pixels.len() == d.pixels.len() {
+        diff_rect(&d.prev_pixels, wu * 4, &d.pixels, wu)
+    } else {
+        Some([0, 0, w, hu as u32])
+    };
     d.stats[2] = t2.elapsed().as_secs_f64() * 1000.0;
     d.stats[3] = d.pixels.len() as f64;
     match rect {
@@ -565,16 +592,19 @@ fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
             d.dirty_rect = rect;
             // Retain only the changed rows — copying the whole buffer each
             // dirty frame doubles memory traffic for a small HUD update.
-            let wu = w as usize;
-            let [rx, ry, rw, rh] = rect.map(|v| v as usize);
-            if d.prev_pixels.len() != d.pixels.len() {
-                d.prev_pixels.clear();
-                d.prev_pixels.extend_from_slice(&d.pixels);
-            } else {
-                for row in ry..ry + rh {
-                    let s = (row * wu + rx) * 4;
-                    let e = s + rw * 4;
-                    d.prev_pixels[s..e].copy_from_slice(&d.pixels[s..e]);
+            // SAB-diffed docs need no copy at all: the bound buffer is the
+            // reference and gets the same dirty rows in write_bound_frame.
+            if !sab_prev {
+                let [rx, ry, rw, rh] = rect.map(|v| v as usize);
+                if d.prev_pixels.len() != d.pixels.len() {
+                    d.prev_pixels.clear();
+                    d.prev_pixels.extend_from_slice(&d.pixels);
+                } else {
+                    for row in ry..ry + rh {
+                        let s = (row * wu + rx) * 4;
+                        let e = s + rw * 4;
+                        d.prev_pixels[s..e].copy_from_slice(&d.pixels[s..e]);
+                    }
                 }
             }
             d.stats[4] += 1.0;
@@ -637,6 +667,10 @@ pub extern "C" fn dd_osr_bind_frame_buf(handle: *mut OsrDoc, ptr: *mut u8, len: 
             return -2;
         }
         d.frame_buf = Some(BoundBuf { ptr, len, seq: 0 });
+        // The bound buffer takes over as the diff reference — release the
+        // private copy (a zeroed SAB diffs to a full frame, so delivery is
+        // self-correcting on the next raster).
+        d.prev_pixels = Vec::new();
         0
     })
 }
