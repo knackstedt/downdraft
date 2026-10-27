@@ -74,6 +74,24 @@ glifo = { path = "vendor/glifo" }
 # vendor/anyrender_vello_cpu enables the atlas for fill glyph runs.
 anyrender_vello_cpu = { path = "vendor/anyrender_vello_cpu" }
 
+# Blitz is consumed as a git dep pinned to rev efef651 — the source key here
+# must be the bare repo URL. Only the crates we patch are vendored; every
+# other blitz-* package keeps resolving from upstream.
+[patch.'https://github.com/DioxusLabs/blitz']
+
+# Vendored blitz-paint 0.3.0-beta.2 — two related fixes in the svg paint path:
+# 1. draw_svg hardcodes ObjectFit::Contain with the clone_object_fit() read
+#    commented out, so inline <svg> letterboxes into the element box and
+#    preserveAspectRatio="none" is ignored. The patch parses the attribute
+#    ("none"→Fill, "slice"→Cover, align tokens→position) and lets explicit
+#    CSS object-fit/object-position win per cascade order.
+# 2. should_clip omits svg elements (only raster images were covered), so
+#    cover/slice paint bleeds outside the element's padding box into
+#    siblings. svg now participates in the replaced-content clip.
+# (anableps's perf charts relied on par="none" edge-to-edge stretching and
+# squished into a centered band on wide windows.)
+blitz-paint = { path = "vendor/blitz-paint" }
+
 # `cargo build --release` stays fast for local dev. CI artifact builds use
 # `cargo build --profile dist` — fat LTO + single codegen unit, matching what
 # the old per-crate release profiles did for the blitz natives.

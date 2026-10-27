@@ -698,7 +698,6 @@ dependencies = [
 [[package]]
 name = "blitz-paint"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/DioxusLabs/blitz?rev=efef6519fe6520caf66dc82df557580eecbf652b#efef6519fe6520caf66dc82df557580eecbf652b"
 dependencies = [
  "anyrender",
  "anyrender_svg",
