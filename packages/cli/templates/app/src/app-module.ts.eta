@@ -1,0 +1,147 @@
+import { AppRenderer } from "@downdraft/engine";
+import { downdraft, type AppModule } from "@downdraft/engine/app/main";
+import type { AppMenuModel } from "@downdraft/engine/app/shared/types";
+import { createHtmlUi } from "@downdraft/engine/modules/html-ui";
+import { bindKit, kitStyleTag, menuBar } from "@downdraft/engine/libraries/html-ui-kit";
+
+// ============================================================================
+// Desktop-app module — a UI-only renderer driving one fullscreen html-ui
+// document. No sim worker: desktop apps live entirely on the main thread.
+//
+//   mode:"2d" + viewportCount:0 — no scene viewports; the clear color is
+//     the background behind the composited html-ui panels
+//   damageOnly:true — frames only render when something changes (idle CPU
+//     ~0); every doc mutation/input event marks damage automatically
+// ============================================================================
+
+const MENU: AppMenuModel = {
+  items: [
+    {
+      type: "submenu",
+      label: "File",
+      items: [
+        { id: "file.open", label: "Open…", accelerator: "CmdOrCtrl+O" },
+        { id: "file.save", label: "Save As…", accelerator: "CmdOrCtrl+S" },
+        { type: "separator" },
+        { type: "predefined", kind: "quit" },
+      ],
+    },
+    {
+      type: "submenu",
+      label: "View",
+      items: [
+        { id: "view.dark", label: "Dark Theme", type: "check", checked: true },
+      ],
+    },
+  ],
+};
+
+function page(useMenuBar: boolean): string {
+  return `<html><head>${kitStyleTag()}</head><body>
+    ${useMenuBar ? menuBar({ model: MENU }) : ""}
+    <main class="app-main">
+      <h1><%= it.name %></h1>
+      <p class="muted">Launches: <b id="launch-count">…</b></p>
+      <button data-action="open">Open…</button>
+      <button data-action="save">Save As…</button>
+      <button data-action="notify">Notify</button>
+      <p class="muted" id="status">Ready.</p>
+    </main>
+  </body></html>`;
+}
+
+const status = (panel: { setText(sel: string, text: string): void }, text: string) =>
+  panel.setText("#status", text);
+
+export const appModule: AppModule = {
+  // 2D, zero viewports, damage-driven — the renderer idles at ~0 GPU when
+  // nothing on screen changes.
+  renderer: (canvas) => {
+    const r = new AppRenderer(canvas, {
+      mode: "2d",
+      damageOnly: true,
+      clearColor: { r: 0.12, g: 0.12, b: 0.14, a: 1 },
+    });
+    // No scene viewports — the html-ui panels are the whole picture.
+    r.setViewportCount(0);
+    return r;
+  },
+
+  onReady(ctx) {
+    // ── App menu — native where the OS supports it (Windows/macOS), the
+    //    html-ui kit MenuBar in-window elsewhere (Linux). The return tells
+    //    you which backend is live; item picks arrive through
+    //    onMenuAction either way. ──
+    const backend = downdraft.setMenu?.(MENU) ?? "unavailable";
+    const inWindowBar = backend === "inwindow";
+    downdraft.onMenuAction?.((id) => handleMenu(id));
+
+    ctx.renderer.useRendererModule?.(
+      createHtmlUi({
+        build(ui) {
+          const doc = ui.mount(page(inWindowBar), {
+            id: "app",
+            rect: { x: 0, y: 0, w: 1, h: 1 }, // fit:true overrides with the live surface rect
+            fit: true,
+          });
+          bindKit(doc, {
+            onAction(verb, data) {
+              if (verb === "menuitem") handleMenu(data.mid ?? "");
+            },
+          });
+
+          // ── Settings — typed KV persisted to <configDir>/settings.json. ──
+          const settings = downdraft.settings;
+          const launches = (settings?.get<number>("launchCount", 0) ?? 0) + 1;
+          settings?.set("launchCount", launches);
+          doc.setText("#launch-count", String(launches));
+          settings?.watch("launchCount", (v) => doc.setText("#launch-count", String(v)));
+
+          // ── Native dialogs (mock-aware: DD_DIALOGS_MOCK=1 short-circuits
+          //    them in tests). ──
+          ui.onAction("open", async () => {
+            const paths = await downdraft.showOpenDialog?.({ title: "Open" });
+            status(doc, paths?.length ? `Opened ${paths[0]}` : "Open cancelled");
+          });
+          ui.onAction("save", async () => {
+            const path = await downdraft.showSaveDialog?.({ title: "Save As", defaultName: "document.txt" });
+            status(doc, path ? `Saved to ${path}` : "Save cancelled");
+          });
+          ui.onAction("notify", () => {
+            void downdraft.notify?.({ title: "<%= it.name %>", body: "Hello from your app." });
+          });
+
+          // ── System tray — uncomment for tray-resident apps (pair with
+          //    closePolicy:"explicit" in native-entry). tray.create returns
+          //    false where no backend exists. ──
+          // downdraft.tray?.create({ tooltip: "<%= it.name %>" });
+          // downdraft.tray?.onEvent((e) => {
+          //   if (e.kind === "click") { /* show/focus the window */ }
+          // });
+          // downdraft.tray?.onAction((id) => {
+          //   if (id === "quit") downdraft.quit();
+          // });
+        },
+      }),
+    );
+
+    // ── Second instances forward {argv, cwd} — e.g. open files passed on
+    //    relaunch. The window already raised itself; use the payload. ──
+    downdraft.onSecondInstance?.(({ argv }) => {
+      const fileArg = argv.find((a) => a.endsWith(".txt"));
+      if (fileArg) void downdraft.notify?.({ title: "<%= it.name %>", body: `Second launch: ${fileArg}` });
+    });
+  },
+};
+
+async function handleMenu(id: string): Promise<void> {
+  if (id === "file.open") {
+    await downdraft.showOpenDialog?.({ title: "Open" });
+  } else if (id === "file.save") {
+    await downdraft.showSaveDialog?.({ title: "Save As", defaultName: "document.txt" });
+  } else if (id === "view.dark") {
+    const dark = !downdraft.settings?.get<boolean>("darkTheme", true);
+    downdraft.settings?.set("darkTheme", dark);
+    downdraft.setMenuItemChecked?.("view.dark", dark);
+  }
+}

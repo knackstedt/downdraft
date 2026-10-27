@@ -1,0 +1,37 @@
+# <%= it.name %>
+
+<% if (it.description) { %><%= it.description %><% } else { %>A desktop app built with the DownDraft Engine.<% } %>
+
+## Getting Started
+
+```bash
+# Install dependencies
+bun install
+
+# Run it (native winit + wgpu window)
+npm run dev
+
+# Package a distributable build
+npm run release
+```
+
+## Project Structure
+
+```
+src/
+  native-entry.ts  Desktop entry — window options, close policy, veto hook
+  app-module.ts    The app: damage-driven renderer + html-ui document,
+                   menus, dialogs, settings, second-instance handling
+downdraft.config.json   appId, title, GPU mode
+```
+
+## Desktop features in this template
+
+- **Damage-driven rendering** — `AppRenderer { mode:"2d", viewportCount:0, damageOnly:true }` idles at ~0 GPU; frames only render on change.
+- **App menu** — `downdraft.setMenu` uses the OS menu on Windows/macOS and an in-window html-ui menu bar on Linux.
+- **Native dialogs** — `downdraft.showOpenDialog` / `showSaveDialog` / `notify` / `showMessageBox`.
+- **Settings** — `downdraft.settings` persists typed key/value state to `settings.json` in the app config dir (`downdraft.paths`).
+- **Lifecycle** — `closePolicy`, vetoable `onCloseRequest`, and `onSecondInstance` forwarding in `src/native-entry.ts`.
+- **Tray** — a commented `downdraft.tray` block in `app-module.ts` (pair with `closePolicy:"explicit"`).
+
+Built with [DownDraft Engine](https://github.com/knackstedt/downdraft).

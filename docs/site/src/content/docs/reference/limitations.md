@@ -34,6 +34,28 @@ FFI, and the network unless the runtime itself is launched restricted. See
   packaging is Linux-only today — win/mac compile to Bun binaries.
 - Web UI backends: `cef` is the desktop default; `wpe` targets Linux/Android.
 
+## Desktop-app gaps
+
+The desktop surface (windows, menus, tray, dialogs, settings — see
+[Desktop Applications](/guides/desktop-apps/)) has these known edges:
+
+- **Linux app menus render in-window.** muda's GTK backend needs a
+  `gtk::Window` our winit surface can't provide, so `downdraft.setMenu`
+  returns `"inwindow"` on Linux and the app renders the html-ui kit
+  `MenuBar` instead. Menu item ids land on the same `onMenuAction`
+  channel either way.
+- **Tray needs a StatusNotifierItem watcher on Linux.** The ksni backend
+  is pure DBus (no GTK install needed), but a session without an SNI
+  watcher (bare WM, minimal DE) makes `tray.create` return `false`.
+  Flatpak packages need `--talk-name=org.kde.StatusNotifierWatcher`.
+- **Single primary window.** `AppWindow.create` opens secondary windows,
+  but the singleton primary boot path means document-style multi-window
+  apps (one OS window per document) aren't a first-class shape yet.
+- **No taskbar progress / dock badge**, no file-association or URL-scheme
+  registration in the packaging pipeline yet.
+- **IME is commit-only** — editable focus arms native text input and
+  anchors the candidate window, but preedit/marked text isn't rendered.
+
 ## Package size
 
 Claims of "tens of megabytes" refer to **Bun-compiled** builds. A

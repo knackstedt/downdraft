@@ -43,8 +43,10 @@ import type { NativeSurface } from "../window/native-surface";
 import type { NativeWindow } from "../window/native-window";
 import { createNativeDialogs } from "./dialogs";
 import { createNativeMenus } from "./menus";
+import { createAppSettings } from "./settings";
 import { onSecondInstance as onSecondInstanceLock } from "./singleton-lock";
 import { createNativeTray } from "./tray";
+import { resolveAppDirs } from "./user-data-dir";
 
 const log = createLogger("info");
 
@@ -128,6 +130,11 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
   // ── System tray (tray-icon — win/mac native, Linux SNI-over-DBus via
   //  ksni; create() returns false where no backend exists) ──
   const tray = createNativeTray(opts.window, (cb) => on("menu-action", cb));
+
+  // ── App paths + typed settings (<configDir>/settings.json, atomic
+  //  debounced writes, same-process watch) ──
+  const paths = resolveAppDirs(opts.appId);
+  const settings = createAppSettings(paths.configDir);
 
   // ── Services (save store + import cache) — worker-backed by default ──
   const services = opts.services;
@@ -258,6 +265,8 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
 
     tray,
     onSecondInstance: (cb) => onSecondInstanceLock(cb),
+    paths,
+    settings,
 
     // ── GPU info ──
     getGPUSystemInfo: () => queryNvidiaSmi(),

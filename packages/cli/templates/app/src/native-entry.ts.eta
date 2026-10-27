@@ -1,0 +1,34 @@
+import { runNativeAppModule } from "@downdraft/platform-native";
+import { appModule } from "./app-module";
+
+// Desktop-app entry — `draft dev` / `draft release` (winit + wgpu under
+// Bun, Node, or Deno). The app module itself is host-agnostic.
+//
+// Lifecycle options that matter for desktop apps:
+//   closePolicy "lastWindow" — closing the window quits (default)
+//                "explicit"   — closing only hides it; the process stays
+//                               alive for tray/background use until
+//                               downdraft.quit()
+//   onCloseRequest — vetoable close hook (dirty-document prompts)
+//   focusOnSecondInstance — a second launch raises this window (default
+//                true); set false to handle downdraft.onSecondInstance
+//                yourself
+await runNativeAppModule(appModule, {
+  title: "<%= it.name %>",
+  appId: "downdraft-<%= it.name %>",
+  closePolicy: "lastWindow",
+  onCloseRequest: async (win) => {
+    // Resolve false to veto the close — e.g. an unsaved-changes prompt:
+    //   const keep = await downdraft.showMessageBox({
+    //     title: "Unsaved changes",
+    //     message: "Discard unsaved changes?",
+    //     buttons: "yesno",
+    //   });
+    //   return keep === 0;
+    void win;
+    return true;
+  },
+}).catch((e) => {
+  console.error("[native-entry] Fatal:", e);
+  process.exit(1);
+});

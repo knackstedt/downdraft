@@ -1,0 +1,10 @@
+{
+<%~ include("_shared/partials/config-json-fields", it) %>,
+  "native": {
+    "appId": "downdraft-<%= it.name %>",
+    "title": "<%= it.name %>"
+  },
+  "gpu": {
+    "mode": "stability"
+  }
+}

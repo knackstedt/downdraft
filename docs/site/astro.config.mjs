@@ -44,6 +44,7 @@ export default defineConfig({
 						{ label: 'Modules', slug: 'guides/modules' },
 						{ label: 'Plugins', slug: 'guides/plugins' },
 						{ label: 'Native Modules (Rust)', slug: 'guides/native-modules' },
+						{ label: 'Desktop Applications', slug: 'guides/desktop-apps' },
 						{ label: 'Packaging & Distribution', slug: 'guides/packaging' },
 						{ label: 'MCP & AI Agents', slug: 'guides/mcp' },
 						{ label: 'Visual Debugging', slug: 'guides/visual-debugging' },

@@ -219,6 +219,38 @@ describe("CLI new — physics template", () => {
   });
 });
 
+describe("CLI new — app template", () => {
+  beforeAll(() => {
+    ensureCleanDir();
+  });
+
+  afterAll(() => {
+    cleanup();
+  });
+
+  it("should scaffold a desktop-app project", async () => {
+    await newProject([TEST_DIR, "--template=app", "--name=my-desktop-app"]);
+
+    expect(existsSync(join(TEST_DIR, "src/native-entry.ts"))).toBe(true);
+    expect(existsSync(join(TEST_DIR, "src/app-module.ts"))).toBe(true);
+
+    const config = JSON.parse(readFileSync(join(TEST_DIR, "downdraft.config.json"), "utf-8"));
+    expect(config.native.appId).toBe("downdraft-my-desktop-app");
+    expect(config.gpu.mode).toBe("stability");
+
+    const entry = readFileSync(join(TEST_DIR, "src/native-entry.ts"), "utf-8");
+    expect(entry).toContain("runNativeAppModule");
+    expect(entry).toContain("closePolicy");
+
+    const module = readFileSync(join(TEST_DIR, "src/app-module.ts"), "utf-8");
+    expect(module).toContain('mode: "2d"');
+    expect(module).toContain("damageOnly: true");
+    expect(module).toContain("downdraft.settings");
+    expect(module).toContain("downdraft.setMenu");
+    expect(module).toContain("downdraft.onSecondInstance");
+  });
+});
+
 describe("CLI new — full template", () => {
   beforeAll(() => {
     ensureCleanDir();

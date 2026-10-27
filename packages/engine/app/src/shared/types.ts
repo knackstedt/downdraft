@@ -287,6 +287,39 @@ export interface AppSecondInstanceData {
 }
 
 // ---------------------------------------------------------------------------
+// App paths + settings (native host)
+// ---------------------------------------------------------------------------
+
+/** Per-app platform directories, split by artifact kind. Write settings/
+ *  small state to configDir, saves + substantial app data to dataDir,
+ *  disposable artifacts to cacheDir. */
+export interface AppPaths {
+    /** User config — Linux $XDG_CONFIG_HOME/<appId>, Windows %APPDATA%,
+     *  macOS ~/Library/Application Support. Alias of the legacy userData
+     *  dir. */
+    configDir: string;
+    /** App data (saves, databases) — Linux $XDG_DATA_HOME/<appId>. */
+    dataDir: string;
+    /** Disposable caches — Linux $XDG_CACHE_HOME/<appId>, Windows
+     *  %LOCALAPPDATA%, macOS ~/Library/Caches. */
+    cacheDir: string;
+}
+
+/** Typed key/value settings persisted to <configDir>/settings.json.
+ *  Values are JSON-serializable; set(key, undefined) removes the key.
+ *  watch() observes same-process set() calls only. */
+export interface AppSettings {
+    get<T = unknown>(key: string, fallback?: T): T;
+    set(key: string, value: unknown): void;
+    getAll(): Record<string, unknown>;
+    /** Subscribe to same-process changes on `key` — the callback receives
+     *  the new value (undefined after removal). Returns unsubscribe. */
+    watch(key: string, cb: (value: unknown) => void): () => void;
+    /** Force the debounced write to disk now. */
+    flush(): void;
+}
+
+// ---------------------------------------------------------------------------
 // MCP Proxy
 // ---------------------------------------------------------------------------
 
@@ -502,6 +535,13 @@ export interface HostAPI {
    *  first unless `runNativeAppModule({ focusOnSecondInstance: false })`
    *  opted out. */
   onSecondInstance?(cb: (data: AppSecondInstanceData) => void): () => void;
+
+  /** Per-app platform directories — settings go in configDir, saves in
+   *  dataDir, disposable artifacts in cacheDir. */
+  paths?: AppPaths;
+  /** Typed key/value settings persisted to <configDir>/settings.json —
+   *  same-process watch(), atomic writes. */
+  settings?: AppSettings;
 
   /** Host system GPU probe (nvidia-smi); null when unavailable. */
   getGPUSystemInfo(): Promise<GPUSystemInfo | null>;
