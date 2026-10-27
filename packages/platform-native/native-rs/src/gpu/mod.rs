@@ -120,6 +120,23 @@ fn surface_is_live(h: Handle) -> bool {
     !h.is_null() && G_LIVE_SURFACES.lock().unwrap().contains(&(h as usize))
 }
 
+/// Live ShimDevice handles — minted in finish_device_request, removed by
+/// wgpu_shim_release_device. The JS pipeline-cache exit flush (and any other
+/// late teardown call) can fire after the ShimDevice box was freed —
+/// obj::<ShimDevice> on the stale handle used to read a dropped
+/// Option<PipelineCache> and panic inside wgpu-core's registry `get` when
+/// get_data looked the id back up. Membership is checked by the
+/// pipeline-cache exports and by release (which refuses a second free);
+/// the wider device-deref surface still trusts callers — the leak-on-
+/// destroy path in WgpuDevice.destroy() exists precisely because guarding
+/// every device entry point is the larger design change.
+static G_LIVE_DEVICES: LazyLock<Mutex<HashSet<usize>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+fn device_is_live(h: Handle) -> bool {
+    !h.is_null() && G_LIVE_DEVICES.lock().unwrap().contains(&(h as usize))
+}
+
 thread_local! {
     /// ErrorScopeGuard is !Send (per-thread by design in wgpu) — scopes are
     /// stored per device handle, on the calling thread. All FFI callers are
@@ -720,13 +737,15 @@ fn finish_device_request(
             });
             device.on_uncaptured_error(std::sync::Arc::new(log_uncaptured));
             *G_DEVICE.lock().unwrap() = Some(device.clone());
-            boxed(ShimDevice {
+            let h = boxed(ShimDevice {
                 device,
                 queue,
                 adapter: adapter.clone(),
                 lost,
                 pipeline_cache: Mutex::new(None),
-            })
+            });
+            G_LIVE_DEVICES.lock().unwrap().insert(h as usize);
+            h
         }
         Some(Err(e)) => {
             eprintln!("[wgpu_shim] device request failed: {e}");
@@ -2356,6 +2375,9 @@ pub extern "C" fn wgpu_shim_pipeline_cache_init(
     data_len: u64,
 ) -> i32 {
     ffi!(0, unsafe {
+        if !device_is_live(device) {
+            return 0;
+        }
         let shim = obj::<ShimDevice>(device);
         let data = flat(data_ptr, data_len as usize);
         let try_attach = |seed: Option<&[u8]>| -> Option<PipelineCache> {
@@ -2401,6 +2423,9 @@ pub extern "C" fn wgpu_shim_pipeline_cache_init(
 #[no_mangle]
 pub extern "C" fn wgpu_shim_pipeline_cache_data_size(device: Handle) -> u64 {
     ffi!(0, unsafe {
+        if !device_is_live(device) {
+            return 0;
+        }
         obj::<ShimDevice>(device)
             .pipeline_cache
             .lock()
@@ -2418,6 +2443,9 @@ pub extern "C" fn wgpu_shim_pipeline_cache_data_size(device: Handle) -> u64 {
 #[no_mangle]
 pub extern "C" fn wgpu_shim_pipeline_cache_data(device: Handle, out: *mut u8, cap: u64) -> u64 {
     ffi!(0, unsafe {
+        if !device_is_live(device) {
+            return 0;
+        }
         let cache_guard = obj::<ShimDevice>(device).pipeline_cache.lock().unwrap();
         let Some(cache) = cache_guard.as_ref() else {
             return 0;
@@ -3894,7 +3922,17 @@ release_fn!(wgpu_shim_release_query_set, ShimQuerySet);
 
 #[no_mangle]
 pub extern "C" fn wgpu_shim_release_device(p: Handle) {
-    ffi!((), unsafe { release::<ShimDevice>(p) });
+    ffi!((), unsafe {
+        // Remove from the live set BEFORE freeing — a concurrent cache read
+        // that passes the membership check must not race the drop.
+        if !G_LIVE_DEVICES.lock().unwrap().remove(&(p as usize)) {
+            if !p.is_null() {
+                eprintln!("[wgpu_shim] release_device: stale or double release {p:p}");
+            }
+            return;
+        }
+        release::<ShimDevice>(p)
+    });
 }
 
 #[no_mangle]

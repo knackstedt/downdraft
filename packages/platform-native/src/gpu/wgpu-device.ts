@@ -32,7 +32,7 @@ import {
     serializeRequiredFeatures,
     serializeRequiredLimits,
 } from "./limits";
-import { initPipelineCache } from "./pipeline-cache";
+import { flushPipelineCache, initPipelineCache } from "./pipeline-cache";
 import { trackForRelease, untrack } from "./registry";
 import { WgpuCommandEncoder } from "./wgpu-encoder";
 import { loadWgpuAsync, loadWgpuEx, wgpu } from "./wgpu-ffi";
@@ -415,6 +415,12 @@ export class WgpuDevice {
    *  (the instance box) must skip too: a worker may be mid-call inside
    *  wgpu_shim_process_events on that instance. */
   nativeHandlesLeaked = false;
+  /** Set by destroy() after wgpu_shim_release_device ran — the ShimDevice
+   *  box (and its pipeline_cache) is freed, so any further FFI call on
+   *  `ptr` dereferences dead memory. The pipeline-cache exit flush checks
+   *  this before touching the handle; the native side also membership-
+   *  checks the live-device set. */
+  handlesReleased = false;
   private destroyed = false;
   // `.lost` watchers: the spec promise never resolves on a healthy device,
   // so every `device.lost.then(cb)` appends a reaction that lives forever.
@@ -1147,7 +1153,14 @@ export class WgpuDevice {
     // is always ours to release, regardless of device ownership.
     try { wgpu.wgpu_shim_release_queue(this.queue.ptr); } catch { /* best-effort */ }
     if (!this.ownsHandle) return; // worker-attached view — owner releases the device.
+    // Flush the persistent pipeline cache while the handle is still valid —
+    // the exit-time flush registered by initPipelineCache otherwise only
+    // ever runs on a freed ShimDevice (a use-after-free that panics inside
+    // wgpu-core's registry), so gpu-pipeline-cache.bin was never written
+    // on a clean shutdown.
+    try { flushPipelineCache(this); } catch { /* best-effort */ }
     wgpu.wgpu_shim_release_device(this.ptr);
+    this.handlesReleased = true;
   }
 }
 

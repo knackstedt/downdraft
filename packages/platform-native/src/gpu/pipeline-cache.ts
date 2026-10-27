@@ -70,8 +70,11 @@ export function initPipelineCache(device: WgpuDevice): boolean {
   return false;
 }
 
-/** Write the device's cache blob back to disk. Safe to call anytime. */
+/** Write the device's cache blob back to disk. Safe to call anytime —
+ *  a no-op once destroy() has released the native ShimDevice (the exit
+ *  flush registered at init can fire after host teardown freed it). */
 export function flushPipelineCache(device: WgpuDevice): void {
+  if (device.handlesReleased) return;
   const shim = loadWgpuAsync();
   if (!shim?.wgpu_shim_pipeline_cache_data_size) return;
   const size = Number(shim.wgpu_shim_pipeline_cache_data_size(device.ptr));
