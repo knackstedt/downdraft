@@ -39,6 +39,16 @@ const VSYNC: i32 = 18;
 const WINDOW_CLOSE: i32 = 19;
 /// Global hotkey fired — id in slot 0, wid meaningless (always 0).
 const HOTKEY: i32 = 20;
+/// Vetoable close request — only pushed when the owning window has
+/// dd_window_secondary_set_close_intercept armed. The window stays mapped;
+/// JS decides (veto → nothing, accept → destroy/request_quit).
+const CLOSE_REQUEST: i32 = 21;
+/// OS reports the window fully occluded (slot0 = 1) or revealed (0).
+/// Delivered where winit reports WindowEvent::Occluded (Wayland, macOS,
+/// Android); absent elsewhere.
+const OCCLUDED: i32 = 22;
+/// System/window theme changed — slot0 = 0 unknown, 1 light, 2 dark.
+const THEME_CHANGED: i32 = 23;
 
 /// Line-detent approximation for pixel-precise scroll deltas (PixelDelta
 /// arrives from touchpads; the wire format always reports line units).
@@ -112,6 +122,14 @@ pub enum Ev {
     Resumed,
     /// Close requested on a secondary window — routed by wid, never a Quit.
     WindowClose,
+    /// Vetoable close request (close_intercept armed) — the window stays
+    /// mapped; JS chooses whether anything closes.
+    CloseRequest,
+    /// Window fully occluded (true) or revealed (false) — platform coverage
+    /// is whatever winit reports (Wayland/macOS/Android).
+    Occluded(bool),
+    /// System or window theme changed — 0 unknown, 1 light, 2 dark.
+    ThemeChanged(i32),
     /// Global hotkey pressed — carries the grab id from
     /// dd_hotkey_grab. Not window-scoped.
     Hotkey {
@@ -330,6 +348,15 @@ pub fn write(wid: u32, ev: Ev, out_data: *mut c_void) -> i32 {
             Ev::Suspended => SUSPENDED,
             Ev::Resumed => RESUMED,
             Ev::WindowClose => WINDOW_CLOSE,
+            Ev::CloseRequest => CLOSE_REQUEST,
+            Ev::Occluded(o) => {
+                *iout.add(0) = if o { 1 } else { 0 };
+                OCCLUDED
+            }
+            Ev::ThemeChanged(code) => {
+                *iout.add(0) = code;
+                THEME_CHANGED
+            }
             Ev::Hotkey { id } => {
                 *iout.add(0) = id;
                 HOTKEY
@@ -369,21 +396,42 @@ pub fn translate_window_event(
     let wid = ctx.ids.get(&id).copied().unwrap_or(0);
     match ev {
         WindowEvent::CloseRequested => {
-            // Unmap NOW — after the quit event reaches it, JS runs seconds
-            // of teardown (close listeners, surface/device release, worker
-            // stops) before dd_window_destroy drops the window. The
-            // wgpu surface holds its own Arc<Window>, so the Arc can't be
-            // dropped here — hiding reads as an instant close while the
-            // process finishes terminating behind it. Secondary windows
-            // surface a routed WindowClose instead of a process Quit.
-            if let Some(w) = window_by_id(ctx, id) {
-                w.set_visible(false);
-            }
-            if wid == 0 {
-                push(0, Ev::Quit);
+            // Armed intercept: stay mapped and hand JS the decision — the
+            // app vetoes (unsaved-changes prompt) or closes itself. The
+            // unarmed path keeps the old contract: unmap NOW — after the
+            // quit event reaches it, JS runs seconds of teardown (close
+            // listeners, surface/device release, worker stops) before
+            // dd_window_destroy drops the window. The wgpu surface holds
+            // its own Arc<Window>, so the Arc can't be dropped here —
+            // hiding reads as an instant close while the process finishes
+            // terminating behind it. Secondary windows surface a routed
+            // WindowClose instead of a process Quit.
+            if ctx.input.get(&id).is_some_and(|st| st.close_intercept) {
+                push(wid, Ev::CloseRequest);
             } else {
-                push(wid, Ev::WindowClose);
+                if let Some(w) = window_by_id(ctx, id) {
+                    w.set_visible(false);
+                }
+                if wid == 0 {
+                    push(0, Ev::Quit);
+                } else {
+                    push(wid, Ev::WindowClose);
+                }
             }
+        }
+
+        // Fully occluded/revealed — delivered by Wayland/macOS/Android
+        // backends; damage-gated renderers park the frame loop on it.
+        WindowEvent::Occluded(occluded) => {
+            push(wid, Ev::Occluded(occluded));
+        }
+
+        WindowEvent::ThemeChanged(theme) => {
+            let code = match theme {
+                winit::window::Theme::Light => 1,
+                winit::window::Theme::Dark => 2,
+            };
+            push(wid, Ev::ThemeChanged(code));
         }
 
         WindowEvent::Resized(size) => {
@@ -463,7 +511,15 @@ pub fn translate_window_event(
             // through Ime::Commit instead and event.text is None — no dupes.
             if down && ctx.input.get(&id).is_some_and(|st| st.text_input) {
                 if let Some(text) = event.text.as_ref() {
-                    if !text.is_empty() {
+                    // Suppress command chords: winit can report the unmodified
+                    // char (Ctrl+A → "a") as key text on X11, which a text
+                    // consumer would insert over the selection the chord just
+                    // made. GUI/CTRL chords are shortcuts, never text. ALT is
+                    // left open — Ctrl+Alt is AltGr on Windows and Alt chords
+                    // produce legitimate characters on several layouts.
+                    let chorded = (ctx.mods & KMOD_GUI) != 0
+                        || (ctx.mods & KMOD_CTRL) != 0 && (ctx.mods & KMOD_ALT) == 0;
+                    if !text.is_empty() && !chorded {
                         push(wid, Ev::Text(text.to_string()));
                     }
                 }

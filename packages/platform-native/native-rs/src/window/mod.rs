@@ -115,6 +115,10 @@ pub(crate) struct WinInput {
     buttons: u32,
     grabbed: bool,
     text_input: bool,
+    /// Armed via dd_window_secondary_set_close_intercept: CloseRequested
+    /// pushes a vetoable CLOSE_REQUEST event (window stays mapped) instead
+    /// of the immediate-hide Quit/WindowClose path.
+    close_intercept: bool,
 }
 
 pub(crate) struct Ctx {
@@ -319,6 +323,69 @@ static SURFACE_REQ: Mutex<Option<SurfaceReq>> = Mutex::new(None);
 /// DD_APP_ID / DD_APP_ICON env reads remain for launcher-exported env.
 static PENDING_APP_NAME: Mutex<Option<(String, String)>> = Mutex::new(None);
 static PENDING_ICON: Mutex<Option<winit::window::Icon>> = Mutex::new(None);
+
+/// Pending create-time options for the PRIMARY window — set via
+/// dd_window_set_create_options (the same PENDING_* pattern as app_name).
+/// Absent = the legacy defaults (resizable, decorated, visible, WM-placed).
+/// Present = the flags are authoritative: resizable iff WF_RESIZABLE,
+/// decorations iff WF_DECORATIONS, mapped iff !WF_HIDDEN. Consumed (taken)
+/// at the next create so a destroy+recreate doesn't silently re-apply them.
+struct CreateOpts {
+    flags: u32,
+    /// i32::MIN = unset → WM placement.
+    x: i32,
+    y: i32,
+    /// <=0 = unset.
+    min_w: i32,
+    min_h: i32,
+    max_w: i32,
+    max_h: i32,
+}
+static PENDING_CREATE_OPTS: Mutex<Option<CreateOpts>> = Mutex::new(None);
+
+/// Fold PENDING_CREATE_OPTS into the primary window's attributes. Shared by
+/// the pump-thread create (Linux/Windows) and the inline create (macOS).
+#[cfg(not(target_os = "android"))]
+fn apply_pending_create_opts(mut attrs: WindowAttributes) -> WindowAttributes {
+    let Some(o) = PENDING_CREATE_OPTS.lock().unwrap().take() else {
+        return attrs;
+    };
+    attrs = attrs
+        .with_resizable(o.flags & WF_RESIZABLE != 0)
+        .with_decorations(o.flags & WF_DECORATIONS != 0)
+        .with_transparent(o.flags & WF_TRANSPARENT != 0)
+        .with_visible(o.flags & WF_HIDDEN == 0);
+    if o.x != i32::MIN && o.y != i32::MIN {
+        attrs = attrs.with_position(PhysicalPosition::new(o.x, o.y));
+    }
+    if o.min_w > 0 || o.min_h > 0 {
+        attrs = attrs.with_min_inner_size(LogicalSize::new(
+            o.min_w.max(1) as f64,
+            o.min_h.max(1) as f64,
+        ));
+    }
+    if o.max_w > 0 || o.max_h > 0 {
+        attrs = attrs.with_max_inner_size(LogicalSize::new(
+            o.max_w.max(1) as f64,
+            o.max_h.max(1) as f64,
+        ));
+    }
+    if o.flags & WF_ALWAYS_ON_TOP != 0 {
+        attrs = attrs.with_window_level(WindowLevel::AlwaysOnTop);
+    }
+    // Taskbar exclusion — same platform split as extra_window_attrs.
+    #[cfg(target_os = "linux")]
+    if o.flags & WF_SKIP_TASKBAR != 0 {
+        use winit::platform::x11::{WindowAttributesExtX11, WindowType};
+        attrs = WindowAttributesExtX11::with_x11_window_type(attrs, vec![WindowType::Utility]);
+    }
+    #[cfg(target_os = "windows")]
+    if o.flags & WF_SKIP_TASKBAR != 0 {
+        use winit::platform::windows::WindowAttributesExtWindows;
+        attrs = WindowAttributesExtWindows::with_skip_taskbar(attrs, true);
+    }
+    attrs
+}
 #[cfg(all(not(target_os = "android"), not(target_os = "macos")))]
 static LOOP_PROXY: Mutex<Option<EventLoopProxy<LoopCmd>>> = Mutex::new(None);
 
@@ -442,7 +509,7 @@ fn pump_create_window(el: &winit::event_loop::ActiveEventLoop) {
     {
         return reply(0);
     }
-    let mut attrs = Window::default_attributes()
+    let attrs = Window::default_attributes()
         .with_title(req.title)
         .with_inner_size(LogicalSize::new(req.w.max(1) as f64, req.h.max(1) as f64))
         .with_resizable(true)
@@ -451,6 +518,13 @@ fn pump_create_window(el: &winit::event_loop::ActiveEventLoop) {
         // must not steal activation. Apps that want launch focus call
         // dd_window_focus; the WM may still focus per its own policy.
         .with_active(false);
+    // Explicit create options (resizable/decorations/position/min/max/
+    // hidden/level/skip-taskbar) — authoritative when set, so they land
+    // after the base defaults and before platform identity. mut only on
+    // linux: the identity block below reassigns attrs there (Windows has
+    // no post-apply mutation).
+    #[allow(unused_mut)]
+    let mut attrs = apply_pending_create_opts(attrs);
     // Desktop-entry identity. DD_APP_ID is the packaged app's desktop id
     // (e.g. "dev.cruiser.app") — it becomes the Wayland app_id and the X11
     // WM_CLASS general+instance so the WM can match the running window to
@@ -906,6 +980,7 @@ pub extern "C" fn dd_window_create(title: *const c_char, width: c_int, height: c
                 // NativeWindowConfig); the WM may still focus the window per
                 // its own policy — that's not stealing, it's the WM's call.
                 .with_active(false);
+            let attrs = apply_pending_create_opts(attrs);
             #[allow(deprecated)]
             match slot.as_ref().unwrap().create_window(attrs) {
                 Ok(w) => Ok(Arc::new(w)),
@@ -1276,6 +1351,151 @@ pub extern "C" fn dd_window_secondary_grab(handle: c_int, grab: c_int) {
         let id = w.id();
         with_ctx(|ctx| {
             ctx.input.entry(id).or_default().grabbed = grab;
+        });
+    });
+}
+
+// ── Desktop window controls ──
+// Primary-window create options + handle-addressed runtime ops. Every op
+// resolves through window_by_handle, so handle 0 works on the primary too —
+// the dd_window_secondary_* prefix names the family, not the audience.
+
+/// dd_window_set_create_options(flags, x, y, min_w, min_h, max_w, max_h) —
+/// pre-create call (same PENDING_* pattern as dd_window_set_app_name):
+/// the next dd_window_create applies the WF_* flag bits (resizable iff bit0,
+/// decorations iff bit1, mapped iff !bit6 — authoritative, not defaults),
+/// position (i32::MIN = WM placement), and min/max inner size (<=0 = unset).
+#[no_mangle]
+pub extern "C" fn dd_window_set_create_options(
+    flags: c_int,
+    x: c_int,
+    y: c_int,
+    min_w: c_int,
+    min_h: c_int,
+    max_w: c_int,
+    max_h: c_int,
+) {
+    ffi!((), {
+        *PENDING_CREATE_OPTS.lock().unwrap() = Some(CreateOpts {
+            flags: flags.max(0) as u32,
+            x,
+            y,
+            min_w,
+            min_h,
+            max_w,
+            max_h,
+        });
+    });
+}
+
+/// Iconify (minimize) the window — set_minimized(false) restores.
+#[no_mangle]
+pub extern "C" fn dd_window_secondary_set_minimized(handle: c_int, on: c_int) {
+    ffi!((), {
+        if let Some(w) = window_by_handle(handle.max(0) as u32) {
+            w.set_minimized(on != 0);
+        }
+    });
+}
+
+/// Maximize/unmaximize. is_maximized pairs for state queries.
+#[no_mangle]
+pub extern "C" fn dd_window_secondary_set_maximized(handle: c_int, on: c_int) {
+    ffi!((), {
+        if let Some(w) = window_by_handle(handle.max(0) as u32) {
+            w.set_maximized(on != 0);
+        }
+    });
+}
+
+/// 1 maximized / 0 not (or no such window).
+#[no_mangle]
+pub extern "C" fn dd_window_secondary_is_maximized(handle: c_int) -> c_int {
+    ffi!(0, {
+        let Some(w) = window_by_handle(handle.max(0) as u32) else {
+            return 0;
+        };
+        w.is_maximized() as c_int
+    })
+}
+
+/// Resize affordance toggle. 0,0 on the size setters clears the bound.
+#[no_mangle]
+pub extern "C" fn dd_window_secondary_set_resizable(handle: c_int, on: c_int) {
+    ffi!((), {
+        if let Some(w) = window_by_handle(handle.max(0) as u32) {
+            w.set_resizable(on != 0);
+        }
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn dd_window_secondary_set_min_size(handle: c_int, w: c_int, h: c_int) {
+    ffi!((), {
+        if let Some(win) = window_by_handle(handle.max(0) as u32) {
+            // Physical px — the same unit dd_window_get/set_size speaks.
+            win.set_min_inner_size((w > 0 || h > 0)
+                .then(|| Size::Physical(PhysicalSize::new(w.max(1) as u32, h.max(1) as u32))));
+        }
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn dd_window_secondary_set_max_size(handle: c_int, w: c_int, h: c_int) {
+    ffi!((), {
+        if let Some(win) = window_by_handle(handle.max(0) as u32) {
+            win.set_max_inner_size((w > 0 || h > 0)
+                .then(|| Size::Physical(PhysicalSize::new(w.max(1) as u32, h.max(1) as u32))));
+        }
+    });
+}
+
+/// Taskbar/dock attention request — 1 = critical (bounces until focused),
+/// 0 = informational. No-op on platforms without an urgency concept.
+#[no_mangle]
+pub extern "C" fn dd_window_secondary_request_attention(handle: c_int, urgent: c_int) {
+    ffi!((), {
+        if let Some(w) = window_by_handle(handle.max(0) as u32) {
+            use winit::window::UserAttentionType;
+            w.request_user_attention(Some(if urgent != 0 {
+                UserAttentionType::Critical
+            } else {
+                UserAttentionType::Informational
+            }));
+        }
+    });
+}
+
+/// Window's effective theme — 0 unknown, 1 light, 2 dark (winit's
+/// Window::theme, which follows the OS preference where reported).
+#[no_mangle]
+pub extern "C" fn dd_window_secondary_get_theme(handle: c_int) -> c_int {
+    ffi!(0, {
+        let Some(w) = window_by_handle(handle.max(0) as u32) else {
+            return 0;
+        };
+        match w.theme() {
+            Some(winit::window::Theme::Light) => 1,
+            Some(winit::window::Theme::Dark) => 2,
+            None => 0,
+        }
+    })
+}
+
+/// Arm/disarm the vetoable close path for `handle`. Armed: CloseRequested
+/// pushes DD_EVENT_CLOSE_REQUEST and the window STAYS mapped — JS dispatches
+/// a cancelable event and explicitly proceeds (request_quit for the primary,
+/// secondary_destroy for extras) or vetoes. Disarmed: the legacy
+/// hide-then-Quit/WindowClose path.
+#[no_mangle]
+pub extern "C" fn dd_window_secondary_set_close_intercept(handle: c_int, on: c_int) {
+    ffi!((), {
+        let Some(w) = window_by_handle(handle.max(0) as u32) else {
+            return;
+        };
+        let id = w.id();
+        with_ctx(|ctx| {
+            ctx.input.entry(id).or_default().close_intercept = on != 0;
         });
     });
 }

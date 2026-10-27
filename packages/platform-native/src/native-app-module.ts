@@ -23,6 +23,8 @@ import { retireAllSharedDevices } from "./gpu/shared-device";
 import { addCrashFeatureLog } from "./host-lifecycle";
 import { startNativeMcpServer, type NativeMcpOptions } from "./mcp/native-mcp";
 import { createNativeHost, type NativeHostConfig } from "./native-host";
+import { isPackaged } from "./packaged";
+import { AppWindow } from "./window/app-window";
 
 const log = createLogger();
 
@@ -60,12 +62,28 @@ export interface RunNativeAppModuleOptions {
   /** Window size (default 1280x720). */
   width?: number;
   height?: number;
-  /** Request window activation on launch. Default false — the window maps
-   *  inactive so starting the app never steals focus. WMs may still focus
-   *  the window per their own policy. */
+  /** Request window activation on launch. Default: true for packaged apps
+   *  (a launched app wants focus), false under `draft dev` — dev-shell
+   *  restarts must not steal focus while the user is typing elsewhere. */
   focused?: boolean;
+  /** Primary-window close policy. `"lastWindow"` (default): an accepted
+   *  close request quits the process (the window-close = exit contract).
+   *  `"explicit"`: a close request only hides the window — the process
+   *  stays alive until the app calls `downdraft.quit()` (tray/background
+   *  apps). App listeners may veto either way via `closerequest`'s
+   *  preventDefault. */
+  closePolicy?: "lastWindow" | "explicit";
+  /** Convenience close veto — resolve false to keep the window mapped.
+   *  Arms the native close intercept; the window stays mapped until the
+   *  callback settles, then follows `closePolicy` (close under lastWindow,
+   *  hide under explicit). Runs before the policy default; an app-side
+   *  `closerequest` listener with its own preventDefault still wins. */
+  onCloseRequest?: (win: AppWindow) => boolean | Promise<boolean>;
   /** Engine/app version stamped into saves + the feature log. */
   engineVersion?: string;
+  /** Path to an image decoded as the window icon (_NET_WM_ICON on X11,
+   *  taskbar icon on Windows; Wayland resolves icons via appId instead). */
+  iconPath?: string;
   /** MCP server options, or `false` to disable (default: ephemeral port). */
   mcp?: boolean | NativeMcpOptions;
   /** Extra host overrides (screenshotPath, screenshotAfterFrames, ...). */
@@ -100,10 +118,12 @@ export async function runNativeAppModule<Sim extends SimWorker, R extends AppRen
       title: opts.title,
       width: opts.width ?? 1280,
       height: opts.height ?? 720,
-      focused: opts.focused,
+      // Packaged launches ask for focus; dev runs don't steal it.
+      focused: opts.focused ?? isPackaged(),
       // Desktop identity — without it every dev-run window maps with no
       // app_id/WM_CLASS and the WM groups all apps under one taskbar entry.
       appId: opts.appId,
+      iconPath: opts.iconPath,
     },
     appId: opts.appId,
     engineVersion: opts.engineVersion,
@@ -111,6 +131,16 @@ export async function runNativeAppModule<Sim extends SimWorker, R extends AppRen
     ...opts.host,
   });
   const { window } = host;
+
+  // Close lifecycle — the policy lives on the window (an unvetoed
+  // closerequest consults it in the event dispatch, after every
+  // synchronous listener ran — so a veto registered at ANY point wins
+  // over the default action). Arm the native intercept when the app
+  // opted into vetoable closes or the explicit (hide-don't-quit) policy.
+  window.closePolicy = opts.closePolicy ?? "lastWindow";
+  if (opts.closePolicy === "explicit" || opts.onCloseRequest) {
+    window.setCloseIntercept(true);
+  }
 
   // Capture ctx + the factory-built sim so the shutdown path can stop the
   // worker even when an app's hooks never hand it back (startApp threw
@@ -165,6 +195,24 @@ export async function runNativeAppModule<Sim extends SimWorker, R extends AppRen
         // forward to onResize here — that's a second subscription onto the
         // same event and double-fires every resize.
         await module.onReady?.(ctx);
+
+        // Convenience close hook — veto-pending while the callback
+        // settles (preventDefault up front keeps the window mapped),
+        // then follows the policy default: explicit hides, lastWindow
+        // proceeds. The policy itself isn't a listener — it runs in the
+        // event dispatch after ALL listeners, so a veto registered at
+        // any point wins.
+        if (opts.onCloseRequest) {
+          const appWin = AppWindow.of(window);
+          window.addEventListener("closerequest", (e: { preventDefault(): void }) => {
+            e.preventDefault();
+            void Promise.resolve(opts.onCloseRequest!(appWin)).then((ok) => {
+              if (ok === false) return;
+              if (opts.closePolicy === "explicit") window.setWindowVisible(false);
+              else window.close();
+            }).catch(() => { /* a throwing veto keeps the window */ });
+          });
+        }
       },
       onDispose: (ctx: AppContext<Sim, R>) => {
         try { delete (globalThis as any).__ddRequestFrame; } catch {}

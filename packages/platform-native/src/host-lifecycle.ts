@@ -10,8 +10,8 @@
 // dev workflows can still run concurrent instances.
 // ============================================================================
 
-import { condenseText, encodeFeatureLogLines, formatBytesShort, type FeatureLogData } from "@downdraft/engine/util/feature-log";
 import { collectHostFeatureLog } from "@downdraft/engine/app/shared/feature-log";
+import { condenseText, encodeFeatureLogLines, formatBytesShort, type FeatureLogData } from "@downdraft/engine/util/feature-log";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -35,6 +35,10 @@ export interface NativeWindowState {
   y: number;
   width: number;
   height: number;
+  /** Window was maximized at save time — restore re-maximizes after the
+   *  normal-mode bounds land (so unmaximize returns to the remembered
+   *  size/position rather than a default). */
+  maximized?: boolean;
 }
 
 function statePath(appId: string): string {
@@ -55,8 +59,16 @@ function saveWindowState(appId: string, window: NativeWindow): void {
   try {
     const pos = window.getWindowPos();
     const size = window.getWindowSize();
+    const maximized = window.isMaximized();
     if (size.width <= 0 || size.height <= 0) return;
-    const state: NativeWindowState = { x: pos.x, y: pos.y, width: size.width, height: size.height };
+    // Maximized bounds are the monitor's — persisting them would grow the
+    // normal-mode restore on every run. Keep the last saved normal bounds
+    // and only flip the flag; the first run maximized falls back to the
+    // maximized size as normal bounds (unmaximize restores it).
+    const prev = loadWindowState(appId);
+    const state: NativeWindowState = maximized
+      ? { ...(prev ?? { x: pos.x, y: pos.y, width: size.width, height: size.height }), maximized: true }
+      : { x: pos.x, y: pos.y, width: size.width, height: size.height, maximized: false };
     mkdirSync(resolveNativeUserDataDir(appId), { recursive: true });
     writeFileSync(statePath(appId), JSON.stringify(state));
   } catch { /* best-effort — window may be gone during teardown */ }
@@ -89,6 +101,11 @@ export function installWindowStatePersistence(appId: string, window: NativeWindo
       clearInterval(poll);
       clearTimeout(fallback);
       try { window.setWindowPos(saved.x, saved.y); } catch { /* best-effort */ }
+      // Re-maximize after the normal-mode bounds land — unmaximize then
+      // returns to the remembered size/position instead of a default.
+      if (saved.maximized) {
+        try { window.setMaximized(true); } catch { /* older lib without the symbol */ }
+      }
     };
     const poll = setInterval(() => {
       try {

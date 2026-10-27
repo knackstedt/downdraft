@@ -16,6 +16,7 @@ import { wgpu } from "../gpu/wgpu-ffi";
 import { fireGlobalHotkey } from "./global-hotkeys";
 import { NativeSurface } from "./native-surface";
 import {
+    DD_EVENT_CLOSE_REQUEST,
     DD_EVENT_DROP_FILE,
     DD_EVENT_FOCUS_GAINED,
     DD_EVENT_FOCUS_LOST,
@@ -27,12 +28,14 @@ import {
     DD_EVENT_MOUSE_UP,
     DD_EVENT_MOVED,
     DD_EVENT_NONE,
+    DD_EVENT_OCCLUDED,
     DD_EVENT_QUIT,
     DD_EVENT_RESIZE,
     DD_EVENT_RESUMED,
     DD_EVENT_SCALE_CHANGED,
     DD_EVENT_SUSPENDED,
     DD_EVENT_TEXT_INPUT,
+    DD_EVENT_THEME_CHANGED,
     DD_EVENT_TOUCH,
     DD_EVENT_VSYNC,
     DD_EVENT_WHEEL,
@@ -49,6 +52,7 @@ import {
     KMOD_GUI,
     KMOD_SHIFT,
     win,
+    winDesktop,
     winExt,
     winMulti,
     wireButtonsToDom
@@ -101,9 +105,10 @@ export interface NativeWindowConfig {
   iconPath?: string;
   /** Secondary window (overlay/splitscreen) — created through
    *  dd_window_secondary_create against a live primary window instead of the
-   *  singleton create path. The options below only apply when set. */
+   *  singleton create path. */
   secondary?: boolean;
-  /** WM placement when x/y are omitted. */
+  /** WM placement when x/y are omitted. Applies to primary windows too via
+   *  dd_window_set_create_options when the platform lib exports it. */
   x?: number;
   y?: number;
   decorations?: boolean;
@@ -111,10 +116,17 @@ export interface NativeWindowConfig {
   alwaysOnTop?: boolean;
   /** X11: _NET_WM_WINDOW_TYPE_UTILITY; Windows: WS_EX_TOOLWINDOW. */
   skipTaskbar?: boolean;
-  /** Map with cursor hit-testing off (overlay default). */
+  /** Map with cursor hit-testing off (overlay default; secondary only). */
   clickThrough?: boolean;
   /** Create invisible — caller shows after the first frame is presented. */
   hidden?: boolean;
+  /** Min/max inner size in physical px (primary windows via
+   *  dd_window_set_create_options; secondaries ignore these — call
+   *  setMinSize/setMaxSize post-create instead). */
+  minWidth?: number;
+  minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
 }
 
 type RAFCallback = (time: number) => void;
@@ -160,6 +172,22 @@ export class NativeWindow extends MiniEventTarget {
   /** Live windows by shim handle — routes shared-queue events to the right
    *  instance (any window's loop pops any event, then forwards). */
   private static byHandle = new Map<number, NativeWindow>();
+
+  /** Look up a live window by shim handle (0 = primary). */
+  static forHandle(handle: number): NativeWindow | undefined {
+    return NativeWindow.byHandle.get(handle);
+  }
+
+  /** Every live window — primary (handle 0) first if present. */
+  static allWindows(): NativeWindow[] {
+    return [...NativeWindow.byHandle.values()];
+  }
+  /** Default action for an unvetoed "closerequest" — the close-policy half
+   *  of quitOnLastWindow. "lastWindow": proceed (primary quits, secondary
+   *  destroys). "explicit": hide the window instead — the process stays
+   *  alive until the app quits explicitly (tray/background apps). Any
+   *  synchronous closerequest listener can still veto either way. */
+  closePolicy: "lastWindow" | "explicit" = "lastWindow";
   private surface: NativeSurface | null = null;
   // rAF handles: unique IDs → callbacks. The previous implementation used a
   // Set and returned Set.size as the "id", so ids collided and
@@ -327,6 +355,26 @@ export class NativeWindow extends MiniEventTarget {
       (this as { windowHandle: number }).windowHandle = handle;
       NativeWindow.byHandle.set(handle, this);
     } else {
+      // Pre-create options — the primary window's create flags used to be
+      // hardcoded (resizable+decorated+visible, WM-placed). The flags below
+      // are authoritative when the lib exports the symbol; the defaults
+      // reproduce the legacy behavior exactly.
+      try {
+        winDesktop.dd_window_set_create_options?.(
+          (config.resizable !== false ? DD_WIN_RESIZABLE : 0)
+            | (config.decorations !== false ? DD_WIN_DECORATIONS : 0)
+            | (config.transparent ? DD_WIN_TRANSPARENT : 0)
+            | (config.alwaysOnTop ? DD_WIN_ALWAYS_ON_TOP : 0)
+            | (config.skipTaskbar ? DD_WIN_SKIP_TASKBAR : 0)
+            | (config.hidden ? DD_WIN_HIDDEN : 0),
+          config.x ?? -2147483648,
+          config.y ?? -2147483648,
+          config.minWidth ?? 0,
+          config.minHeight ?? 0,
+          config.maxWidth ?? 0,
+          config.maxHeight ?? 0,
+        );
+      } catch { /* older lib — create proceeds with legacy defaults */ }
       const result = win.dd_window_create(config.title, config.width, config.height);
       if (result !== 0) {
         throw new Error(`Failed to create native window (error ${result})`);
@@ -593,6 +641,23 @@ export class NativeWindow extends MiniEventTarget {
   /** Push DD_EVENT_QUIT so the event loop exits through the normal close path. */
   requestQuit(): void {
     win.dd_window_request_quit();
+  }
+
+  /**
+   * Proceed with closing this window — the same path an unvetoed close takes.
+   * Primary: push QUIT (close event + full teardown). Secondary: close event
+   * + destroy. Use after a "closerequest" resolves accept — or anywhere a
+   * programmatic close is wanted.
+   */
+  close(): void {
+    if (this.windowHandle === 0) {
+      this.requestQuit();
+      return;
+    }
+    this.running = false;
+    this.closeDispatched = true;
+    this.dispatchEvent({ type: "close" });
+    this.destroy();
   }
 
   /**
@@ -944,11 +1009,41 @@ export class NativeWindow extends MiniEventTarget {
       case DD_EVENT_WINDOW_CLOSE:
         // Secondary-window close — same unmap/close-event/drop choreography
         // as QUIT, but scoped to this window: no process teardown.
-        this.running = false;
-        this.closeDispatched = true;
-        this.dispatchEvent({ type: "close" });
-        this.destroy();
+        this.close();
         break;
+
+      case DD_EVENT_CLOSE_REQUEST: {
+        // Vetoable close — the Rust side skipped hide+Quit because this
+        // window's intercept is armed. Dispatch a cancelable event; only a
+        // listener that calls preventDefault() vetoes. Nothing prevented →
+        // the close policy decides: lastWindow proceeds exactly as the
+        // unarmed path would have, explicit hides the window and keeps
+        // the process alive (quit() still exits).
+        const ev = {
+          type: "closerequest",
+          defaultPrevented: false,
+          preventDefault() { this.defaultPrevented = true; },
+        };
+        this.dispatchEvent(ev);
+        if (!ev.defaultPrevented) {
+          if (this.closePolicy === "explicit") this.setWindowVisible(false);
+          else this.close();
+        }
+        break;
+      }
+
+      case DD_EVENT_OCCLUDED:
+        // OS reports the window fully covered/hidden (or revealed again).
+        // Damage-gated renderers can park frame production entirely.
+        this.dispatchEvent({ type: "occluded", occluded: eventView[0] !== 0 });
+        break;
+
+      case DD_EVENT_THEME_CHANGED: {
+        const code = eventView[0];
+        const theme = code === 1 ? "light" : code === 2 ? "dark" : "unknown";
+        this.dispatchEvent({ type: "themechanged", theme });
+        break;
+      }
 
       case DD_EVENT_HOTKEY:
         // Global key grab (XGrabKey) — not window-scoped; invoke the
@@ -1411,6 +1506,54 @@ export class NativeWindow extends MiniEventTarget {
   setDecorations(on: boolean): void {
     const f = winMulti.dd_window_secondary_set_decorations;
     if (f) { f(this.windowHandle, on ? 1 : 0); return; }
+  }
+
+  /** Iconify/restore the window. */
+  setMinimized(on: boolean): void {
+    winDesktop.dd_window_secondary_set_minimized?.(this.windowHandle, on ? 1 : 0);
+  }
+
+  setMaximized(on: boolean): void {
+    winDesktop.dd_window_secondary_set_maximized?.(this.windowHandle, on ? 1 : 0);
+  }
+
+  isMaximized(): boolean {
+    return (winDesktop.dd_window_secondary_is_maximized?.(this.windowHandle) ?? 0) !== 0;
+  }
+
+  /** Toggle the resize affordance (old libs: no-op). */
+  setResizable(on: boolean): void {
+    winDesktop.dd_window_secondary_set_resizable?.(this.windowHandle, on ? 1 : 0);
+  }
+
+  /** Min/max inner size in physical px; 0,0 clears the bound. */
+  setMinSize(w: number, h: number): void {
+    winDesktop.dd_window_secondary_set_min_size?.(this.windowHandle, w, h);
+  }
+
+  setMaxSize(w: number, h: number): void {
+    winDesktop.dd_window_secondary_set_max_size?.(this.windowHandle, w, h);
+  }
+
+  /** Taskbar/dock attention request — urgent bounces until focused where
+   *  the platform supports it. */
+  requestAttention(urgent = false): void {
+    winDesktop.dd_window_secondary_request_attention?.(this.windowHandle, urgent ? 1 : 0);
+  }
+
+  /** Effective window theme — "light" | "dark" | "unknown" (absent lib or
+   *  platform doesn't report). */
+  getTheme(): "light" | "dark" | "unknown" {
+    const t = winDesktop.dd_window_secondary_get_theme?.(this.windowHandle) ?? 0;
+    return t === 1 ? "light" : t === 2 ? "dark" : "unknown";
+  }
+
+  /** Arm/disarm the vetoable close path. Armed: an OS close request emits
+   *  "closerequest" (cancelable) and the window stays mapped — nothing
+   *  closes unless a listener accepts. Disarmed: the legacy hide-then-quit
+   *  path. Old libs: no-op (the legacy path still works). */
+  setCloseIntercept(on: boolean): void {
+    winDesktop.dd_window_secondary_set_close_intercept?.(this.windowHandle, on ? 1 : 0);
   }
 }
 

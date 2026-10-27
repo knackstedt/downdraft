@@ -41,7 +41,8 @@ export { installRestartHook, requestAppRestart, type RestartHookOptions } from "
 export { captureScreenshot, encodePNG, paddedReadbackToRGBA } from "./screenshot/screenshot";
 export { initNativeSecrets, type SecretsStore } from "./secrets/index";
 export { createHostServices, scopeServicesForPlugin, type HostServices, type HostServicesApi, type HostServicesOptions } from "./services/host-services";
+export { AppWindow, type AppWindowOptions, type CloseRequestHandler } from "./window/app-window";
 export { globalHotkeySupported, keysymFor, parseAccelerator, registerGlobalHotkey } from "./window/global-hotkeys";
 export { NativeCanvasContext, NativeSurface } from "./window/native-surface";
-export { NativeWindow } from "./window/native-window";
+export { NativeWindow, type NativeWindowConfig } from "./window/native-window";
 

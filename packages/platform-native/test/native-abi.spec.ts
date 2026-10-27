@@ -166,6 +166,22 @@ const GROUPS: Record<string, string[]> = {
     "wgpu_shim_release_queue",
   ],
   // Phase 6: dd_wgsl_validate
+  // Desktop-window controls (optional FFI group winDesktop): primary create
+  // options + handle-addressed runtime ops — handle 0 resolves to the
+  // primary window. dd_window_secondary_* prefixes name the family, not
+  // the audience.
+  desktop: [
+    "dd_window_set_create_options",
+    "dd_window_secondary_set_minimized",
+    "dd_window_secondary_set_maximized",
+    "dd_window_secondary_is_maximized",
+    "dd_window_secondary_set_resizable",
+    "dd_window_secondary_set_min_size",
+    "dd_window_secondary_set_max_size",
+    "dd_window_secondary_request_attention",
+    "dd_window_secondary_get_theme",
+    "dd_window_secondary_set_close_intercept",
+  ],
 };
 
 const specFor = (symbols: string[]) =>
@@ -328,7 +344,7 @@ describe("downdraft_platform ABI", () => {
   itIf(!!libPath && hasDisplay)("window → wgpu surface acquire/present", () => {
     const { symbols: s } = dlopen(libPath!, {
       dd_window_create: { args: ["cstring", "i32", "i32"], returns: "i32" },
-      dd_window_create_wgpu_surface: { args: ["ptr"], returns: "ptr" },
+      dd_window_create_wgpu_surface: { args: ["ptr", "i32"], returns: "ptr" },
       dd_window_destroy: { args: [], returns: "void" },
     });
     const { symbols: w } = dlopen(libPath!, {
@@ -356,7 +372,7 @@ describe("downdraft_platform ABI", () => {
     let surface: unknown = 0n;
     try {
       expect(s.dd_window_create("abi-surface", 160, 120)).toBe(0);
-      surface = s.dd_window_create_wgpu_surface(instance);
+      surface = s.dd_window_create_wgpu_surface(instance, 0);
       expect(surface).not.toBe(0n);
 
       const fmt = w.wgpu_shim_get_preferred_format();

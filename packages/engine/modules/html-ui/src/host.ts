@@ -266,6 +266,40 @@ export class HtmlUiHost {
     return p.zoom * this.userZoom;
   }
 
+  /** Native IME wiring — editable focus arms the platform text-input path
+   *  (winit set_ime_allowed + TEXTINPUT/Ime::Commit routing) and anchors
+   *  the candidate window at the focused element; editable focus leaving
+   *  EVERY panel disarms. Duck-typed on __nativeWindow — a no-op under
+   *  non-native hosts and on libs predating the text-input exports.
+   *  Preedit stays unhandled: the Blitz backend has no marked-text
+   *  rendering, so composition text arrives via commit only. */
+  private syncIme(p: Panel, ev: OsrDomEvent): void {
+    const w = (globalThis as { __nativeWindow?: { startTextInput?(): void; stopTextInput?(): void; setTextInputRect?(x: number, y: number, w: number, h: number): void } }).__nativeWindow;
+    if (!w?.startTextInput || !w.stopTextInput) return;
+    if (p.editing) {
+      w.startTextInput();
+      // Anchor the IME candidate window at the focused element — panel-
+      // local CSS px → physical window px (doc rect minus the srcRect
+      // scroll window, scaled by the panel's effective zoom).
+      const reqId = this.nextReqId++;
+      this.rectReqs.set(reqId, (r) => {
+        if (!r || !p.editing || !w.setTextInputRect) return;
+        const z = this.effZoom(p), k = z * p.scale;
+        const sx = p.src ? p.src.x / k : 0;
+        const sy = p.src ? p.src.y / k : 0;
+        w.setTextInputRect(
+          Math.round(p.rect.x + (r.x - sx) * z),
+          Math.round(p.rect.y + (r.y - sy) * z),
+          Math.max(1, Math.round(r.w * z)),
+          Math.max(1, Math.round(r.h * z)),
+        );
+      });
+      this.send({ type: "getRect", reqId, id: p.id, node: ev.n });
+    } else if (![...this.panels.values()].some((q) => q.editing)) {
+      w.stopTextInput();
+    }
+  }
+
   readonly blit: PanelBlitPass;
 
   constructor(
@@ -1019,6 +1053,7 @@ export class HtmlUiHost {
         m.events.forEach((ev) => {
           if (ev.t === "focus") p.editing = ev.g === "input" || ev.g === "textarea";
           else if (ev.t === "blur") p.editing = false;
+          if (ev.t === "focus" || ev.t === "blur") this.syncIme(p, ev);
           p.handlers.forEach((fn) => fn(ev));
           if (ev.t === "click" && ev.d?.action) {
             const d = ev.d;

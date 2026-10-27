@@ -168,6 +168,78 @@ export interface WindowHotkeySymbols {
   dd_hotkey_ungrab: (id: number) => number;
 }
 
+// Desktop-window controls (0.9+): primary create options + handle-addressed
+// runtime ops. Same lazy-probe pattern as the other optional groups — every
+// op resolves handle 0 to the primary, so secondaries and the primary share
+// the dd_window_secondary_* family.
+const WINDOW_DESKTOP_SPEC: Record<string, CFunction> = {
+  dd_window_set_create_options: {
+    args: ["i32", "i32", "i32", "i32", "i32", "i32", "i32"],
+    returns: "void",
+  },
+  dd_window_secondary_set_minimized: { args: ["i32", "i32"], returns: "void" },
+  dd_window_secondary_set_maximized: { args: ["i32", "i32"], returns: "void" },
+  dd_window_secondary_is_maximized: { args: ["i32"], returns: "i32" },
+  dd_window_secondary_set_resizable: { args: ["i32", "i32"], returns: "void" },
+  dd_window_secondary_set_min_size: { args: ["i32", "i32", "i32"], returns: "void" },
+  dd_window_secondary_set_max_size: { args: ["i32", "i32", "i32"], returns: "void" },
+  dd_window_secondary_request_attention: { args: ["i32", "i32"], returns: "void" },
+  dd_window_secondary_get_theme: { args: ["i32"], returns: "i32" },
+  dd_window_secondary_set_close_intercept: { args: ["i32", "i32"], returns: "void" },
+};
+
+let _winDesktop: Partial<WindowDesktopSymbols> | null = null;
+
+function loadWindowDesktop(): Partial<WindowDesktopSymbols> {
+  if (_winDesktop) return _winDesktop;
+  try {
+    const libPath = windowLibPath();
+    const { symbols } = dlopen(libPath, WINDOW_DESKTOP_SPEC);
+    _winDesktop = symbols as unknown as Partial<WindowDesktopSymbols>;
+  } catch {
+    _winDesktop = {};
+  }
+  return _winDesktop;
+}
+
+/** Optional desktop-window-control symbols — absent on libs predating them. */
+export const winDesktop: Partial<WindowDesktopSymbols> = new Proxy(
+  {} as Partial<WindowDesktopSymbols>,
+  {
+    get(_target, prop: string) {
+      return (loadWindowDesktop() as any)[prop];
+    },
+  },
+);
+
+export interface WindowDesktopSymbols {
+  /** Pre-create options for the NEXT dd_window_create (primary window) —
+   *  WF_* flag bits (authoritative), position (i32 min = WM placement),
+   *  min/max inner size (<=0 = unset). Consumed at create. */
+  dd_window_set_create_options: (
+    flags: number,
+    x: number,
+    y: number,
+    minW: number,
+    minH: number,
+    maxW: number,
+    maxH: number,
+  ) => void;
+  dd_window_secondary_set_minimized: (handle: number, on: number) => void;
+  dd_window_secondary_set_maximized: (handle: number, on: number) => void;
+  dd_window_secondary_is_maximized: (handle: number) => number;
+  dd_window_secondary_set_resizable: (handle: number, on: number) => void;
+  /** 0,0 clears the bound. Physical px. */
+  dd_window_secondary_set_min_size: (handle: number, w: number, h: number) => void;
+  dd_window_secondary_set_max_size: (handle: number, w: number, h: number) => void;
+  dd_window_secondary_request_attention: (handle: number, urgent: number) => void;
+  /** 0 unknown / 1 light / 2 dark. */
+  dd_window_secondary_get_theme: (handle: number) => number;
+  /** Armed: CloseRequested → DD_EVENT_CLOSE_REQUEST (vetoable, stays
+   *  mapped); disarmed: legacy hide-then-Quit/WindowClose. */
+  dd_window_secondary_set_close_intercept: (handle: number, on: number) => void;
+}
+
 export interface MultiWindowSymbols {
   dd_window_secondary_create: (
     title: string,
@@ -282,6 +354,15 @@ export const DD_EVENT_VSYNC = 18;
 export const DD_EVENT_WINDOW_CLOSE = 19;
 // Global hotkey fired — slot 0 carries the dd_hotkey_grab id.
 export const DD_EVENT_HOTKEY = 20;
+// Vetoable close request — pushed only while the window's close intercept
+// is armed (dd_window_secondary_set_close_intercept). The window stays
+// mapped; JS decides whether anything closes.
+export const DD_EVENT_CLOSE_REQUEST = 21;
+// OS occlusion report — slot0 = 1 fully occluded, 0 revealed. Delivered
+// where winit reports it (Wayland/macOS/Android); absent elsewhere.
+export const DD_EVENT_OCCLUDED = 22;
+// Theme changed — slot0 = 0 unknown / 1 light / 2 dark.
+export const DD_EVENT_THEME_CHANGED = 23;
 
 // Key-modifier bitmask (native-rs wire values)
 export const KMOD_SHIFT = 0x0001 | 0x0002; // LSHIFT | RSHIFT
