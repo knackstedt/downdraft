@@ -26,7 +26,7 @@ const log = createLogger("info");
 // ── Single-instance lock ─────────────────────────────────────────────────────
 // Lives in bridge/singleton-lock.ts — a slim module the dev shell's early
 // boot can pull without dragging this file's @downdraft/engine imports in.
-export { acquireSingleInstanceLock, releaseSingleInstanceLock } from "./bridge/singleton-lock";
+export { acquireSingleInstanceLock, onSecondInstance, releaseSingleInstanceLock, setSecondInstanceFocus } from "./bridge/singleton-lock";
 
 // ── Window-state persistence ─────────────────────────────────────────────────
 

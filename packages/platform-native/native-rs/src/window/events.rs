@@ -57,6 +57,10 @@ const DIALOG_RESULT: i32 = 24;
 /// JS pulls it with dd_menu_next_action (FIFO, one id per event).
 /// wid is meaningless (0).
 const MENU_ACTION: i32 = 25;
+/// A tray-icon event — slot0 kind (1 click, 2 dclick, 3 enter, 4 move,
+/// 5 leave), slot1 button (0 none, 1 left, 2 right, 3 middle), slot2
+/// state (0 up, 1 down), slot3/4 = physical x/y. wid is meaningless (0).
+const TRAY_EVENT: i32 = 26;
 
 /// Line-detent approximation for pixel-precise scroll deltas (PixelDelta
 /// arrives from touchpads; the wire format always reports line units).
@@ -144,8 +148,18 @@ pub enum Ev {
     DialogResult { req_id: i32, kind: i32 },
     /// A native menu item was activated — id pulled via
     /// dd_menu_next_action. Not window-scoped (wid 0).
-    #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+    #[cfg_attr(target_os = "android", allow(dead_code))]
     MenuAction,
+    /// A tray-icon event — kind/button/state/x/y in slots 0-4. Pushed by
+    /// tray.rs's TrayIconEvent handler; not window-scoped (wid 0).
+    #[cfg_attr(target_os = "android", allow(dead_code))]
+    TrayEvent {
+        kind: i32,
+        button: i32,
+        state: i32,
+        x: i32,
+        y: i32,
+    },
     /// Global hotkey pressed — carries the grab id from
     /// dd_hotkey_grab. Not window-scoped.
     Hotkey {
@@ -379,6 +393,14 @@ pub fn write(wid: u32, ev: Ev, out_data: *mut c_void) -> i32 {
                 DIALOG_RESULT
             }
             Ev::MenuAction => MENU_ACTION,
+            Ev::TrayEvent { kind, button, state, x, y } => {
+                *iout.add(0) = kind;
+                *iout.add(1) = button;
+                *iout.add(2) = state;
+                *iout.add(3) = x;
+                *iout.add(4) = y;
+                TRAY_EVENT
+            }
             Ev::Hotkey { id } => {
                 *iout.add(0) = id;
                 HOTKEY

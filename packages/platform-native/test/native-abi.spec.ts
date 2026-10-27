@@ -203,6 +203,15 @@ const GROUPS: Record<string, string[]> = {
     "dd_menu_popup",
     "dd_menu_next_action",
   ],
+  // System tray (optional FFI group winTray — tray-icon: win/mac native,
+  // Linux StatusNotifierItem over DBus via ksni; create→0 with no backend).
+  tray: [
+    "dd_tray_create",
+    "dd_tray_set_icon",
+    "dd_tray_set_tooltip",
+    "dd_tray_set_menu",
+    "dd_tray_destroy",
+  ],
 };
 
 const specFor = (symbols: string[]) =>

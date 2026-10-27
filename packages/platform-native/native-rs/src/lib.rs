@@ -45,6 +45,7 @@ mod menu;
 #[cfg(not(target_os = "android"))]
 mod pty;
 pub mod text;
+mod tray;
 mod window;
 
 /// Android entry point — the shell crate's `android_main` hands the

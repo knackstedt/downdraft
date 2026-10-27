@@ -38,9 +38,19 @@ portable-pty = "0.9"
 
 # Native app menus — win32 HMENU / NSMenu only. muda's Linux backend needs a
 # gtk::Window we don't have (our window is a raw winit surface), so Linux
-# stubs report unsupported and the html-ui in-window menu bar takes over.
+# dd_menu_* report unsupported and the html-ui in-window menu bar takes over.
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 muda = "0.21"
+tray-icon = { version = "0.26", default-features = false }
+
+# On Linux/*BSD, muda builds with its noop platform (default-features off,
+# snapshot on) — menu MODELS still construct (the tray's ksni backend
+# serializes them over DBus); only window-menu attach is unsupported.
+# tray-icon's ksni backend is pure-DBus StatusNotifierItem — no GTK or
+# libappindicator runtime dependency at all.
+[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "dragonfly"))'.dependencies]
+muda = { version = "0.21", default-features = false, features = ["snapshot"] }
+tray-icon = { version = "0.26", default-features = false, features = ["ksni"] }
 
 # Dialog/notify opts arrive as JSON from the JS bridge.
 [target.'cfg(not(target_os = "android"))'.dependencies.serde_json]

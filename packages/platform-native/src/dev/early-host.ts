@@ -63,7 +63,7 @@ export async function bootEarlyHost(cfg: {
   // the old failure shape). createNativeHost re-acquires — same PID is a
   // no-op reclaim.
   const deterministic = process.env.DOWNDRAFT_DETERMINISTIC === "1";
-  if (cfg.appId && !deterministic && !acquireSingleInstanceLock(cfg.appId)) {
+  if (cfg.appId && !deterministic && !(await acquireSingleInstanceLock(cfg.appId))) {
     return null;
   }
   let window: NativeWindow | null = null;

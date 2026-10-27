@@ -19,6 +19,7 @@
 
 import type { AppContext, AppModule, AppRendererLike, SimWorker, SimWorkerSeed } from "@downdraft/engine/app/main";
 import { createLogger } from "@downdraft/engine/util/logger";
+import { setSecondInstanceFocus } from "./bridge/singleton-lock";
 import { retireAllSharedDevices } from "./gpu/shared-device";
 import { addCrashFeatureLog } from "./host-lifecycle";
 import { startNativeMcpServer, type NativeMcpOptions } from "./mcp/native-mcp";
@@ -79,6 +80,11 @@ export interface RunNativeAppModuleOptions {
    *  hide under explicit). Runs before the policy default; an app-side
    *  `closerequest` listener with its own preventDefault still wins. */
   onCloseRequest?: (win: AppWindow) => boolean | Promise<boolean>;
+  /** Raise + focus the primary window when a second instance forwards its
+   *  launch context (default true). Set false for apps that handle
+   *  `downdraft.onSecondInstance` differently (e.g. only show a
+   *  notification). */
+  focusOnSecondInstance?: boolean;
   /** Engine/app version stamped into saves + the feature log. */
   engineVersion?: string;
   /** Path to an image decoded as the window icon (_NET_WM_ICON on X11,
@@ -141,6 +147,18 @@ export async function runNativeAppModule<Sim extends SimWorker, R extends AppRen
   if (opts.closePolicy === "explicit" || opts.onCloseRequest) {
     window.setCloseIntercept(true);
   }
+
+  // Second-instance default — a forwarded launch raises the window (and
+  // unhides it, covering explicit-policy tray apps). Apps opt out with
+  // focusOnSecondInstance: false and wire their own onSecondInstance.
+  setSecondInstanceFocus(
+    opts.focusOnSecondInstance === false
+      ? null
+      : () => {
+          try { window.setWindowVisible(true); } catch { /* window may be gone */ }
+          try { window.requestFocus(); } catch { /* no-op */ }
+        },
+  );
 
   // Capture ctx + the factory-built sim so the shutdown path can stop the
   // worker even when an app's hooks never hand it back (startApp threw

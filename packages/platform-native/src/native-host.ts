@@ -20,8 +20,8 @@ import { join } from "node:path";
 import { installAssetGlob } from "./assets/native-assets";
 import { createNativeBridge } from "./bridge/native-bridge";
 import { resolveNativeUserDataDir } from "./bridge/user-data-dir";
-import { installDOMPolyfills } from "./dom/dom-polyfills";
 import { initNativeController, startControllerEnrichment } from "./controller/index";
+import { installDOMPolyfills } from "./dom/dom-polyfills";
 import { acquireAdapterAndDevice, type AcquiredGpu } from "./gpu/adapter-boot";
 import type { GpuBootPlan } from "./gpu/adapter-policy";
 import { installGPU } from "./gpu/install";
@@ -177,7 +177,7 @@ export async function createNativeHost(config: NativeHostConfig): Promise<Native
   // Single-instance lock — second instances quit. Deterministic/test
   // mode and DOWNDRAFT_MULTI_INSTANCE=1 opt out so e2e/dev can overlap.
   const deterministic = process.env.DOWNDRAFT_DETERMINISTIC === "1";
-  if (config.appId && !deterministic && !acquireSingleInstanceLock(config.appId)) {
+  if (config.appId && !deterministic && !(await acquireSingleInstanceLock(config.appId))) {
     log.error("native", `Another ${config.appId} instance is already running — exiting.`);
     // Under the dev shell this code runs inside the ModuleRunner, where
     // process.exit can fail to terminate — the supervisor's shutdown path

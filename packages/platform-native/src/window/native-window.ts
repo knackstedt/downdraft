@@ -39,6 +39,7 @@ import {
     DD_EVENT_TEXT_INPUT,
     DD_EVENT_THEME_CHANGED,
     DD_EVENT_TOUCH,
+    DD_EVENT_TRAY_EVENT,
     DD_EVENT_VSYNC,
     DD_EVENT_WHEEL,
     DD_EVENT_WINDOW_CLOSE,
@@ -1065,6 +1066,18 @@ export class NativeWindow extends MiniEventTarget {
         // dd_menu_next_action by the bridge's menus helper (payload
         // arrives out-of-band; the event is just the wake-up).
         this.dispatchEvent({ type: "menuaction" });
+        break;
+
+      case DD_EVENT_TRAY_EVENT:
+        // Tray pointer event — kind/button/state + screen position.
+        this.dispatchEvent({
+          type: "trayevent",
+          kind: eventView[0],
+          button: eventView[1],
+          state: eventView[2],
+          x: eventView[3],
+          y: eventView[4],
+        });
         break;
 
       case DD_EVENT_HOTKEY:

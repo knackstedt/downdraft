@@ -346,6 +346,62 @@ export interface WindowMenuSymbols {
   dd_menu_next_action: (out: ptr, maxLen: number) => number;
 }
 
+// ---------------------------------------------------------------------------
+// System tray — create/update/destroy the process-wide tray icon (at most
+// one). Item activations land on the same DD_EVENT_MENU_ACTION channel with
+// ids namespaced "tray:<id>"; pointer events arrive as DD_EVENT_TRAY_EVENT.
+// ---------------------------------------------------------------------------
+const WINDOW_TRAY_SPEC: Record<string, CFunction> = {
+  dd_tray_create: { args: ["cstring"], returns: "i32" },
+  dd_tray_set_icon: { args: ["cstring"], returns: "i32" },
+  dd_tray_set_tooltip: { args: ["cstring"], returns: "i32" },
+  dd_tray_set_menu: { args: ["cstring"], returns: "i32" },
+  dd_tray_destroy: { args: [], returns: "i32" },
+};
+
+let _winTray: Partial<WindowTraySymbols> | null = null;
+
+function loadWindowTray(): Partial<WindowTraySymbols> {
+  if (_winTray) return _winTray;
+  try {
+    const libPath = windowLibPath();
+    const { symbols } = dlopen(libPath, WINDOW_TRAY_SPEC);
+    _winTray = symbols as unknown as Partial<WindowTraySymbols>;
+  } catch {
+    _winTray = {};
+  }
+  return _winTray;
+}
+
+/** Optional tray symbols — absent on libs predating them; dd_tray_create
+ *  returns 0 where no backend is available (Android, or a Linux session
+ *  without an SNI watcher). */
+export const winTray: Partial<WindowTraySymbols> = new Proxy(
+  {} as Partial<WindowTraySymbols>,
+  {
+    get(_target, prop: string) {
+      return (loadWindowTray() as any)[prop];
+    },
+  },
+);
+
+export interface WindowTraySymbols {
+  /** Create/replace the tray icon. opts JSON:
+   *  { icon: "path.png", title?, tooltip?, menu?: AppMenuModel,
+   *    menuOnLeftClick? }. 1 created / 0 unavailable. */
+  dd_tray_create: (optsJson: string) => number;
+  /** Swap the icon (empty path clears). 1 applied / 0 no tray or decode
+   *  failure. */
+  dd_tray_set_icon: (path: string) => number;
+  /** 1 applied / 0 no tray. */
+  dd_tray_set_tooltip: (text: string) => number;
+  /** Replace the tray menu — model JSON with item ids namespaced
+   *  "tray:<id>" on the action channel. 1 applied / 0 no tray. */
+  dd_tray_set_menu: (modelJson: string) => number;
+  /** 1 destroyed / 0 no tray. */
+  dd_tray_destroy: () => number;
+}
+
 export interface MultiWindowSymbols {
   dd_window_secondary_create: (
     title: string,
@@ -475,6 +531,10 @@ export const DD_EVENT_DIALOG_RESULT = 24;
 // A native menu item was activated — the item id is pulled with
 // dd_menu_next_action (one queued id per event).
 export const DD_EVENT_MENU_ACTION = 25;
+// Tray pointer event — slots: [0] kind (1 click / 2 double / 3 enter /
+// 4 move / 5 leave), [1] button (1 left / 2 right / 3 middle), [2] state
+// (0 up / 1 down), [3-4] screen x/y.
+export const DD_EVENT_TRAY_EVENT = 26;
 
 // Key-modifier bitmask (native-rs wire values)
 export const KMOD_SHIFT = 0x0001 | 0x0002; // LSHIFT | RSHIFT

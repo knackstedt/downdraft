@@ -34,14 +34,14 @@ use std::ffi::{c_char, c_int, c_void, CString};
 use std::ptr;
 use std::sync::Mutex;
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(not(target_os = "android"))]
 use crate::window::events::{self, Ev};
 
 /// FIFO of activated item ids — each entry pairs 1:1 with a pushed
 /// DD_EVENT_MENU_ACTION wire event.
 static ACTIONS: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(not(target_os = "android"))]
 fn push_action(id: String) {
     ACTIONS.lock().unwrap().push_back(id);
     events::push(0, Ev::MenuAction);
@@ -116,17 +116,21 @@ pub extern "C" fn dd_menu_next_action(out: *mut c_char, max_len: usize) -> c_int
 }
 
 // ---------------------------------------------------------------------------
-// Windows / macOS implementation
+// Implementation — every non-Android desktop target. On Windows/macOS muda
+// has a real platform backend; on Linux/*BSD it's the noop backend (menus
+// are pure data — the tray's ksni SNI backend serializes them over DBus).
+// Only the window-attach paths (set/remove/popup) stay win/mac-gated.
 // ---------------------------------------------------------------------------
 
-#[cfg(any(windows, target_os = "macos"))]
-mod imp {
+#[cfg(not(target_os = "android"))]
+pub(crate) mod imp {
     use super::*;
     use crate::dialog::{opt_bool, opt_str, parse_opts};
     use muda::accelerator::Accelerator;
+    #[cfg(any(windows, target_os = "macos"))]
+    use muda::ContextMenu;
     use muda::{
-        CheckMenuItem, ContextMenu, IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem,
-        Submenu,
+        CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
     };
     use serde_json::Value;
     use std::cell::RefCell;
@@ -136,7 +140,7 @@ mod imp {
 
     /// Registry entry — set_enabled applies to every kind; set_checked only
     /// to CheckMenuItem.
-    enum ItemHandle {
+    pub(crate) enum ItemHandle {
         Item(MenuItem),
         Check(CheckMenuItem),
         Sub(Submenu),
@@ -173,13 +177,27 @@ mod imp {
         items: HashMap<String, ItemHandle>,
     }
 
+    /// A built (not yet attached) menu — the tray hands `menu` to
+    /// `TrayIconBuilder::with_menu` and `items` join the shared registry.
+    pub(crate) struct MenuBuild {
+        pub(crate) menu: Menu,
+        pub(crate) items: HashMap<String, ItemHandle>,
+    }
+
     thread_local! {
         static APP_MENU: RefCell<Option<InstalledMenu>> = const { RefCell::new(None) };
+        /// Tray-menu items — ids arrive already namespaced ("tray:<id>") so
+        /// dd_menu_set_item_* resolves them in one lookup.
+        static TRAY_ITEMS: RefCell<HashMap<String, ItemHandle>> =
+            RefCell::new(HashMap::new());
         // Transient popup state — the Menu + its items must outlive the
-        // native tracking loop. Replaced on the next popup.
+        // native tracking loop. Replaced on the next popup. win/mac only —
+        // Linux has no native popup.
+        #[cfg(any(windows, target_os = "macos"))]
         static POPUP: RefCell<Option<PopupMenu>> = const { RefCell::new(None) };
     }
 
+    #[cfg(any(windows, target_os = "macos"))]
     struct PopupMenu {
         #[allow(dead_code)]
         menu: Menu,
@@ -189,8 +207,9 @@ mod imp {
 
     /// Divert muda's global MenuEvent channel into our action queue — set
     /// once; the handler is Send+Sync so the platform loop can call it on
-    /// whatever thread dispatches menu notifications.
-    fn ensure_event_handler() {
+    /// whatever thread dispatches menu notifications. Serves the app menu,
+    /// popups, AND the tray menu (ids are pre-namespaced at build time).
+    pub(crate) fn ensure_event_handler() {
         static ONCE: Once = Once::new();
         ONCE.call_once(|| {
             MenuEvent::set_event_handler(Some(|ev: MenuEvent| {
@@ -249,7 +268,15 @@ mod imp {
         }
     }
 
-    fn add_items(parent: &Parent, list: &[Value], registry: &mut HashMap<String, ItemHandle>) {
+    /// `id_prefix` namespaces item ids at construction — the tray passes
+    /// "tray:" so tray-item activations arrive through the shared
+    /// MenuEvent channel already disambiguated.
+    fn add_items(
+        parent: &Parent,
+        list: &[Value],
+        registry: &mut HashMap<String, ItemHandle>,
+        id_prefix: &str,
+    ) {
         let mut auto_id = 0u32;
         for spec in list {
             let ty = spec.get("type").and_then(|t| t.as_str()).unwrap_or("item");
@@ -259,6 +286,12 @@ mod imp {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
             auto_id += 1;
+            let id = |spec: &Value| {
+                format!(
+                    "{id_prefix}{}",
+                    opt_str(spec, "id").unwrap_or(&format!("auto{auto_id}"))
+                )
+            };
             match ty {
                 "separator" => {
                     parent.append(&PredefinedMenuItem::separator());
@@ -268,15 +301,13 @@ mod imp {
                         predefined(opt_str(spec, "kind").unwrap_or(""), opt_str(spec, "label"))
                     {
                         parent.append(&p);
-                        if let Some(id) = opt_str(spec, "id") {
-                            registry.insert(id.to_string(), ItemHandle::Pre(p));
+                        if opt_str(spec, "id").is_some() {
+                            registry.insert(id(spec), ItemHandle::Pre(p));
                         }
                     }
                 }
                 "check" => {
-                    let id = opt_str(spec, "id")
-                        .map(String::from)
-                        .unwrap_or_else(|| format!("auto{auto_id}"));
+                    let id = id(spec);
                     let checked = opt_bool(spec, "checked");
                     let it = CheckMenuItem::with_id(
                         id.clone(),
@@ -289,20 +320,16 @@ mod imp {
                     registry.insert(id, ItemHandle::Check(it));
                 }
                 "submenu" => {
-                    let id = opt_str(spec, "id")
-                        .map(String::from)
-                        .unwrap_or_else(|| format!("auto{auto_id}"));
+                    let id = id(spec);
                     let sub = Submenu::with_id(id.clone(), label, enabled);
                     parent.append(&sub);
                     registry.insert(id, ItemHandle::Sub(sub.clone()));
                     if let Some(children) = spec.get("items").and_then(|v| v.as_array()) {
-                        add_items(&Parent::Sub(&sub), children, registry);
+                        add_items(&Parent::Sub(&sub), children, registry, id_prefix);
                     }
                 }
                 _ => {
-                    let id = opt_str(spec, "id")
-                        .map(String::from)
-                        .unwrap_or_else(|| format!("auto{auto_id}"));
+                    let id = id(spec);
                     let it =
                         MenuItem::with_id(id.clone(), label, enabled, accelerator(spec));
                     parent.append(&it);
@@ -312,28 +339,37 @@ mod imp {
         }
     }
 
-    fn build(opts_json: *const c_char) -> Option<InstalledMenu> {
-        let opts = parse_opts(opts_json);
+    /// Build a detached menu + item registry from the JSON model. Shared by
+    /// the app-menu install path and the tray.
+    pub(crate) fn build_menu(opts: &Value, id_prefix: &str) -> MenuBuild {
         let mut registry = HashMap::new();
         let menu = Menu::new();
         if let Some(list) = opts.get("items").and_then(|v| v.as_array()) {
-            add_items(&Parent::Menu(&menu), list, &mut registry);
+            add_items(&Parent::Menu(&menu), list, &mut registry, id_prefix);
         }
-        Some(InstalledMenu { menu, items: registry })
+        MenuBuild { menu, items: registry }
+    }
+
+    /// Replace the tray-menu half of the item registry (called by tray.rs
+    /// whenever the tray menu is rebuilt).
+    pub(crate) fn swap_tray_items(items: HashMap<String, ItemHandle>) {
+        TRAY_ITEMS.with(|t| *t.borrow_mut() = items);
     }
 
     pub(super) fn set(opts_json: *const c_char) -> c_int {
         ensure_event_handler();
-        let built = match build(opts_json) {
-            Some(b) => b,
-            None => return -1,
+        let opts = parse_opts(opts_json);
+        install_app_menu(build_menu(&opts, ""))
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    fn install_app_menu(built: MenuBuild) -> c_int {
+        let InstalledMenu { menu, items } = InstalledMenu {
+            menu: built.menu,
+            items: built.items,
         };
         #[cfg(target_os = "macos")]
-        {
-            built.menu.init_for_nsapp();
-            APP_MENU.with(|m| *m.borrow_mut() = Some(built));
-            return 1;
-        }
+        menu.init_for_nsapp();
         #[cfg(windows)]
         {
             let hwnd = primary_hwnd();
@@ -342,13 +378,17 @@ mod imp {
             }
             // Win32 SetMenu is safe cross-thread (it marshals internally);
             // the menu object itself stays thread_local on this thread.
-            let ok = unsafe { built.menu.init_for_hwnd(hwnd) }.is_ok();
-            if !ok {
+            if unsafe { menu.init_for_hwnd(hwnd) }.is_err() {
                 return -1;
             }
-            APP_MENU.with(|m| *m.borrow_mut() = Some(built));
-            return 1;
         }
+        APP_MENU.with(|m| *m.borrow_mut() = Some(InstalledMenu { menu, items }));
+        1
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    fn install_app_menu(_built: MenuBuild) -> c_int {
+        0
     }
 
     pub(super) fn remove() -> c_int {
@@ -365,44 +405,59 @@ mod imp {
                     let _ = unsafe { installed.menu.remove_for_hwnd(hwnd) };
                 }
             }
+            #[cfg(not(any(windows, target_os = "macos")))]
+            let _ = installed;
             1
         })
     }
 
-    pub(super) fn set_item_enabled(id: *const c_char, on: bool) -> c_int {
-        let id = unsafe { std::ffi::CStr::from_ptr(id) }.to_string_lossy();
+    fn item_by_id<R>(
+        id: &str,
+        f: impl Fn(&ItemHandle) -> Option<R>,
+    ) -> Option<R> {
         APP_MENU.with(|m| {
             m.borrow()
                 .as_ref()
-                .and_then(|menu| menu.items.get(id.as_ref()))
-                .map(|h| {
-                    h.set_enabled(on);
-                    1
-                })
-                .unwrap_or(0)
+                .and_then(|menu| menu.items.get(id))
+                .and_then(&f)
         })
+        .or_else(|| TRAY_ITEMS.with(|t| t.borrow().get(id).and_then(f)))
+    }
+
+    pub(super) fn set_item_enabled(id: *const c_char, on: bool) -> c_int {
+        let id = unsafe { std::ffi::CStr::from_ptr(id) }.to_string_lossy();
+        item_by_id(id.as_ref(), |h| {
+            h.set_enabled(on);
+            Some(())
+        })
+        .map(|_| 1)
+        .unwrap_or(0)
     }
 
     pub(super) fn set_item_checked(id: *const c_char, on: bool) -> c_int {
         let id = unsafe { std::ffi::CStr::from_ptr(id) }.to_string_lossy();
-        APP_MENU.with(|m| {
-            m.borrow()
-                .as_ref()
-                .and_then(|menu| menu.items.get(id.as_ref()))
-                .map(|h| if h.set_checked(on) { 1 } else { 0 })
-                .unwrap_or(0)
+        item_by_id(id.as_ref(), |h| {
+            if h.set_checked(on) {
+                Some(())
+            } else {
+                None
+            }
         })
+        .map(|_| 1)
+        .unwrap_or(0)
     }
 
     pub(super) fn popup(x: c_int, y: c_int, opts_json: *const c_char) -> c_int {
+        popup_impl(x, y, opts_json)
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    fn popup_impl(x: c_int, y: c_int, opts_json: *const c_char) -> c_int {
         ensure_event_handler();
         let opts = parse_opts(opts_json);
-        let mut registry = HashMap::new();
-        let menu = Menu::new();
-        if let Some(list) = opts.get("items").and_then(|v| v.as_array()) {
-            add_items(&Parent::Menu(&menu), list, &mut registry);
-        }
-        let items: Vec<ItemHandle> = registry.into_values().collect();
+        let built = build_menu(&opts, "");
+        let menu = built.menu;
+        let items: Vec<ItemHandle> = built.items.into_values().collect();
         let pos = muda::dpi::PhysicalPosition::new(x as f64, y as f64);
         #[cfg(target_os = "macos")]
         let shown = {
@@ -420,12 +475,17 @@ mod imp {
             }
             unsafe { menu.show_context_menu_for_hwnd(hwnd, Some(pos.into())) }
         };
-        if !shown {
-            // Cancelled — still keep the handles alive until the next popup
-            // (muda may deliver the selection event slightly late).
-        }
+        // `shown == false` means the user cancelled — still keep the
+        // handles alive until the next popup (muda may deliver the
+        // selection event slightly late).
+        let _ = shown;
         POPUP.with(|p| *p.borrow_mut() = Some(PopupMenu { menu, items }));
         1
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    fn popup_impl(_x: c_int, _y: c_int, _opts_json: *const c_char) -> c_int {
+        0
     }
 
     #[cfg(windows)]
@@ -460,12 +520,12 @@ mod imp {
 }
 
 // ---------------------------------------------------------------------------
-// Stubs — Linux (muda's GTK backend needs a gtk::Window our winit surface
-// isn't), Android, and anything else. The JS side falls back to the
-// in-window html-ui menu bar.
+// Android stubs — no muda, no menus. (Linux *does* get here via the noop
+// backend: dd_menu_set/popup still report 0 but the model parser and the
+// tray path are real.)
 // ---------------------------------------------------------------------------
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(target_os = "android")]
 mod imp {
     use super::*;
 

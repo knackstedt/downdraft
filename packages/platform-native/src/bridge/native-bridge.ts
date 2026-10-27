@@ -43,6 +43,8 @@ import type { NativeSurface } from "../window/native-surface";
 import type { NativeWindow } from "../window/native-window";
 import { createNativeDialogs } from "./dialogs";
 import { createNativeMenus } from "./menus";
+import { onSecondInstance as onSecondInstanceLock } from "./singleton-lock";
+import { createNativeTray } from "./tray";
 
 const log = createLogger("info");
 
@@ -122,6 +124,10 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
   // ── Native app menus (muda — win/mac native; the "inwindow" return
   //  routes apps to the html-ui kit MenuBar fallback on Linux/Android) ──
   const menus = createNativeMenus(opts.window, emit);
+
+  // ── System tray (tray-icon — win/mac native, Linux SNI-over-DBus via
+  //  ksni; create() returns false where no backend exists) ──
+  const tray = createNativeTray(opts.window, (cb) => on("menu-action", cb));
 
   // ── Services (save store + import cache) — worker-backed by default ──
   const services = opts.services;
@@ -249,6 +255,9 @@ export function createNativeBridge(opts: NativeBridgeOptions): HostAPI & { dispo
     setMenuItemChecked: (id, checked) => menus.setMenuItemChecked(id, checked),
     showContextMenu: (x, y, model) => menus.showContextMenu(x, y, model),
     onMenuAction: (cb: (id: string) => void) => on("menu-action", cb),
+
+    tray,
+    onSecondInstance: (cb) => onSecondInstanceLock(cb),
 
     // ── GPU info ──
     getGPUSystemInfo: () => queryNvidiaSmi(),

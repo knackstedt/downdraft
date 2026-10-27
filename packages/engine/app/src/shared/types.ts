@@ -233,6 +233,60 @@ export interface AppMenuModel {
 export type AppMenuBackend = "native" | "inwindow" | "unavailable";
 
 // ---------------------------------------------------------------------------
+// System tray (optional — tray-icon backend: Windows/macOS native, Linux
+// via StatusNotifierItem over DBus; absent on Android)
+// ---------------------------------------------------------------------------
+
+export interface AppTrayOptions {
+    /** Icon file path (decoded to RGBA — PNG recommended). */
+    icon?: string;
+    /** macOS status-item title (shown beside the icon). */
+    title?: string;
+    tooltip?: string;
+    /** Tray menu — the same AppMenuModel as setMenu; item ids surface on
+     *  onMenuAction namespaced "tray:<id>" (and stripped via
+     *  tray.onAction). */
+    menu?: AppMenuModel;
+    /** Show the menu on left click instead of right. */
+    menuOnLeftClick?: boolean;
+}
+
+export interface AppTrayPointerEvent {
+    kind: "click" | "doubleClick" | "enter" | "move" | "leave";
+    button: "none" | "left" | "right" | "middle";
+    /** Button down — meaningful for "click" events. */
+    pressed: boolean;
+    /** Screen coordinates. */
+    x: number;
+    y: number;
+}
+
+/** Process-wide system-tray icon (at most one — `create` replaces).
+ *  Undefined on the bridge when the host has no tray backend. */
+export interface AppTray {
+    /** Create (or replace) the tray icon. False when no backend is
+     *  available — Android, or a Linux session with no SNI watcher. */
+    create(opts: AppTrayOptions): boolean;
+    /** Swap the icon — empty path clears it. */
+    setIcon(path: string): boolean;
+    setTooltip(text: string): boolean;
+    setMenu(model: AppMenuModel): boolean;
+    destroy(): boolean;
+    /** Pointer events on the icon — returns an unsubscribe fn. */
+    onEvent(cb: (ev: AppTrayPointerEvent) => void): () => void;
+    /** Tray menu activations — the item id with the "tray:" prefix
+     *  stripped (the raw namespaced id also arrives via onMenuAction). */
+    onAction(cb: (id: string) => void): () => void;
+}
+
+/** Payload delivered to the primary instance when a second process was
+ *  refused the singleton lock — its arguments and working directory. */
+export interface AppSecondInstanceData {
+    argv: string[];
+    cwd: string;
+}
+
+// ---------------------------------------------------------------------------
 // MCP Proxy
 // ---------------------------------------------------------------------------
 
@@ -434,8 +488,21 @@ export interface HostAPI {
    *  Returns false when the platform lacks native popups (render the
    *  html-ui PopupMenu fallback instead). */
   showContextMenu?(x: number, y: number, model: AppMenuModel): boolean;
-  /** Menu activation — the activated item's id, native or fallback. */
+  /** Menu activation — the activated item's id, native or fallback. Tray
+   *  item ids arrive namespaced "tray:<id>". */
   onMenuAction?(cb: (id: string) => void): () => void;
+
+  /** System-tray icon API — undefined where the host has no tray backend
+   *  (non-native hosts, Android). `tray.create` may still return false on
+   *  desktops without an SNI watcher. */
+  tray?: AppTray;
+
+  /** A second instance was refused the singleton lock and forwarded its
+   *  launch context — default host behavior focuses the primary window
+   *  first unless `runNativeAppModule({ focusOnSecondInstance: false })`
+   *  opted out. */
+  onSecondInstance?(cb: (data: AppSecondInstanceData) => void): () => void;
+
   /** Host system GPU probe (nvidia-smi); null when unavailable. */
   getGPUSystemInfo(): Promise<GPUSystemInfo | null>;
   /** GPU adapter identity + negotiated features (wgpu on native). */

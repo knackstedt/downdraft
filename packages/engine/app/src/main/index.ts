@@ -58,6 +58,7 @@ const stubBridge: Host = {
   setMenuItemChecked: noop,
   showContextMenu: () => false,
   onMenuAction: () => noop,
+  onSecondInstance: () => noop,
   getGPUSystemInfo: () => Promise.resolve(null),
   getGpuInfo: () => Promise.resolve(null),
   getFeatureLog: () => Promise.resolve(null),
