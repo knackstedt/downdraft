@@ -124,6 +124,12 @@ pub unsafe extern "C" fn ft_shim_render_text(
         for run in buf.layout_runs() {
             advance = advance.max(run.line_w);
         }
+        // RTL safety: the buffer was measured at infinite width (f32::MAX),
+        // which anchors RTL layout runs at x ≈ line_w — every glyph lands at
+        // x≈3e38 and clips to nothing. Re-layout at the measured advance so
+        // RTL ink lands at x≈0; LTR output is unchanged (same x origin).
+        buf.set_size(Some(advance.max(1.0)), Some(size * LINE_HEIGHT_SCALE));
+        buf.shape_until_scroll(&mut r.fs, false);
         let w = (advance.ceil() as c_int).max(0).min(max_width);
         let h = ((size * LINE_HEIGHT_SCALE).ceil() as c_int)
             .max(0)
