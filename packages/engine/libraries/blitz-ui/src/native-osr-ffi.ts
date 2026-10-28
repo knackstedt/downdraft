@@ -10,9 +10,9 @@
 // GPU textures.
 // ============================================================================
 
+import { findPackageRoot } from "@downdraft/engine/platform/pkg-root";
 import { dlopen, ptr, readMappedRange, type CFunction } from "@downdraft/platform-native/ffi/ffi-adapter";
 import { resolveNativeLibrary } from "@downdraft/platform-native/ffi/lib-paths";
-import { findPackageRoot } from "@downdraft/engine/platform/pkg-root";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -95,6 +95,8 @@ export type OsrSymbols = Record<keyof typeof OSR_SPEC, (...args: any[]) => any>;
 const OSR_APPEND_SPEC = {
   dd_osr_append_html: { args: ["ptr", "u64", "ptr", "usize"], returns: "i32" },
   dd_osr_trim_children: { args: ["ptr", "u64", "u64"], returns: "i32" },
+  dd_osr_trim_memory: { args: [], returns: "i32" },
+  dd_osr_memory_stats: { args: ["ptr"], returns: "ptr" },
 } satisfies Record<string, CFunction>;
 
 export type OsrAppendSymbols = Record<keyof typeof OSR_APPEND_SPEC, (...args: any[]) => any>;
@@ -476,6 +478,29 @@ export class OsrDoc {
       resolveMs: f[0], paintMs: f[1], diffMs: f[2], pixelsLen: f[3],
       rasters: f[4], skippedClean: f[5],
     };
+  }
+
+  /**
+   * glibc malloc_trim(0) on the CALLING thread's arena — releases the
+   * free top of the Rust heap to the OS. Linux only; returns glibc's
+   * result or 0 elsewhere/on old cdylibs. The cdylib also self-trims
+   * (5s-throttled) after doc rebuild/destroy/subtree drops.
+   */
+  static trimMemory(): number {
+    return (loadOsrLib()?.append?.dd_osr_trim_memory() as number | undefined) ?? 0;
+  }
+
+  /** Per-doc memory census (JSON object), or null on older cdylibs. */
+  memoryStats(): Record<string, number> | null {
+    const p = this.appendLib?.dd_osr_memory_stats(this.handle) as number | undefined;
+    if (!p) return null;
+    const len = Number(this.lib.dd_osr_out_len(this.handle));
+    if (len <= 0) return null;
+    try {
+      return JSON.parse(new TextDecoder().decode(readMappedRange(p, len)));
+    } catch {
+      return null;
+    }
   }
 
   destroy(): void {

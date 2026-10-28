@@ -567,6 +567,20 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
   // pending() true). ~60Hz tick; pending() keeps it free when idle.
   const timer = setInterval(pump, 16);
 
+  // DD_OSR_MEMSTATS_MS=<ms>: dev telemetry — per-doc memory census (DOM
+  // nodes, retained raster buffers, glibc arena totals) to the console on
+  // the given cadence. Pairs with ANABLEPS_HEAPLOG-style heap logs.
+  const memStatsMs = Number(process.env.DD_OSR_MEMSTATS_MS || 0);
+  const memStatsTimer = memStatsMs > 0
+    ? setInterval(() => {
+      for (const [id, s] of docs) {
+        const st = s.doc.memoryStats();
+        if (st) console.log(`[osr-mem] ${id} ${JSON.stringify(st)}`);
+      }
+    }, memStatsMs)
+    : null;
+  memStatsTimer?.unref?.();
+
   emit({ type: "ready", caps: { incrementalDom: OsrDoc.caps.incrementalDom } });
 
   return {
@@ -574,6 +588,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
     dispose() {
       destroyed = true;
       clearInterval(timer);
+      if (memStatsTimer) clearInterval(memStatsTimer);
       gpuView?.detach();
       gpuView = null;
       for (const s of docs.values()) s.doc.destroy();
