@@ -259,6 +259,12 @@ export class NativeWindow extends MiniEventTarget {
   // drag (and a burst on maximize); only the newest dims are applied, once
   // per loop iteration, so listeners + the surface see a single resize.
   private pendingResize: { width: number; height: number } | null = null;
+  // Extent-reconcile cadence (see the runLoop check) — resizes can be missed
+  // entirely when the platform moves/resizes the window outside winit's
+  // event stream (monitor disconnect re-homing, WM re-tiles on output
+  // teardown), so the cached surface extent is truth-checked on this period.
+  private static readonly EXTENT_RECHECK_MS = 2000;
+  private lastExtentCheck = 0;
   // Click synthesis — The wire format reports raw button transitions only; DOM click /
   // dblclick (which apps gate pointer lock and UI activation on) are
   // derived here: a mouseup matching the last mousedown's button fires click.
@@ -824,6 +830,34 @@ export class NativeWindow extends MiniEventTarget {
       eventHandled = n > 0;
     }
 
+    // Extent reconcile — every delivery path above trusts winit to report
+    // the real extent eventually, but output teardown can re-home/resize
+    // the window with no event reaching JS (the stale-extent swapchain
+    // then presents unscaled at the top-left of the grown window — a black
+    // border bottom/right — and the acquire-failure self-heal never arms
+    // because presents keep "succeeding"). inner_size() is ground truth;
+    // push it through pendingResize so surface.resize() recomputes CSS
+    // dims against the live scale factor and dedupes the no-change case.
+    if (this.surface && !this.surfaceSuspended) {
+      const nowMs = performance.now();
+      if (nowMs - this.lastExtentCheck >= NativeWindow.EXTENT_RECHECK_MS) {
+        this.lastExtentCheck = nowMs;
+        const sz = this.getWindowSize();
+        if (sz.width > 0 && sz.height > 0) {
+          if (sz.width !== this.surface.width || sz.height !== this.surface.height) {
+            log.warn("native-window",
+              `extent reconcile: surface ${this.surface.width}x${this.surface.height} ≠ window ${sz.width}x${sz.height} — re-syncing`);
+            this.pendingResize = { width: sz.width, height: sz.height };
+          } else if (!this.pendingResize) {
+            // Same physical extent — still nudge so a silent scale-factor
+            // drift recomputes the surface's CSS dims (deduped inside
+            // resize()), but never clobber a real queued resize.
+            this.pendingResize = { width: sz.width, height: sz.height };
+          }
+        }
+      }
+    }
+
     // Apply the newest pending resize once — never mid-event-drain, so the
     // surface and window listeners observe a single coherent resize per
     // iteration instead of the raw window-event storm.
@@ -988,8 +1022,12 @@ export class NativeWindow extends MiniEventTarget {
     this.pendingResize = null;
     if (!r || !this.running) return;
     try {
-      this.surface?.resize(r.width, r.height);
-      this.dispatchEvent({ type: "resize", width: r.width, height: r.height });
+      // The window-level event fires only on a real extent change — the
+      // periodic reconcile + scale nudges push same-size resizes that the
+      // surface dedupes, and listeners (window-state persistence) must not
+      // see phantom resizes.
+      const changed = this.surface?.resize(r.width, r.height) ?? true;
+      if (changed) this.dispatchEvent({ type: "resize", width: r.width, height: r.height });
     } catch (e) {
       log.error("native-window", `resize failed (${r.width}x${r.height}): ${e}`);
     }
@@ -1127,12 +1165,19 @@ export class NativeWindow extends MiniEventTarget {
         this.dispatchEvent({ type: "focus" });
         break;
 
-      case DD_EVENT_MOVED:
+      case DD_EVENT_MOVED: {
         // The window may have landed on a different monitor — re-query the
         // refresh rate the rAF pacing interval is derived from.
         this.frameIntervalMs = 0;
+        // A crossing can change the surface's scale factor with no Resized
+        // (and backends don't always emit ScaleFactorChanged for output
+        // re-homing). Nudge pendingResize so the surface recomputes its CSS
+        // dims against the live factor — deduped when nothing changed.
+        const sz = this.getWindowSize();
+        if (sz.width > 0 && sz.height > 0) this.pendingResize = { width: sz.width, height: sz.height };
         this.dispatchEvent({ type: "moved", x: eventView[0], y: eventView[1] });
         break;
+      }
 
       case DD_EVENT_SCALE_CHANGED: {
         // DPI scale changed (OS scale setting or monitor crossing). Resized

@@ -487,8 +487,10 @@ export class NativeSurface extends MiniEventTarget {
     return null;
   }
 
-  resize(width: number, height: number): void {
-    // Real window-extent change (physical px) — refresh the logical size.
+  /** Apply a real window-extent change (physical px). Returns true when the
+   *  backing or CSS-px size actually changed (i.e. a "resize" event was
+   *  dispatched) — callers can skip downstream notifications on no-ops. */
+  resize(width: number, height: number): boolean {
     this._physWidth = width;
     this._physHeight = height;
     const oldCssW = this._cssWidth;
@@ -500,8 +502,9 @@ export class NativeSurface extends MiniEventTarget {
     // Fire "resize" on a CSS-px change too — a scale-factor change at a
     // fixed physical extent is still a resize in browser semantics (and it
     // re-fires CanvasResizeWatcher, which re-reads the live DPR).
-    if (!sizeChanged && !cssChanged) return;
+    if (!sizeChanged && !cssChanged) return false;
     this.dispatchEvent({ type: "resize", width, height });
+    return true;
   }
 
   /** Update backing dims + reconfigure the wgpu surface (no event).
