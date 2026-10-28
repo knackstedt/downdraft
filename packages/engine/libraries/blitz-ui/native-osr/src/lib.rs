@@ -76,10 +76,26 @@ fn dom_button(button: c_int) -> MouseEventButton {
 }
 
 fn font_ctx() -> FontContext {
-    let mut ctx = blitz_dom::build_single_font_ctx(FONT_BYTES);
-    ctx.collection
-        .register_fonts(Blob::new(Arc::new(blitz_dom::BULLET_FONT) as _), None);
-    ctx
+    thread_local! {
+        /// Primed once per thread: the woff2 decode, bullet-font
+        /// registration and generic-family mapping run once, then every
+        /// document clones this context. make_shared() turns the collection
+        /// internals Arc-backed so clones share registered families and
+        /// font blobs (docs on this thread all want the identical font
+        /// set); query caches stay per-clone.
+        static BASE: RefCell<Option<FontContext>> = const { RefCell::new(None) };
+    }
+    BASE.with(|b| {
+        let mut b = b.borrow_mut();
+        b.get_or_insert_with(|| {
+            let mut ctx = blitz_dom::build_single_font_ctx(FONT_BYTES);
+            ctx.collection
+                .register_fonts(Blob::new(Arc::new(blitz_dom::BULLET_FONT) as _), None);
+            ctx.collection.make_shared();
+            ctx
+        })
+        .clone()
+    })
 }
 
 /// ShellProvider that records `request_redraw` calls. Blitz invokes it for
