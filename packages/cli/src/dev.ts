@@ -287,9 +287,15 @@ function wpeNamespaceWrap(cmd: string, args: string[], appDir: string, env: Node
   // spawnArgsFor below); the var also propagates to Deno workers.
   if (engineSource) env.DENO_CONDITIONS = "downdraft-source";
 
+  // DD_RUNTIME_ARGS="--smol ..." injects extra runtime flags before the
+  // shell path (bun --smol, node --max-semi-space-size=…, etc).
+  const extraArgs = (process.env.DD_RUNTIME_ARGS ?? "")
+    .split(/\s+/)
+    .filter(Boolean);
   const { cmd, args } = spawnArgsFor(runtime, devShell, {
     configPath: runtime === "deno" ? findDenoConfig(appDir, repoRoot) : undefined,
     conditions: engineSource ? ["downdraft-source"] : [],
+    extraArgs,
   });
 
   log.info("draft", `dev ${app} — ${nativeEntry} (runtime=${runtime}, hmr, engine=${engineSource ? "source" : "dist"}${env.DD_DEVTOOLS_AGENT ? ", devtools-agent" : ""})`);
