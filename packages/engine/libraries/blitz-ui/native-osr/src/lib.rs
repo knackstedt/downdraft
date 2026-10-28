@@ -11,6 +11,7 @@
 //! buffer) or `dd_osr_frame_into` (copy into a host-bound SharedArrayBuffer —
 //! the zero-copy path used by the html-ui worker channel).
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::os::raw::c_int;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -167,6 +168,11 @@ fn align256(n: usize) -> usize {
 pub struct OsrDoc {
     pub(crate) doc: HtmlDocument,
     renderer: VelloCpuImageRenderer,
+    /// Raster target + diff source. Only populated on the legacy pointer
+    /// path (dd_osr_frame) or transiently inside dd_osr_frame_into, where a
+    /// thread-local shared scratch is swapped in — docs on the SAB path
+    /// keep this EMPTY between calls instead of each retaining a full
+    /// frame buffer.
     pixels: Vec<u8>,
     /// Previous frame's pixels — diffed against to produce the dirty rect.
     /// Only maintained while no frame buffer is bound; a bound SAB already
@@ -184,6 +190,11 @@ pub struct OsrDoc {
     stats: [f64; 8],
     /// Optional SAB staging buffer for zero-copy frame delivery.
     frame_buf: Option<BoundBuf>,
+    /// The bound buffer currently holds the last delivered frame — set by
+    /// write_bound_frame, cleared on (re)bind, doc rebuild and resize.
+    /// dd_osr_refresh_into republishes it header-only; with no retained
+    /// pixels to copy, a false flag is the only honest "no frame yet".
+    sab_valid: bool,
     /// Currently-pressed mouse buttons (mirrors winit shell bookkeeping).
     buttons: MouseEventButtons,
     /// Node under the last main-button press, via element_from_point. Blitz's
@@ -499,10 +510,11 @@ pub unsafe extern "C" fn dd_osr_memory_stats(handle: *mut OsrDoc) -> *const u8 {
             }
         });
         let (vw, vh) = doc.viewport().window_size;
+        let scratch = RASTER_SCRATCH.with(|s| s.borrow().capacity());
         let mut json = format!(
             "{{\"nodes\":{nodes},\"elements\":{elements},\"textNodes\":{texts},\
              \"nodeBytes\":{node_bytes},\"pixelsLen\":{},\"prevPixelsLen\":{},\
-             \"sabLen\":{},\"vpW\":{vw},\"vpH\":{vh}",
+             \"sabLen\":{},\"scratchCap\":{scratch},\"vpW\":{vw},\"vpH\":{vh}",
             d.pixels.len(),
             d.prev_pixels.len(),
             d.frame_buf.as_ref().map(|b| b.len).unwrap_or(0),
@@ -574,6 +586,7 @@ pub unsafe extern "C" fn dd_osr_init(
             redraw,
             stats: [0.0; 8],
             frame_buf: None,
+            sab_valid: false,
             buttons: MouseEventButtons::None,
             press_node: None,
             pointer_pos: (0.0, 0.0),
@@ -636,6 +649,9 @@ pub unsafe extern "C" fn dd_osr_set_html(
             push_blur_event(d, f);
         }
         d.prev_pixels.clear();
+        // The bound buffer still holds the last delivered (stale) frame —
+        // it stays the diff reference, and a refresh may legitimately
+        // republish it until the pending raster lands.
         d.dirty = true;
         maybe_trim_malloc();
         0
@@ -815,14 +831,17 @@ pub extern "C" fn dd_osr_bind_frame_buf(handle: *mut OsrDoc, ptr: *mut u8, len: 
         // private copy (a zeroed SAB diffs to a full frame, so delivery is
         // self-correcting on the next raster).
         d.prev_pixels = Vec::new();
+        // A freshly bound buffer is zeroed — no delivered frame to
+        // republish until the first write lands.
+        d.sab_valid = false;
         0
     })
 }
 
-/// Write `pixels`' dirty rect into the bound buffer (seqlock-guarded header).
-/// Returns 1 on write. Pixel rows land at `stride`-byte offsets so the host
-/// can upload straight out of the buffer via writeTexture(bytesPerRow).
-fn write_bound_frame(d: &mut OsrDoc, rect: [u32; 4]) -> c_int {
+/// Seqlock header open: bumps seq to odd (write in flight) and writes the
+/// dirty-rect/frame-geometry fields. Caller writes pixel rows (if any) then
+/// calls write_bound_close to publish an even seq.
+fn write_bound_header(d: &mut OsrDoc, rect: [u32; 4]) -> c_int {
     let Some(buf) = d.frame_buf.as_mut() else {
         return -3;
     };
@@ -842,16 +861,54 @@ fn write_bound_frame(d: &mut OsrDoc, rect: [u32; 4]) -> c_int {
         let full = (x == 0 && y == 0 && w == pw && h == ph) as u32;
         (base.add(28) as *mut u32).write_volatile(full);
         (base.add(32) as *mut u32).write_volatile(stride as u32);
+    }
+    0
+}
+
+/// Seqlock close: publishes an even seq and marks the bound buffer as
+/// holding a deliverable frame (refresh_into may republish it header-only).
+fn write_bound_close(d: &mut OsrDoc) {
+    let Some(buf) = d.frame_buf.as_mut() else {
+        return;
+    };
+    buf.seq = buf.seq.wrapping_add(1); // even — stable
+    unsafe {
+        (buf.ptr as *mut u32).write_volatile(buf.seq);
+    }
+    d.sab_valid = true;
+}
+
+/// Write `pixels`' dirty rect into the bound buffer (seqlock-guarded header).
+/// Returns 1 on write. Pixel rows land at `stride`-byte offsets so the host
+/// can upload straight out of the buffer via writeTexture(bytesPerRow).
+fn write_bound_frame(d: &mut OsrDoc, rect: [u32; 4]) -> c_int {
+    if write_bound_header(d, rect) != 0 {
+        return -3;
+    }
+    let [x, y, w, h] = rect;
+    let pw = d.doc.inner().viewport().window_size.0;
+    let stride = align256(pw as usize * 4);
+    let buf = d.frame_buf.as_mut().unwrap();
+    unsafe {
+        let base = buf.ptr;
         let src = d.pixels.as_ptr();
         for r in 0..h as usize {
             let src_off = ((y as usize + r) * pw as usize + x as usize) * 4;
             let dst_off = FRAME_HEADER + (y as usize + r) * stride + x as usize * 4;
             std::ptr::copy_nonoverlapping(src.add(src_off), base.add(dst_off), w as usize * 4);
         }
-        buf.seq = buf.seq.wrapping_add(1); // even — stable
-        (base as *mut u32).write_volatile(buf.seq);
     }
+    write_bound_close(d);
     1
+}
+
+thread_local! {
+    /// Raster scratch shared by every SAB-bound doc on this thread. Docs
+    /// pump sequentially, so one buffer sized to the largest frame serves
+    /// all of them — retaining a private w*h*4 target per doc would idle
+    /// N-1 full-frame buffers between frames. Swapped into `d.pixels` for
+    /// the raster+diff+copy window only; the doc keeps it empty otherwise.
+    static RASTER_SCRATCH: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Rasterize (when dirty) and copy the dirty rect into the bound buffer.
@@ -871,18 +928,32 @@ pub extern "C" fn dd_osr_frame_into(handle: *mut OsrDoc) -> c_int {
         if buf.len < needed_buf_len(d) {
             return -2;
         }
-        let Some(rect) = raster_if_dirty(d) else {
-            return 0;
-        };
-        write_bound_frame(d, rect)
+        RASTER_SCRATCH.with(|s| {
+            let mut scratch = s.borrow_mut();
+            // The bound buffer is both the diff reference and the delivery
+            // target, so pixels are only needed transiently — raster into
+            // the shared scratch and leave d.pixels empty. The swap restores
+            // it on every path (raster_if_dirty catches nothing itself, so a
+            // panic lands at the ffi boundary with the scratch parked in
+            // d.pixels — harmless: the next swap recovers it).
+            std::mem::swap(&mut d.pixels, &mut *scratch);
+            let rc = match raster_if_dirty(d) {
+                Some(rect) => write_bound_frame(d, rect),
+                None => 0,
+            };
+            std::mem::swap(&mut d.pixels, &mut *scratch);
+            rc
+        })
     })
 }
 
-/// Re-emit the current pixel buffer into the bound buffer (no raster) — used
-/// by the host to recover from a torn seqlock read or after a rebind.
-/// Always writes the FULL frame: the host's texture may have been recreated
-/// (resize) since the last upload, so the last raster's partial dirty rect
-/// is not guaranteed to cover what's missing.
+/// Re-emit the last delivered frame into the bound buffer (no raster) — used
+/// by the host to recover from a torn seqlock read or a fresh GPU texture.
+/// The bound buffer already holds that frame, so this republishes the
+/// seqlock header with a full-frame rect (the host's texture may have been
+/// recreated since the last upload — a partial dirty rect would not cover
+/// what's missing). Returns 0 when nothing was ever delivered or the
+/// retained frame is stale (resize) — the pending raster owns those cases.
 #[no_mangle]
 pub extern "C" fn dd_osr_refresh_into(handle: *mut OsrDoc) -> c_int {
     ffi(-1, || {
@@ -896,13 +967,13 @@ pub extern "C" fn dd_osr_refresh_into(handle: *mut OsrDoc) -> c_int {
         if buf.len < needed_buf_len(d) {
             return -2;
         }
-        let (pw, ph) = d.doc.inner().viewport().window_size;
-        if d.pixels.len() != (pw as usize) * (ph as usize) * 4 {
-            // Retained pixels are stale-size (resized, not yet re-rastered) —
-            // the pending raster will emit a full frame instead.
+        if !d.sab_valid {
             return 0;
         }
-        write_bound_frame(d, [0, 0, pw, ph])
+        let (pw, ph) = d.doc.inner().viewport().window_size;
+        write_bound_header(d, [0, 0, pw, ph]);
+        write_bound_close(d);
+        1
     })
 }
 
@@ -951,6 +1022,9 @@ pub extern "C" fn dd_osr_resize(handle: *mut OsrDoc, width: f64, height: f64, sc
             }
         }
         d.renderer.resize(w, h);
+        // The bound buffer's retained frame is the old size — a refresh
+        // must not republish it under the new viewport's header.
+        d.sab_valid = false;
         d.dirty = true;
         0
     })
