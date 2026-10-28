@@ -15,12 +15,12 @@ use std::collections::HashSet;
 use std::os::raw::c_int;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 use anyrender::ImageRenderer;
-use anyrender_vello_cpu::VelloCpuImageRenderer;
+use anyrender_vello_cpu::{ImageCacheConfig, VelloCpuImageRenderer};
 use atomic_refcell::AtomicRefCell;
 use blitz_dom::{BaseDocument, Document, DocumentConfig, EventDriver, FontContext, NodeId};
 use blitz_html::HtmlDocument;
@@ -385,6 +385,144 @@ where
     catch_unwind(AssertUnwindSafe(f)).unwrap_or(default)
 }
 
+// ── Heap: glibc trim + per-doc memory census ──
+//
+// This cdylib allocates through the system malloc (glibc arenas on Linux —
+// Bun's mimalloc does not interpose), and the innerHtml churn pattern
+// (reparse + subtree drop every tick) ratchets each thread arena to its
+// high-water mark and never gives it back. malloc_trim(0) releases the
+// free top to the OS, but it walks the whole arena — so the big-drop FFI
+// call sites funnel through a process-wide 5s throttle.
+
+#[cfg(target_os = "linux")]
+#[repr(C)]
+#[derive(Default)]
+struct Mallinfo2 {
+    arena: usize,
+    ordblks: usize,
+    smblks: usize,
+    hblks: usize,
+    hblkhd: usize,
+    usmblks: usize,
+    fsmblks: usize,
+    uordblks: usize,
+    fordblks: usize,
+    keepcost: usize,
+}
+
+#[cfg(target_os = "linux")]
+fn glibc_mallinfo() -> Mallinfo2 {
+    extern "C" {
+        fn mallinfo2() -> Mallinfo2;
+    }
+    unsafe { mallinfo2() }
+}
+
+#[cfg(target_os = "linux")]
+fn trim_malloc_arena() -> c_int {
+    extern "C" {
+        fn malloc_trim(pad: usize) -> c_int;
+    }
+    unsafe { malloc_trim(0) }
+}
+
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+static LAST_TRIM_MS: AtomicU64 = AtomicU64::new(0);
+
+/// malloc_trim after big drops (doc rebuild/destroy, subtree clears), max
+/// once per 5s process-wide. No-op off glibc.
+pub(crate) fn maybe_trim_malloc() {
+    #[cfg(target_os = "linux")]
+    {
+        let now = now_millis();
+        let last = LAST_TRIM_MS.load(Ordering::Relaxed);
+        if now.saturating_sub(last) >= 5_000
+            && LAST_TRIM_MS
+                .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+        {
+            trim_malloc_arena();
+        }
+    }
+}
+
+/// Force a glibc malloc_trim(0) on the CALLING thread's arena — invoke from
+/// the thread that owns the docs (the html-ui worker). Returns glibc's
+/// result (nonzero = memory released); 0 on non-Linux.
+#[no_mangle]
+pub unsafe extern "C" fn dd_osr_trim_memory() -> c_int {
+    ffi(0, || {
+        #[cfg(target_os = "linux")]
+        {
+            LAST_TRIM_MS.store(now_millis(), Ordering::Relaxed);
+            return trim_malloc_arena();
+        }
+        #[cfg(not(target_os = "linux"))]
+        0
+    })
+}
+
+/// JSON memory snapshot for the doc — written to out_buf (same ownership
+/// rules as dd_osr_get_attr; length via dd_osr_out_len). Fields: DOM census
+/// (nodes/elements/textNodes), the doc's retained raster buffers
+/// (pixelsLen/prevPixelsLen/sabLen), viewport px size, and on Linux the
+/// process's glibc arena totals — the arena is shared by every allocation
+/// in this cdylib, so those are library-not-doc numbers.
+///
+/// # Safety
+/// `handle` must be a live OsrDoc from dd_osr_init.
+#[no_mangle]
+pub unsafe extern "C" fn dd_osr_memory_stats(handle: *mut OsrDoc) -> *const u8 {
+    ffi(std::ptr::null(), || {
+        let Some(mut g) = doc_enter(handle) else {
+            return std::ptr::null();
+        };
+        let d = g.get();
+        let doc = d.doc.inner();
+        let mut nodes = 0usize;
+        let mut elements = 0usize;
+        let mut texts = 0usize;
+        let mut node_bytes = 0usize;
+        doc.visit(|_id, n| {
+            nodes += 1;
+            node_bytes += std::mem::size_of_val(n);
+            if n.is_element() {
+                elements += 1;
+            } else if n.is_text_node() {
+                texts += 1;
+            }
+        });
+        let (vw, vh) = doc.viewport().window_size;
+        let mut json = format!(
+            "{{\"nodes\":{nodes},\"elements\":{elements},\"textNodes\":{texts},\
+             \"nodeBytes\":{node_bytes},\"pixelsLen\":{},\"prevPixelsLen\":{},\
+             \"sabLen\":{},\"vpW\":{vw},\"vpH\":{vh}",
+            d.pixels.len(),
+            d.prev_pixels.len(),
+            d.frame_buf.as_ref().map(|b| b.len).unwrap_or(0),
+        );
+        #[cfg(target_os = "linux")]
+        {
+            let m = glibc_mallinfo();
+            json += &format!(
+                ",\"glibcArena\":{},\"glibcInUse\":{},\"glibcFree\":{},\
+                 \"glibcMmap\":{},\"glibcKeep\":{}",
+                m.arena, m.uordblks, m.fordblks, m.hblkhd, m.keepcost,
+            );
+        }
+        json.push('}');
+        d.out_buf.clear();
+        d.out_buf.extend_from_slice(json.as_bytes());
+        d.out_buf.as_ptr()
+    })
+}
+
 unsafe fn read_str<'a>(ptr: *const u8, len: usize) -> Option<&'a str> {
     if ptr.is_null() {
         return None;
@@ -423,7 +561,12 @@ pub unsafe extern "C" fn dd_osr_init(
         let redraw = Arc::new(AtomicBool::new(true));
         let doc = OsrDoc {
             doc: build_doc(w, h, scale, html, Arc::clone(&redraw)),
-            renderer: VelloCpuImageRenderer::new(w, h),
+            renderer: VelloCpuImageRenderer::with_image_cache_config(w, h, ImageCacheConfig {
+                // OSR docs draw pre-scaled app icons only — the default 64MB
+                // soft cap is per-renderer over-provisioning × N docs.
+                max_bytes: 8 * 1024 * 1024,
+                ..ImageCacheConfig::default()
+            }),
             pixels: Vec::new(),
             prev_pixels: Vec::new(),
             dirty_rect: [0, 0, 0, 0],
@@ -494,6 +637,7 @@ pub unsafe extern "C" fn dd_osr_set_html(
         }
         d.prev_pixels.clear();
         d.dirty = true;
+        maybe_trim_malloc();
         0
     })
 }
@@ -1428,6 +1572,7 @@ pub unsafe extern "C" fn dd_osr_destroy(handle: *mut OsrDoc) -> c_int {
         reg.remove(&key);
         drop(reg);
         drop(unsafe { Box::from_raw(handle) });
+        maybe_trim_malloc();
         0
     })
 }

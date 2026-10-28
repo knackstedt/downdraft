@@ -174,6 +174,7 @@ pub extern "C" fn dd_osr_set_inner_html(
             return -1;
         };
         m.set_inner_html(id, html);
+        crate::maybe_trim_malloc();
         0
     })
 }
@@ -216,6 +217,7 @@ pub extern "C" fn dd_osr_trim_children(handle: *mut OsrDoc, node: u64, keep: u64
         for cid in kids.into_iter().take(drop_n) {
             m.remove_and_drop_node(cid);
         }
+        crate::maybe_trim_malloc();
         0
     })
 }

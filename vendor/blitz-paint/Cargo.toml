@@ -29,7 +29,13 @@ anyrender_svg = { version = "0.14.0", optional = true }
 # Sibling crates stay on the upstream pin — this vendor copy patches the
 # git source, not the whole workspace (see root Cargo.toml [patch]).
 blitz-traits = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b" }
-blitz-dom = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b" }
+# default-features = false: upstream resolves this through the blitz
+# workspace dep (which disables defaults); here it needs saying or
+# blitz-dom/default re-enables accessibility/custom-widget/file-input/
+# system-fonts for consumers like downdraft-blitz-osr that never use them.
+# svg/scrollbars/woff still arrive via the blitz-paint feature map + the
+# consumer's own blitz-dom dep.
+blitz-dom = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b", default-features = false }
 
 # Servo dependencies
 style = { version = "0.21.0", package = "stylo" }

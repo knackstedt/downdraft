@@ -36,7 +36,10 @@ impl NetProvider for UiNetProvider {
         let key = request.url.to_string();
         let found = resources().lock().unwrap().get(&key).cloned();
         match found {
-            Some(b) => handler.bytes(key, Bytes::copy_from_slice(&b)),
+            // Zero-copy handoff: the registry already owns an Arc<[u8]> and
+            // every doc re-fetches the same fonts/images — copying here
+            // duplicated each blob once per document.
+            Some(b) => handler.bytes(key, Bytes::from_owner(b)),
             // Complete with empty bytes — leaving the fetch unanswered marks the
             // resource as a pending critical resource and blocks paint forever.
             None => handler.bytes(key, Bytes::new()),

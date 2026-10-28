@@ -15,8 +15,10 @@ blitz-html = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe652
 blitz-dom = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b", default-features = false, features = ["woff"] }
 blitz-traits = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b" }
 # scrollbars: painted overlay thumbs on scroll containers + thumb drag/hover
-# hit-testing (pulls blitz-dom/scrollbars transitively).
-blitz-paint = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b", features = ["custom-widget", "scrollbars"] }
+# hit-testing (pulls blitz-dom/scrollbars transitively). No custom-widget:
+# OSR docs never embed widget nodes, and the feature transitively enables
+# blitz-dom/accessibility (+accesskit) the OSR path never uses.
+blitz-paint = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe6520caf66dc82df557580eecbf652b", features = ["scrollbars"] }
 # Enable the vendored glifo's FreeType mask path (see [patch.crates-io] in the
 # workspace root). Feature unification turns it on inside vello_cpu's copy.
 glifo = { version = "0.2", features = ["freetype"] }
