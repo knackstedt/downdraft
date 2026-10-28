@@ -1150,7 +1150,10 @@ export class WgpuDevice {
       return;
     }
     // wgpuDeviceGetQueue returns an owned box per call — this wrapper's clone
-    // is always ours to release, regardless of device ownership.
+    // is always ours to release, regardless of device ownership. Mark it
+    // released first: late callers (an in-flight frame upload landing after
+    // destroy) must no-op instead of dereferencing the freed handle.
+    this.queue.released = true;
     try { wgpu.wgpu_shim_release_queue(this.queue.ptr); } catch { /* best-effort */ }
     if (!this.ownsHandle) return; // worker-attached view — owner releases the device.
     // Flush the persistent pipeline cache while the handle is still valid —
@@ -1171,6 +1174,12 @@ export class WgpuDevice {
 export class WgpuQueue {
   readonly ptr: ptr;
   label = "";
+  /** Set by WgpuDevice.destroy() when the native queue handle is released
+   *  (or leaked for attached workers). Calls after release are no-ops —
+   *  the freed ptr would UAF inside wgpu-core ("Cannot get non-existent
+   *  resource" or a raw segfault, seen on window-close teardown when a
+   *  late ui-worker frame upload raced host.destroy()). */
+  released = false;
   /** Reused submit scratch — was Array.from + 2 filter arrays + a fresh
    *  BigUint64Array per submit. */
   private submitPtrs = new BigUint64Array(8);
@@ -1181,6 +1190,7 @@ export class WgpuQueue {
   }
 
   writeBuffer(buffer: WgpuBuffer, offset: number, data: BufferSource | SharedArrayBuffer, dataOffset?: number, size?: number): void {
+    if (this.released) return;
     // Per WebGPU spec, dataOffset/size are in ELEMENTS for TypedArrays and
     // BYTES for ArrayBuffer/DataView.
     let arr: Uint8Array;
@@ -1200,6 +1210,7 @@ export class WgpuQueue {
   }
 
   writeTexture(destination: GPUTexelCopyTextureInfo, data: BufferSource | SharedArrayBuffer, dataLayout: GPUTexelCopyBufferLayout, size: GPUExtent3D): void {
+    if (this.released) return;
     let arr: Uint8Array;
     if (data instanceof ArrayBuffer || (typeof SharedArrayBuffer !== "undefined" && data instanceof SharedArrayBuffer)) {
       arr = new Uint8Array(data);
@@ -1229,6 +1240,7 @@ export class WgpuQueue {
   }
 
   submit(commandBuffers: Iterable<WgpuCommandBuffer>): void {
+    if (this.released) return;
     // Skip buffers whose finish() captured a validation error — submitting
     // an errored buffer makes wgpu-native panic (process abort), not report
     // an uncaptured error.
@@ -1264,6 +1276,7 @@ export class WgpuQueue {
   }
 
   onSubmittedWorkDone(): Promise<undefined> {
+    if (this.released) return Promise.resolve(undefined);
     return new Promise((resolve) => {
       wgpu.wgpu_shim_queue_on_submitted_work_done(this.ptr);
       resolve(undefined);
@@ -1282,6 +1295,7 @@ export class WgpuQueue {
    * batch-style shaders typically expect premultiplied input.
    */
   copyExternalImageToTexture(source: GPUCopyExternalImageSourceInfo, destination: GPUCopyExternalImageDestInfo, copySize: GPUExtent3D): void {
+    if (this.released) return;
     const img = (source as any).source ?? source;
     const texture = destination.texture as unknown as WgpuTexture;
     texture.__ddWritten = true;
