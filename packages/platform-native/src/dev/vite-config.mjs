@@ -206,11 +206,41 @@ export function nativeHmrPlugin(options) {
     excludePaths = [],
     hostRestartPaths = [],
     processRestartPaths = [],
+    appDir,
+    repoRoot,
     onEvent = () => {},
   } = options;
 
   const matches = (file, patterns) =>
     patterns.some((p) => file.includes(p));
+
+  // Sibling-app guard: the watcher can see files outside this app (repo
+  // watch paths, files vite adds itself). A file inside another app clone
+  // (games/<x>, apps/<x>, …) must never classify here — its
+  // downdraft.config.json would force a process restart, its src/sim/* a
+  // worker swap for the wrong app, anything else a bogus "outdated" mark.
+  // App-ness follows the draft CLI's detection rule: a dir holding
+  // downdraft.config.json or src/native-entry.ts.
+  const norm = (p) => p.replace(/\\/g, "/").replace(/\/?$/, "/");
+  const appDirSlash = appDir ? norm(appDir) : null;
+  const appContainers = repoRoot
+    ? ["games", "apps", "examples", "test-beds"].map((d) => norm(join(repoRoot, d)))
+    : [];
+  const appMarkerCache = new Map(); // siblingRoot → is-app
+  const isForeignAppFile = (file) => {
+    if (!appDirSlash || file.startsWith(appDirSlash)) return false;
+    const container = appContainers.find((c) => file.startsWith(c));
+    if (!container) return false;
+    const sibling = container + file.slice(container.length).split("/", 1)[0];
+    let foreign = appMarkerCache.get(sibling);
+    if (foreign === undefined) {
+      foreign =
+        existsSync(join(sibling, "downdraft.config.json")) ||
+        existsSync(join(sibling, "src/native-entry.ts"));
+      appMarkerCache.set(sibling, foreign);
+    }
+    return foreign;
+  };
 
   return {
     name: "downdraft-native-hmr",
@@ -226,6 +256,7 @@ export function nativeHmrPlugin(options) {
         if (this.environment?.name !== "native") return;
         const file = opts.file.replace(/\\/g, "/");
         if (matches(file, excludePaths)) return undefined;
+        if (isForeignAppFile(file)) return undefined;
         if (matches(file, processRestartPaths)) {
           onEvent("process-restart", { file });
           return [];
@@ -315,7 +346,7 @@ const ENGINE_PACKAGES = ["@downdraft/engine", "@downdraft/platform-native"];
  * @param {boolean} opts.verbose
  * @param {string} opts.wgslRegistryPath abs path to engine's wgsl-hmr.ts
  * @param {(type: string, data: any) => void} opts.onEvent classifier events
- * @param {string[]} opts.watchPaths extra watcher paths (worker/sim dirs, repo)
+ * @param {string[]} opts.watchPaths extra watcher paths (engine packages dir + root manifests)
  */
 export function buildNativeDevConfig(opts) {
   const { vite, appDir, repoRoot, runtime, verbose, wgslRegistryPath, onEvent, entry } = opts;
@@ -428,6 +459,8 @@ export function buildNativeDevConfig(opts) {
         excludePaths,
         hostRestartPaths,
         processRestartPaths,
+        appDir,
+        repoRoot,
         watchPaths: opts.watchPaths ?? [],
         onEvent,
       }),

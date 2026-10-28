@@ -218,6 +218,9 @@ function importEntry() {
  *  itself — do it here before re-evaluating fresh. */
 async function reimportSession() {
   await new Promise((r) => rawSetTimeout(r, 0));
+  // A host reimport supersedes this one — it rebuilds the runner, runtime,
+  // and entry itself; running both would kill the winner's boot mid-flight.
+  if (hostReimportInFlight) return;
   // Retire the generation BEFORE runner.close() rejects its pending imports —
   // a stale-boot await racing this teardown must read superseded state the
   // moment the old runner is doomed, not only after the new one exists.
@@ -284,6 +287,19 @@ let restartPending = false;
  *  it a fallback firing while the runtime's listener is mid-teardown
  *  enqueues a second reimport behind the first. */
 let hostRestartPending = false;
+/** True while a host reimport is queued or running — set at enqueue time so
+ *  a session reimport queued ahead of it still skips (reimportHost rebuilds
+ *  the runner + runtime + entry itself; running both kills the winner's
+ *  boot mid-flight — a ModuleRunner close under a suspended
+ *  createNativeHost). */
+let hostReimportInFlight = false;
+
+function enqueueHostReimport() {
+  hostReimportInFlight = true;
+  enqueue(async () => {
+    try { await reimportHost(); } finally { hostReimportInFlight = false; }
+  });
+}
 
 /** Deliver a custom hot event to the runtime. Vite's runner-side HMR client
  *  drops custom events when no listener is registered — exactly the state
@@ -365,7 +381,9 @@ function driveSessionFallback() {
       void shutdown(DD_RESTART_EXIT, "session teardown wedged");
       return;
     }
-    enqueue(reimportSession);
+    // A claimed/running host reimport supersedes this one (same reasoning
+    // as sessionRestartReady).
+    if (!hostRestartPending && !hostReimportInFlight) enqueue(reimportSession);
   })();
 }
 
@@ -438,7 +456,7 @@ function driveHostFallback() {
     }
     try { await globalThis.__ddRetireSharedDevices?.(1_500); } catch { /* bounded + best-effort */ }
     resetHostGlobals();
-    enqueue(reimportHost);
+    enqueueHostReimport();
   })();
 }
 
@@ -491,6 +509,10 @@ const supervisor = {
     sessionFallback = null;
     if (!restartPending) return; // stale ready — a restart was already handled
     restartPending = false;
+    // A claimed host restart supersedes this reimport — reimportHost
+    // rebuilds the runner + entry itself, and a second reimport queued
+    // behind it would close the new runner under a mid-flight boot.
+    if (hostRestartPending) return;
     enqueue(reimportSession);
   },
 
@@ -500,7 +522,7 @@ const supervisor = {
     hostFallback = null;
     if (!hostRestartPending) return; // stale ready — the fallback already drove it
     hostRestartPending = false;
-    enqueue(reimportHost);
+    enqueueHostReimport();
   },
 
   /** Something runner-side asked for a session restart (wgsl no-subscriber
@@ -661,7 +683,22 @@ async function rebindRunner() {
 
 async function main() {
   const wgslRegistryPath = resolveWgslRegistryPath(appDir);
-  const watchPaths = [repoRoot && repoRoot !== appDir ? repoRoot : null].filter(Boolean);
+  // Watch the engine tree — NOT the whole repo root. games/, apps/,
+  // examples/, test-beds/ hold sibling app clones (the app under dev is
+  // already covered by vite's root watch). Watching repoRoot let one app's
+  // edits classify in another app's session: a sibling's
+  // downdraft.config.json forced a Tier-5 respawn, a sibling's src/sim/*
+  // hot-swapped the wrong sim, anything else fell through to "outdated".
+  // Root-level manifests that drive process config stay watched explicitly
+  // (they sit under neither packages/ nor the app root).
+  const watchPaths = repoRoot && repoRoot !== appDir
+    ? [
+        join(repoRoot, "packages"),
+        ...["bunfig.toml", "deno.json", "package.json", "tsconfig.json", "tsconfig.web.json"]
+          .map((f) => join(repoRoot, f))
+          .filter(existsSync),
+      ]
+    : [];
 
   const config = buildNativeDevConfig({
     vite,
