@@ -58,6 +58,8 @@ export class NativeCanvasContext {
   // distinguish a transient failure from a wedged swapchain.
   private acquireFailures = 0;
   private lastAcquireLog = 0;
+  // Dead-surface backoff — see the outdated/lost arm in getCurrentTexture.
+  private lastHealConfigureMs = 0;
   private static loggedFirstAcquire = false;
 
   /** Host truth source: the window's real extent (winit inner_size). Used to
@@ -195,7 +197,13 @@ export class NativeCanvasContext {
     // storm of native resize events costs at most one reconfigure per frame and
     // a reconfigure can never land while a surface texture is outstanding.
     if (this.width !== this.configuredWidth || this.height !== this.configuredHeight) {
-      this.applyConfigure();
+      // Same dead-surface backoff as the outdated/lost arm below — a
+      // configure that keeps failing leaves the dims unlatched, so this
+      // block would otherwise re-run at frame rate forever.
+      if (this.acquireFailures < 8 || performance.now() - this.lastHealConfigureMs > 500) {
+        this.lastHealConfigureMs = performance.now();
+        this.applyConfigure();
+      }
       // applyConfigure can no-op (no device/surface) or fail internally —
       // configuredWidth/Height only latch on success. Acquiring while the
       // native side is still unconfigured panics inside wgpu.
@@ -232,8 +240,17 @@ export class NativeCanvasContext {
       }
 
       if ((status === SURFACE_TEX_OUTDATED || status === SURFACE_TEX_LOST) && attempt === 0) {
-        this.applyConfigure();
-        continue;
+        // A surface whose window is gone rejects acquires forever — at frame
+        // rate this arm re-runs surface_configure on a dead drawable
+        // continuously, and each attempt allocates native swapchain state.
+        // The first few failures stay immediate so legit outdated/lost
+        // recovery (resize, suspend-resume) still heals in one frame; a
+        // persistent streak backs off to 2/s until teardown lands.
+        if (this.acquireFailures < 8 || performance.now() - this.lastHealConfigureMs > 500) {
+          this.lastHealConfigureMs = performance.now();
+          this.applyConfigure();
+          continue;
+        }
       }
 
       // An Error status means the native side rejected the acquire — with the

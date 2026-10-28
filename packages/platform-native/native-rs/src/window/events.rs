@@ -182,6 +182,12 @@ pub enum Ev {
 // dd_window_poll_event/wait_event are called from the JS thread — pushers
 // and takers genuinely contend.
 static QUEUE: Mutex<VecDeque<Queued>> = Mutex::new(VecDeque::new());
+
+/// Lock QUEUE even when a previous panic poisoned the mutex — event
+/// delivery must outlive any single bad take.
+fn queue_guard() -> std::sync::MutexGuard<'static, VecDeque<Queued>> {
+    QUEUE.lock().unwrap_or_else(|e| e.into_inner())
+}
 static NOTIFY: Condvar = Condvar::new();
 
 struct Queued {
@@ -239,7 +245,7 @@ pub extern "C" fn dd_window_pump_stats(out: *mut i64) {
 }
 
 pub fn push(wid: u32, ev: Ev) {
-    QUEUE.lock().unwrap().push_back(Queued {
+    queue_guard().push_back(Queued {
         wid,
         ev,
         at: Instant::now(),
@@ -248,23 +254,25 @@ pub fn push(wid: u32, ev: Ev) {
 }
 
 pub fn take() -> Option<(u32, Ev)> {
-    record_take(QUEUE.lock().unwrap().pop_front())
+    record_take(queue_guard().pop_front())
 }
 
 /// Block up to `timeout` for an event to arrive (wait_event on every
 /// queue-driven platform — Android and the desktop pump thread).
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn take_timeout(timeout: Duration) -> Option<(u32, Ev)> {
-    let mut guard = QUEUE.lock().unwrap();
+    let mut guard = queue_guard();
     if guard.is_empty() {
-        let (g, _) = NOTIFY.wait_timeout(guard, timeout).unwrap();
+        let (g, _) = NOTIFY
+            .wait_timeout(guard, timeout)
+            .unwrap_or_else(|e| e.into_inner());
         guard = g;
     }
     record_take(guard.pop_front())
 }
 
 pub fn clear() {
-    QUEUE.lock().unwrap().clear();
+    queue_guard().clear();
 }
 
 /// Write one queued event into the caller's out_data buffer. Returns the
@@ -453,9 +461,40 @@ pub fn translate_window_event(
             if ctx.input.get(&id).is_some_and(|st| st.close_intercept) {
                 push(wid, Ev::CloseRequest);
             } else {
-                if let Some(w) = window_by_id(ctx, id) {
-                    w.set_visible(false);
+                // Push BEFORE hiding: the quit signal is what tears the
+                // process down, and any panic in set_visible (winit unwraps
+                // X11 errors — a window that died between the WM message
+                // and this handler) would otherwise strand it. The queued
+                // event drains on the next pump pass either way.
+                if wid == 0 {
+                    push(0, Ev::Quit);
+                } else {
+                    push(wid, Ev::WindowClose);
                 }
+                if let Some(w) = window_by_id(ctx, id) {
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        w.set_visible(false)
+                    }));
+                }
+            }
+        }
+
+        // The OS tore the window down without asking (WM kill, XDestroyWindow,
+        // a crashed compositor) — no CloseRequested round-trip arrives. Same
+        // contract as an unarmed close minus the hide (the window is already
+        // gone): the primary quits, secondaries close. Without this the
+        // process outlives its window forever — the JS frame loop free-runs
+        // against a dead surface and leaks unboundedly. Skip windows whose
+        // slot was already torn down (dd_window_destroy drops them itself —
+        // a Quit pushed after that starves behind the no_window gate by
+        // design, and a duplicate quit is just noise).
+        WindowEvent::Destroyed => {
+            let live = if wid == 0 {
+                ctx.window.as_ref().is_some_and(|w| w.id() == id)
+            } else {
+                ctx.extras.contains_key(&wid)
+            };
+            if live {
                 if wid == 0 {
                     push(0, Ev::Quit);
                 } else {

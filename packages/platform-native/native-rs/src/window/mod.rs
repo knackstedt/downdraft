@@ -148,7 +148,7 @@ pub(crate) fn window_by_id(ctx: &Ctx, id: WindowId) -> Option<Arc<Window>> {
 
 /// Resolve a shim handle (0 = primary) to its Arc.
 pub(crate) fn window_by_handle(h: u32) -> Option<Arc<Window>> {
-    let guard = CTX.lock().unwrap();
+    let guard = ctx_guard();
     let ctx = guard.as_ref()?;
     if h == 0 {
         return ctx.window.clone();
@@ -162,13 +162,20 @@ pub(crate) fn window_by_handle(h: u32) -> Option<Arc<Window>> {
 /// so this is a Mutex.
 static CTX: Mutex<Option<Ctx>> = Mutex::new(None);
 
+/// Lock CTX even when a previous panic poisoned the mutex — a winit unwind
+/// mid-op (e.g. an X11 call on a dead window) must not permanently starve
+/// the event queue and every window FFI behind one poisoned guard.
+fn ctx_guard() -> std::sync::MutexGuard<'static, Option<Ctx>> {
+    CTX.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Take the window Arc out of CTX without holding the lock across the
 /// call. JS-facing window ops use this instead of `with_ctx`: on Windows a
 /// cross-thread window call can marshal to the loop thread, and the loop
 /// thread's translate handlers lock CTX — holding CTX across a marshaling
 /// call deadlocks.
 fn win() -> Option<Arc<Window>> {
-    CTX.lock().unwrap().as_ref().and_then(|c| c.window.clone())
+    ctx_guard().as_ref().and_then(|c| c.window.clone())
 }
 
 #[cfg(target_os = "macos")]
@@ -197,8 +204,11 @@ impl ApplicationHandler for Pump {
         id: winit::window::WindowId,
         ev: WindowEvent,
     ) {
-        if let Some(ctx) = CTX.lock().unwrap().as_mut() {
-            events::translate_window_event(ctx, id, ev, el);
+        let mut guard = ctx_guard();
+        if let Some(ctx) = guard.as_mut() {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                events::translate_window_event(ctx, id, ev, el);
+            }));
         }
     }
 
@@ -208,8 +218,11 @@ impl ApplicationHandler for Pump {
         _id: winit::event::DeviceId,
         ev: DeviceEvent,
     ) {
-        if let Some(ctx) = CTX.lock().unwrap().as_mut() {
-            events::translate_device_event(ctx, ev);
+        let mut guard = ctx_guard();
+        if let Some(ctx) = guard.as_mut() {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                events::translate_device_event(ctx, ev);
+            }));
         }
     }
 }
@@ -677,7 +690,7 @@ impl ApplicationHandler<LoopCmd> for Pump {
                 let req = SURFACE_REQ.lock().unwrap().take();
                 if let Some(req) = req {
                     let window = {
-                        let guard = CTX.lock().unwrap();
+                        let guard = ctx_guard();
                         guard.as_ref().and_then(|ctx| {
                             if req.window == 0 {
                                 ctx.window.clone()
@@ -704,9 +717,17 @@ impl ApplicationHandler<LoopCmd> for Pump {
         id: winit::window::WindowId,
         ev: WindowEvent,
     ) {
-        if let Some(ctx) = CTX.lock().unwrap().as_mut() {
-            events::translate_window_event(ctx, id, ev, el);
+        // Translate behind catch_unwind: a panic inside a window op (winit
+        // unwraps X11 errors — e.g. touching a window the OS already tore
+        // down) must neither kill the pump thread nor leave the loop
+        // silently dropping every later OS event.
+        let mut guard = ctx_guard();
+        if let Some(ctx) = guard.as_mut() {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                events::translate_window_event(ctx, id, ev, el);
+            }));
         }
+        drop(guard);
         // First window event = the compositor's initial state report —
         // release the deferred create ack.
         flush_create_ack(el, true);
@@ -724,14 +745,17 @@ impl ApplicationHandler<LoopCmd> for Pump {
         _id: winit::event::DeviceId,
         ev: DeviceEvent,
     ) {
-        if let Some(ctx) = CTX.lock().unwrap().as_mut() {
-            events::translate_device_event(ctx, ev);
+        let mut guard = ctx_guard();
+        if let Some(ctx) = guard.as_mut() {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                events::translate_device_event(ctx, ev);
+            }));
         }
     }
 }
 
 fn with_ctx<R>(f: impl FnOnce(&mut Ctx) -> R) -> Option<R> {
-    CTX.lock().unwrap().as_mut().map(f)
+    ctx_guard().as_mut().map(f)
 }
 
 /// The primary window's input state — the window-less grab/text-input shim
@@ -749,7 +773,7 @@ fn primary_input(ctx: &mut Ctx) -> Option<&mut WinInput> {
 /// The first installed window is the primary (handle 0).
 pub(crate) fn install_window(window: Arc<Window>) {
     let id = window.id();
-    let mut guard = CTX.lock().unwrap();
+    let mut guard = ctx_guard();
     let ctx = guard.get_or_insert_with(|| Ctx {
         window: None,
         extras: HashMap::new(),
@@ -768,7 +792,7 @@ pub(crate) fn install_window(window: Arc<Window>) {
 #[cfg_attr(target_os = "android", allow(dead_code))]
 fn install_extra(window: Arc<Window>) -> Option<u32> {
     let id = window.id();
-    let mut guard = CTX.lock().unwrap();
+    let mut guard = ctx_guard();
     let ctx = guard.as_mut()?;
     let h = ctx.next_handle.max(1);
     ctx.next_handle = h.saturating_add(1);
@@ -1882,12 +1906,16 @@ pub extern "C" fn dd_window_get_display_info(refresh_out: *mut c_int, scale_out:
 #[no_mangle]
 pub extern "C" fn dd_window_request_quit() {
     ffi!((), {
-        // Same contract as CloseRequested: hide immediately so the window
-        // doesn't sit mapped through JS teardown (see events.rs).
-        if let Some(w) = win() {
-            w.set_visible(false);
-        }
+        // Push the Quit FIRST — the same contract as CloseRequested's hide,
+        // but a winit call on an already-dead OS window panics, and an
+        // unwind inside the ffi! boundary would strand the quit signal and
+        // leave the frame loop churning a dead surface forever.
         events::push(0, Ev::Quit);
+        // Hide immediately so the window doesn't sit mapped through JS
+        // teardown (see events.rs). Best-effort — the quit is already queued.
+        if let Some(w) = win() {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.set_visible(false)));
+        }
     });
 }
 
@@ -2014,7 +2042,7 @@ pub extern "C" fn dd_window_destroy() {
         // set_visible that marshals to the loop thread can't run while the
         // loop's handler waits on CTX.
         let (w, extras) = {
-            let mut guard = CTX.lock().unwrap();
+            let mut guard = ctx_guard();
             match guard.as_mut() {
                 Some(ctx) => {
                     ctx.ids.clear();
@@ -2064,7 +2092,7 @@ pub extern "C" fn dd_window_create_wgpu_surface(
     ffi!(ptr::null_mut(), {
         let h = window.max(0) as u32;
         let has_window = {
-            let guard = CTX.lock().unwrap();
+            let guard = ctx_guard();
             guard.as_ref().is_some_and(|ctx| {
                 if h == 0 {
                     ctx.window.is_some()
@@ -2113,7 +2141,7 @@ pub extern "C" fn dd_window_create_wgpu_surface(
     ffi!(ptr::null_mut(), {
         let h = window.max(0) as u32;
         let target = {
-            let guard = CTX.lock().unwrap();
+            let guard = ctx_guard();
             guard.as_ref().and_then(|ctx| {
                 if h == 0 {
                     ctx.window.clone()
