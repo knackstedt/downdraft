@@ -74,6 +74,14 @@ glifo = { path = "vendor/glifo" }
 # vendor/anyrender_vello_cpu enables the atlas for fill glyph runs.
 anyrender_vello_cpu = { path = "vendor/anyrender_vello_cpu" }
 
+# Vendored vello_cpu 0.1.0 — upstream hardcodes DEFAULT_GLYPH_ATLAS_SIZE=4096,
+# so every renderer that draws text lazily allocates a 64MiB RGBA8 page
+# (calloc'd — address space until glyphs dirty it, but hblkhd/RSS-under-load
+# cost scales with page size). vendor/vello_cpu adds
+# Resources::set_glyph_atlas_size so hosts can shrink the page, plus
+# Resources::glyph_atlas_stats for memory introspection.
+vello_cpu = { path = "vendor/vello_cpu" }
+
 # Blitz is consumed as a git dep pinned to rev efef651 — the source key here
 # must be the bare repo URL. Only the crates we patch are vendored; every
 # other blitz-* package keeps resolving from upstream.

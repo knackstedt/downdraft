@@ -135,6 +135,15 @@ impl ImageCache {
         }
         self.total_bytes = 0;
     }
+
+    /// `(entries, total converted-pixmap bytes, soft byte cap)`.
+    pub(crate) fn stats(&self) -> (usize, usize, usize) {
+        (
+            self.entries.len(),
+            self.total_bytes,
+            self.config.max_bytes,
+        )
+    }
 }
 
 #[cfg(test)]

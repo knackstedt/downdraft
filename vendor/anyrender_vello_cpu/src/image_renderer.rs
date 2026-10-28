@@ -23,6 +23,25 @@ impl VelloCpuImageRenderer {
     pub fn clear_image_cache(&mut self) {
         self.scene.clear_image_cache();
     }
+
+    /// Set the side length (px) of glyph atlas pages allocated on demand.
+    /// Defaults to upstream's 4096 (64MiB per RGBA8 page); must be called
+    /// before the first text render.
+    pub fn set_glyph_atlas_size(&mut self, size: u16) {
+        self.scene.resources.set_glyph_atlas_size(size);
+    }
+
+    /// `(entries, total converted-pixmap bytes, soft byte cap)` held by the
+    /// image cache.
+    pub fn image_cache_stats(&self) -> (usize, usize, usize) {
+        self.scene.image_cache.stats()
+    }
+
+    /// `(page_count, page_width, page_height)` of the lazy glyph atlas,
+    /// `None` when no text has rendered yet.
+    pub fn glyph_atlas_stats(&self) -> Option<(usize, u16, u16)> {
+        self.scene.resources.glyph_atlas_stats()
+    }
 }
 
 impl AnyRenderContext for VelloCpuImageRenderer {}

@@ -527,13 +527,21 @@ pub unsafe extern "C" fn dd_osr_memory_stats(handle: *mut OsrDoc) -> *const u8 {
         });
         let (vw, vh) = doc.viewport().window_size;
         let scratch = RASTER_SCRATCH.with(|s| s.borrow().capacity());
+        let (img_entries, img_bytes, img_cap) = d.renderer.image_cache_stats();
+        let (atlas_pages, atlas_w, atlas_h) =
+            d.renderer.glyph_atlas_stats().unwrap_or((0, 0, 0));
         let mut json = format!(
             "{{\"nodes\":{nodes},\"elements\":{elements},\"textNodes\":{texts},\
              \"nodeBytes\":{node_bytes},\"pixelsLen\":{},\"prevPixelsLen\":{},\
-             \"sabLen\":{},\"scratchCap\":{scratch},\"vpW\":{vw},\"vpH\":{vh}",
+             \"sabLen\":{},\"scratchCap\":{scratch},\"vpW\":{vw},\"vpH\":{vh},\
+             \"imgCacheEntries\":{img_entries},\"imgCacheBytes\":{img_bytes},\
+             \"imgCacheCap\":{img_cap},\"atlasPages\":{atlas_pages},\
+             \"atlasPageW\":{atlas_w},\"atlasPageH\":{atlas_h},\
+             \"atlasBytes\":{}",
             d.pixels.len(),
             d.prev_pixels.len(),
             d.frame_buf.as_ref().map(|b| b.len).unwrap_or(0),
+            atlas_pages * atlas_w as usize * atlas_h as usize * 4,
         );
         #[cfg(target_os = "linux")]
         {
@@ -587,14 +595,25 @@ pub unsafe extern "C" fn dd_osr_init(
         let h = height.max(1.0) as u32;
         let scale = if scale > 0.0 { scale as f32 } else { 1.0 };
         let redraw = Arc::new(AtomicBool::new(true));
+        // Glyph atlas page side — upstream's 4096 costs 64MiB of address space
+        // per page per renderer (calloc'd, but hblkhd counts it fully and the
+        // page dirties as glyphs accumulate). OSR docs are UI-scale: 1024 (4MiB
+        // per page) is plenty; DD_GLYPH_ATLAS_SIZE overrides for experiments.
+        let atlas_size: u16 = std::env::var("DD_GLYPH_ATLAS_SIZE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .map(|v: u16| v.clamp(256, 4096))
+            .unwrap_or(1024);
+        let mut renderer = VelloCpuImageRenderer::with_image_cache_config(w, h, ImageCacheConfig {
+            // OSR docs draw pre-scaled app icons only — the default 64MB
+            // soft cap is per-renderer over-provisioning × N docs.
+            max_bytes: 8 * 1024 * 1024,
+            ..ImageCacheConfig::default()
+        });
+        renderer.set_glyph_atlas_size(atlas_size);
         let doc = OsrDoc {
             doc: build_doc(w, h, scale, html, Arc::clone(&redraw)),
-            renderer: VelloCpuImageRenderer::with_image_cache_config(w, h, ImageCacheConfig {
-                // OSR docs draw pre-scaled app icons only — the default 64MB
-                // soft cap is per-renderer over-provisioning × N docs.
-                max_bytes: 8 * 1024 * 1024,
-                ..ImageCacheConfig::default()
-            }),
+            renderer,
             pixels: Vec::new(),
             prev_pixels: Vec::new(),
             dirty_rect: [0, 0, 0, 0],
