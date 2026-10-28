@@ -23,7 +23,7 @@ import { setSecondInstanceFocus } from "./bridge/singleton-lock";
 import { retireAllSharedDevices } from "./gpu/shared-device";
 import { addCrashFeatureLog } from "./host-lifecycle";
 import { startNativeMcpServer, type NativeMcpOptions } from "./mcp/native-mcp";
-import { createNativeHost, type NativeHostConfig } from "./native-host";
+import { createNativeHost, HostBootSupersededError, type NativeHostConfig, type NativeHostContext } from "./native-host";
 import { isPackaged } from "./packaged";
 import { AppWindow } from "./window/app-window";
 
@@ -115,27 +115,51 @@ export async function runNativeAppModule<Sim extends SimWorker, R extends AppRen
   // The session snapshot this boot belongs to — a restart mid-boot swaps it,
   // and dead-generation continuations must not run under the new session.
   const bootSession = (globalThis as any).__ddSession?.session ?? null;
+  // Same for the ModuleRunner generation this module was evaluated by: a
+  // Tier-3/4 reimport closes+replaces it, and every dynamic import this
+  // generation issues afterwards rejects with "Vite module runner has been
+  // closed". An error thrown while superseded is expected teardown — the
+  // next generation's boot owns the window — not an entry failure.
+  const bootRunner = (globalThis as any).__ddRunner;
+  const bootSuperseded = (): boolean => {
+    const g = globalThis as any;
+    if (bootRunner && (bootRunner.closed === true || g.__ddRunner !== bootRunner)) return true;
+    const s = g.__ddSession?.session;
+    return !!(bootSession && (bootSession.dead || s !== bootSession));
+  };
 
   // 1. Native host: window + wgpu device + DOM polyfills + downdraft bridge
   //    + in-process MCP server. Everything startApp() reads from
   //    `globalThis.downdraft` resolves through the bridge from here on.
-  const host = await createNativeHost({
-    window: {
-      title: opts.title,
-      width: opts.width ?? 1280,
-      height: opts.height ?? 720,
-      // Packaged launches ask for focus; dev runs don't steal it.
-      focused: opts.focused ?? isPackaged(),
-      // Desktop identity — without it every dev-run window maps with no
-      // app_id/WM_CLASS and the WM groups all apps under one taskbar entry.
+  let host: NativeHostContext;
+  try {
+    host = await createNativeHost({
+      window: {
+        title: opts.title,
+        width: opts.width ?? 1280,
+        height: opts.height ?? 720,
+        // Packaged launches ask for focus; dev runs don't steal it.
+        focused: opts.focused ?? isPackaged(),
+        // Desktop identity — without it every dev-run window maps with no
+        // app_id/WM_CLASS and the WM groups all apps under one taskbar entry.
+        appId: opts.appId,
+        iconPath: opts.iconPath,
+      },
       appId: opts.appId,
-      iconPath: opts.iconPath,
-    },
-    appId: opts.appId,
-    engineVersion: opts.engineVersion,
-    mcp: opts.mcp,
-    ...opts.host,
-  });
+      engineVersion: opts.engineVersion,
+      mcp: opts.mcp,
+      ...opts.host,
+    });
+  } catch (e) {
+    // The restart superseded this boot while the host was being built —
+    // createNativeHost already rolled back its partial work. Resolve like a
+    // session end; the next generation's entry import owns the window now.
+    if (e instanceof HostBootSupersededError || bootSuperseded()) {
+      log.info("native-app-module", `host boot superseded: ${(e as Error)?.message ?? e}`);
+      return;
+    }
+    throw e;
+  }
   const { window } = host;
 
   // Close lifecycle — the policy lives on the window (an unvetoed
@@ -175,7 +199,15 @@ export async function runNativeAppModule<Sim extends SimWorker, R extends AppRen
     //    the suspended frame pins this session's whole entry graph. Bailing
     //    on a dead session also keeps the continuation below from running
     //    startApp() into a host layer that was already stripped.
-    const appRenderer = await raceSessionTeardown(appRendererP, bootSession);
+    let appRenderer;
+    try {
+      appRenderer = await raceSessionTeardown(appRendererP, bootSession);
+    } catch (e) {
+      // A runner close mid-fetch rejects the import — expected teardown
+      // when this generation was superseded, not an entry failure.
+      if (bootSuperseded()) return;
+      throw e;
+    }
     if (!appRenderer) return;
     const { startApp, getRendererFeatureLog } = appRenderer;
     // The render feature line (WebGPU adapter/features/limits) is collected
