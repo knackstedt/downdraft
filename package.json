@@ -18,7 +18,6 @@
     "build:dist": "node scripts/build-dist.mjs",
     "gen:deno-import-map": "node scripts/gen-deno-import-map.mjs",
     "gen:engine-exports": "node scripts/gen-engine-exports.mjs",
-    "link:apps": "node scripts/link-apps.mjs",
     "lint": "oxlint"
   },
   "workspaces": [

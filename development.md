@@ -80,19 +80,25 @@ git clone git@github.com:knackstedt/my-app.git apps/my-app
 A directory counts as an app when it has `downdraft.config.json` or
 `src/native-entry.ts`.
 
-## 3. Install the app, then link the engine
+## 3. Install the app
 
-Order matters — `bun install` in the app resolves `@downdraft/*` from npm,
-and `link:apps` then replaces those with symlinks into this repo:
+`bun install` in the app resolves `@downdraft/*` from the published npm
+packages, and the installed `@downdraft/cli` provides the
+`node_modules/.bin/draft` shim:
 
 ```bash
-cd apps/my-app && bun install && cd ../..
-bun run link:apps
+cd apps/my-app && bun install
 ```
 
-`link:apps` symlinks every `@downdraft/*` workspace package into the app's
-`node_modules` and adds a `node_modules/.bin/draft` shim. Re-run it after any
-`bun install` inside an app (bun will have reverted the links to npm copies).
+To run an app against unpublished engine changes, use `bun link`:
+
+```bash
+cd packages/engine && bun link          # register the local package
+cd ../../apps/my-app && bun link @downdraft/engine
+```
+
+Re-link after any `bun install` inside the app (bun will have reverted the
+links to npm copies).
 
 ## 4. Run my-app
 
@@ -120,14 +126,15 @@ bun run lint       # oxlint
 
 ## Troubleshooting
 
-- **`draft` not found**: run `bun run link:apps` at the repo root (it creates
-  the app's `node_modules/.bin/draft` shim), or invoke the CLI via the root
-  `node_modules/.bin/draft`.
+- **`draft` not found**: run `bun install` in the app — the installed
+  `@downdraft/cli` provides the `node_modules/.bin/draft` shim — or invoke the
+  CLI via the root `node_modules/.bin/draft`.
 - **Native lib load errors**: binaries aren't committed — check
   `packages/platform-native/native/<platform>-<arch>/` exists; if not, run
   `bun run fetch:native` or `bun run build:native`.
 - **App resolves npm `@downdraft/*` instead of the local engine**: you ran
-  `bun install` in the app after linking — re-run `bun run link:apps`.
+  `bun install` in the app after `bun link` — re-run `bun link @downdraft/<pkg>`
+  in the app.
 
 For engine internals (module contracts, SAB protocols, packaging, Android),
 see `AGENTS.md`.

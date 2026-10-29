@@ -36,7 +36,7 @@ cd downdraft
 bun install
 ```
 
-This installs all workspace dependencies via Bun workspaces. Apps are separate repos — if you develop an app alongside the engine under `apps/`, run `bun run link:apps` to link `@downdraft/*` packages into each app's `node_modules`.
+This installs all workspace dependencies via Bun workspaces. Apps are separate repos — they consume the published `@downdraft/*` npm packages via their own `bun install`, and the installed `@downdraft/cli` provides their `node_modules/.bin/draft` shim. To develop an app against unpublished engine changes, use `bun link` (`bun link` in `packages/<pkg>`, then `bun link @downdraft/<pkg>` in the app).
 
 ## Verify Installation
 

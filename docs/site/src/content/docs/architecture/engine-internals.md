@@ -19,7 +19,7 @@ Every export entry carries three conditions:
 
 **Rules for engine/platform-native code that resolves filesystem paths relative to itself** (crate dirs, staged assets, package metadata): never hardcode `".."` segment counts off `import.meta.url`/`import.meta.dir` — dist nests modules one level deeper than src and the math escapes into `dist/`. Anchor at the package root instead: `findPackageRoot(dir)` walks up to the nearest `package.json` (`@downdraft/engine/platform/pkg-root` for engine code; `packageRoot`/`findPackageRoot` exported from `platform-native/src/ffi/lib-paths.ts`), then append the package-relative path explicitly.
 
-Publishing (`scripts/publish-packages.mjs`, `publish.yml`) runs the dist build before `npm publish`; `files` includes `dist`. `link:apps` links dist targets when present.
+Publishing (`scripts/publish-packages.mjs`, `publish.yml`) runs the dist build before `npm publish`; `files` includes `dist`. Apps consume the published packages via `bun install`; to run one against unpublished engine changes, use `bun link`.
 
 
 ## RenderSurface and overlay layering

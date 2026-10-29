@@ -82,7 +82,7 @@ The `dd_pad_*` FFI symbol names are unchanged.
 | `--game` / `-g` | `--app` / `-a` |
 | `--games` | `--apps` |
 | `draft mcp --app <name>` | `draft mcp --app-id <id>` (the launch name took over `--app`) |
-| `scripts/link-games.mjs` | `scripts/link-apps.mjs` (`bun run link:apps`) |
+| `scripts/link-games.mjs` | removed — apps install `@downdraft/*` from npm (use `bun link` for unpublished engine changes) |
 | `draft new --template gamemodule` | `draft new --template appmodule` |
 | `DD_GAME_DIR` | `DD_APP_DIR` |
 | `resolveGameDir` / `findGameDirUpward` / `isGameDir` / `readGameConfig` | `resolveAppDir` / `findAppDirUpward` / `isAppDir` / `readAppConfig` |
