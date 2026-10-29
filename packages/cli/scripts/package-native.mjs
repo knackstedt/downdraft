@@ -609,13 +609,17 @@ function pkgRoot(name) {
 // Platform lib — the unified libdowndraft_platform (Rust, statically links
 // wgpu — no external deps) stages under native/<platform>-<arch>/. Probe
 // order: monorepo dev staging, the installed platform-native package, the
-// per-target @downdraft/native-<plat>-<arch> package.
+// per-target @downdraft/native-<plat>-<arch> package. The npm platform
+// package's lib/ holds the FULL cdylib set, while <platPkg>/<platKey> is
+// fetch-native's postinstall dest and only ever contains
+// libdowndraft_platform — it must probe last or it shadows the bundle and
+// packaged apps ship without the engine cdylibs (OSR, audio, ...).
 const platPkg = pkgRoot("@downdraft/platform-native");
 const platLibCandidates = [...new Set([
   join(monorepoRoot, "packages/platform-native/native", platKey),
   platPkg && join(platPkg, "native", platKey),
-  platPkg && join(platPkg, platKey),
   pkgRoot(`@downdraft/native-${platKey}`) && join(pkgRoot(`@downdraft/native-${platKey}`), "lib"),
+  platPkg && join(platPkg, platKey),
 ].filter(Boolean))];
 // Foreign-platform optional deps aren't installed on this host — fetch the
 // @downdraft/native-<plat>-<arch> tarball from npm into a cache instead.

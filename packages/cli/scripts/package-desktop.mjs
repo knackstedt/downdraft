@@ -528,11 +528,14 @@ async function stageEngineLibs(nativeDir) {
   const platPkg = await pkgRoot("@downdraft/platform-native");
   const platNpm = await pkgRoot(`@downdraft/native-${platKey}`);
   const engineRoot = await pkgRoot("@downdraft/engine");
+  // <platPkg>/<platKey> is fetch-native's postinstall dest and only ever
+  // holds libdowndraft_platform — probe it last so it can't shadow the full
+  // @downdraft/native-<plat>-<arch> bundle (see package-native.mjs).
   const platLibCandidates = [...new Set([
     join(repoRoot, "packages/platform-native/native", platKey),
     platPkg && join(platPkg, "native", platKey),
-    platPkg && join(platPkg, platKey),
     platNpm && join(platNpm, "lib"),
+    platPkg && join(platPkg, platKey),
   ].filter(Boolean))];
   // Foreign-platform optional deps aren't installed on this host — fetch
   // the @downdraft/native-<plat>-<arch> tarball from npm into a cache.
