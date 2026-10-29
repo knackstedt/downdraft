@@ -528,8 +528,7 @@ pub unsafe extern "C" fn dd_osr_memory_stats(handle: *mut OsrDoc) -> *const u8 {
         let (vw, vh) = doc.viewport().window_size;
         let scratch = RASTER_SCRATCH.with(|s| s.borrow().capacity());
         let (img_entries, img_bytes, img_cap) = d.renderer.image_cache_stats();
-        let (atlas_pages, atlas_w, atlas_h) =
-            d.renderer.glyph_atlas_stats().unwrap_or((0, 0, 0));
+        let (atlas_pages, atlas_w, atlas_h) = d.renderer.glyph_atlas_stats().unwrap_or((0, 0, 0));
         let mut json = format!(
             "{{\"nodes\":{nodes},\"elements\":{elements},\"textNodes\":{texts},\
              \"nodeBytes\":{node_bytes},\"pixelsLen\":{},\"prevPixelsLen\":{},\
@@ -604,12 +603,16 @@ pub unsafe extern "C" fn dd_osr_init(
             .and_then(|v| v.parse().ok())
             .map(|v: u16| v.clamp(256, 4096))
             .unwrap_or(1024);
-        let mut renderer = VelloCpuImageRenderer::with_image_cache_config(w, h, ImageCacheConfig {
-            // OSR docs draw pre-scaled app icons only — the default 64MB
-            // soft cap is per-renderer over-provisioning × N docs.
-            max_bytes: 8 * 1024 * 1024,
-            ..ImageCacheConfig::default()
-        });
+        let mut renderer = VelloCpuImageRenderer::with_image_cache_config(
+            w,
+            h,
+            ImageCacheConfig {
+                // OSR docs draw pre-scaled app icons only — the default 64MB
+                // soft cap is per-renderer over-provisioning × N docs.
+                max_bytes: 8 * 1024 * 1024,
+                ..ImageCacheConfig::default()
+            },
+        );
         renderer.set_glyph_atlas_size(atlas_size);
         let doc = OsrDoc {
             doc: build_doc(w, h, scale, html, Arc::clone(&redraw)),
@@ -764,16 +767,17 @@ fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
     // Docs on the pointer path (no bound buffer) keep the prev_pixels copy.
     let wu = w as usize;
     let hu = if wu > 0 { d.pixels.len() / (wu * 4) } else { 0 };
-    let sab_prev = d.frame_buf.as_ref().is_some_and(|b| b.len >= needed_buf_len(d));
+    let sab_prev = d
+        .frame_buf
+        .as_ref()
+        .is_some_and(|b| b.len >= needed_buf_len(d));
     let rect = if sab_prev {
         let buf = d.frame_buf.as_ref().unwrap();
         let stride = align256(wu * 4);
         // SAFETY: buf.len >= FRAME_HEADER + stride*ph (needed_buf_len) and
         // ph == hu, so the pixel rows are in bounds. The SAB is stable here:
         // reads race nothing — its only writer is this thread.
-        let prev = unsafe {
-            std::slice::from_raw_parts(buf.ptr.add(FRAME_HEADER), stride * hu)
-        };
+        let prev = unsafe { std::slice::from_raw_parts(buf.ptr.add(FRAME_HEADER), stride * hu) };
         diff_rect(prev, stride, &d.pixels, wu)
     } else if d.prev_pixels.len() == d.pixels.len() {
         diff_rect(&d.prev_pixels, wu * 4, &d.pixels, wu)

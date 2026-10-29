@@ -21,11 +21,11 @@
 // lazy probing reports the same symbols on every platform.
 // ============================================================================
 
+use std::collections::HashMap;
 use std::ffi::{c_char, c_int, c_void, CString};
 use std::ptr;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Mutex;
-use std::collections::HashMap;
 
 use crate::window::events::{self, Ev};
 
@@ -65,7 +65,9 @@ fn take_result(req_id: i32) {
 
 #[cfg_attr(target_os = "android", allow(dead_code))]
 fn mock_enabled() -> bool {
-    std::env::var("DD_DIALOGS_MOCK").map(|v| v == "1").unwrap_or(false)
+    std::env::var("DD_DIALOGS_MOCK")
+        .map(|v| v == "1")
+        .unwrap_or(false)
 }
 
 #[cfg_attr(target_os = "android", allow(dead_code))]
@@ -90,7 +92,9 @@ pub(crate) fn parse_opts(opts_json: *const c_char) -> serde_json::Value {
 
 #[cfg(not(target_os = "android"))]
 pub(crate) fn opt_str<'a>(v: &'a serde_json::Value, key: &str) -> Option<&'a str> {
-    v.get(key).and_then(|x| x.as_str()).filter(|s| !s.is_empty())
+    v.get(key)
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
 }
 
 #[cfg(not(target_os = "android"))]
@@ -122,7 +126,13 @@ fn spawn_picker(picker: Picker, opts: serde_json::Value) -> c_int {
 
     if mock_enabled() {
         store_result(req_id, mock_path());
-        events::push(0, Ev::DialogResult { req_id, kind: DIALOG_RESULT_OK });
+        events::push(
+            0,
+            Ev::DialogResult {
+                req_id,
+                kind: DIALOG_RESULT_OK,
+            },
+        );
         return req_id;
     }
 
@@ -130,72 +140,72 @@ fn spawn_picker(picker: Picker, opts: serde_json::Value) -> c_int {
         let window_handle = opt_i32(&opts, "window").unwrap_or(0);
         std::thread::spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut dlg = rfd::FileDialog::new();
-            if let Some(t) = opt_str(&opts, "title") {
-                dlg = dlg.set_title(t);
-            }
-            if let Some(d) = opt_str(&opts, "directory") {
-                dlg = dlg.set_directory(d);
-            }
-            if let Some(n) = opt_str(&opts, "defaultName") {
-                dlg = dlg.set_file_name(n);
-            }
-            if let Some(filters) = opts.get("filters").and_then(|f| f.as_array()) {
-                for f in filters {
-                    let name = opt_str(f, "name").unwrap_or("Files");
-                    let exts: Vec<String> = f
-                        .get("extensions")
-                        .and_then(|e| e.as_array())
-                        .map(|a| {
-                            a.iter()
-                                .filter_map(|x| x.as_str().map(String::from))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    dlg = dlg.add_filter(name, &exts);
+                let mut dlg = rfd::FileDialog::new();
+                if let Some(t) = opt_str(&opts, "title") {
+                    dlg = dlg.set_title(t);
                 }
-            }
-
-            // Parent the dialog to a live window when one resolves — keeps it
-            // modal-ish/raised on platforms that honor a transient parent.
-            // window_by_handle locks CTX itself (calling it under with_ctx
-            // would deadlock the non-reentrant Mutex).
-            let parent = crate::window::window_by_handle(window_handle as u32);
-            if let Some(w) = parent.as_deref() {
-                dlg = dlg.set_parent(w);
-            }
-
-            let multi = opt_bool(&opts, "multi");
-            let paths: Option<Vec<std::path::PathBuf>> = match picker {
-                Picker::Open => {
-                    if multi {
-                        dlg.pick_files()
-                    } else {
-                        dlg.pick_file().map(|p| vec![p])
+                if let Some(d) = opt_str(&opts, "directory") {
+                    dlg = dlg.set_directory(d);
+                }
+                if let Some(n) = opt_str(&opts, "defaultName") {
+                    dlg = dlg.set_file_name(n);
+                }
+                if let Some(filters) = opts.get("filters").and_then(|f| f.as_array()) {
+                    for f in filters {
+                        let name = opt_str(f, "name").unwrap_or("Files");
+                        let exts: Vec<String> = f
+                            .get("extensions")
+                            .and_then(|e| e.as_array())
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(|x| x.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        dlg = dlg.add_filter(name, &exts);
                     }
                 }
-                Picker::Save => dlg.save_file().map(|p| vec![p]),
-                Picker::Folder => {
-                    if multi {
-                        dlg.pick_folders()
-                    } else {
-                        dlg.pick_folder().map(|p| vec![p])
-                    }
-                }
-            };
 
-            match paths {
-                Some(ps) => {
-                    let joined = ps
-                        .iter()
-                        .map(|p| p.to_string_lossy().into_owned())
-                        .collect::<Vec<_>>()
-                        .join("\0");
-                    store_result(req_id, joined);
-                    DIALOG_RESULT_OK
+                // Parent the dialog to a live window when one resolves — keeps it
+                // modal-ish/raised on platforms that honor a transient parent.
+                // window_by_handle locks CTX itself (calling it under with_ctx
+                // would deadlock the non-reentrant Mutex).
+                let parent = crate::window::window_by_handle(window_handle as u32);
+                if let Some(w) = parent.as_deref() {
+                    dlg = dlg.set_parent(w);
                 }
-                None => DIALOG_RESULT_CANCEL,
-            }
+
+                let multi = opt_bool(&opts, "multi");
+                let paths: Option<Vec<std::path::PathBuf>> = match picker {
+                    Picker::Open => {
+                        if multi {
+                            dlg.pick_files()
+                        } else {
+                            dlg.pick_file().map(|p| vec![p])
+                        }
+                    }
+                    Picker::Save => dlg.save_file().map(|p| vec![p]),
+                    Picker::Folder => {
+                        if multi {
+                            dlg.pick_folders()
+                        } else {
+                            dlg.pick_folder().map(|p| vec![p])
+                        }
+                    }
+                };
+
+                match paths {
+                    Some(ps) => {
+                        let joined = ps
+                            .iter()
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .collect::<Vec<_>>()
+                            .join("\0");
+                        store_result(req_id, joined);
+                        DIALOG_RESULT_OK
+                    }
+                    None => DIALOG_RESULT_CANCEL,
+                }
             }));
             // A panic inside rfd must still resolve the JS promise — kind 2
             // carries "error" so the awaiting call rejects/returns null
@@ -300,7 +310,9 @@ pub extern "C" fn dd_message_box(opts_json: *const c_char) -> c_int {
     {
         let opts = parse_opts(opts_json);
         let title = opt_str(&opts, "title").unwrap_or("");
-        let message = opt_str(&opts, "message").or_else(|| opt_str(&opts, "description")).unwrap_or("");
+        let message = opt_str(&opts, "message")
+            .or_else(|| opt_str(&opts, "description"))
+            .unwrap_or("");
         let level = match opt_str(&opts, "level") {
             Some("warning") | Some("warn") => rfd::MessageLevel::Warning,
             Some("error") => rfd::MessageLevel::Error,
@@ -327,12 +339,10 @@ pub extern "C" fn dd_message_box(opts_json: *const c_char) -> c_int {
         match result {
             rfd::MessageDialogResult::Ok | rfd::MessageDialogResult::Yes => 0,
             rfd::MessageDialogResult::No => 1,
-            rfd::MessageDialogResult::Cancel => {
-                match buttons {
-                    rfd::MessageButtons::YesNoCancel | rfd::MessageButtons::YesNoCancelCustom(..) => 2,
-                    _ => 1,
-                }
-            }
+            rfd::MessageDialogResult::Cancel => match buttons {
+                rfd::MessageButtons::YesNoCancel | rfd::MessageButtons::YesNoCancelCustom(..) => 2,
+                _ => 1,
+            },
             rfd::MessageDialogResult::Custom(_) => 0,
         }
     }

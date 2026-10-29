@@ -573,10 +573,10 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
   const memStatsMs = Number(process.env.DD_OSR_MEMSTATS_MS || 0);
   const memStatsTimer = memStatsMs > 0
     ? setInterval(() => {
-      for (const [id, s] of docs) {
+      docs.forEach((s, id) => {
         const st = s.doc.memoryStats();
-        if (st) console.log(`[osr-mem] ${id} ${JSON.stringify(st)}`);
-      }
+        if (st) process.stdout.write(`[osr-mem] ${id} ${JSON.stringify(st)}\n`);
+      });
     }, memStatsMs)
     : null;
   memStatsTimer?.unref?.();

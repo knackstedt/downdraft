@@ -9,11 +9,11 @@
     "lint": "oxlint"
   },
   "dependencies": {
-    "@downdraft/engine": "^0.7.0",
-    "@downdraft/platform-native": "^0.7.0"
+    "@downdraft/engine": "*",
+    "@downdraft/platform-native": "*"
   },
   "devDependencies": {
-    "@downdraft/cli": "^0.7.0",
+    "@downdraft/cli": "*",
     "@types/node": "^22.10.0",
     "@webgpu/types": "^0.1.71",
     "oxlint": "^1.4.0",

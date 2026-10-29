@@ -410,8 +410,7 @@ fn apply_vulkan_icd_filter(include_software: bool) {
     // VK_DRIVER_FILES / VK_ICD_FILENAMES are set by this filter — a set env
     // only blocks us when the USER set it (the software tier's second
     // instance must be able to widen the list the primary instance wrote).
-    static ICD_ENV_OURS: std::sync::atomic::AtomicBool =
-        std::sync::atomic::AtomicBool::new(false);
+    static ICD_ENV_OURS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if std::env::var_os("VK_ADD_DRIVER_FILES").is_some()
         || (!ICD_ENV_OURS.load(Ordering::Relaxed)
             && (std::env::var_os("VK_DRIVER_FILES").is_some()
@@ -467,8 +466,12 @@ fn apply_vulkan_icd_filter(include_software: bool) {
                 continue;
             }
             let link = entry.path().join("device/driver");
-            let Ok(target) = std::fs::read_link(&link) else { continue };
-            let Some(driver) = target.file_name().and_then(|n| n.to_str()) else { continue };
+            let Ok(target) = std::fs::read_link(&link) else {
+                continue;
+            };
+            let Some(driver) = target.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
             let Some(icds) = icd_for_driver(driver) else {
                 // Unmapped kernel driver — don't risk excluding a working ICD.
                 return;
@@ -2399,7 +2402,9 @@ pub extern "C" fn wgpu_shim_pipeline_cache_init(
                 *shim.pipeline_cache.lock().unwrap() = Some(cache);
                 return 1;
             }
-            eprintln!("[wgpu] pipeline cache seed rejected (foreign device or corrupt) — starting fresh");
+            eprintln!(
+                "[wgpu] pipeline cache seed rejected (foreign device or corrupt) — starting fresh"
+            );
             return match try_attach(None) {
                 Some(cache) => {
                     *shim.pipeline_cache.lock().unwrap() = Some(cache);

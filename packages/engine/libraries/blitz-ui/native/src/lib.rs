@@ -32,8 +32,8 @@ pub mod console {
 }
 
 pub use bridge::{
-    dispatch_action, hit_test as doc_hit_test, push_input, push_snapshot, set_action_cb,
-    AppBridge, BRIDGE,
+    dispatch_action, hit_test as doc_hit_test, push_input, push_snapshot, set_action_cb, AppBridge,
+    BRIDGE,
 };
 pub use input::PendingInput;
 pub use shell::{frame, init, resize, shutdown, tick, ShellConfig};

@@ -1458,8 +1458,10 @@ pub extern "C" fn dd_window_secondary_set_min_size(handle: c_int, w: c_int, h: c
     ffi!((), {
         if let Some(win) = window_by_handle(handle.max(0) as u32) {
             // Physical px — the same unit dd_window_get/set_size speaks.
-            win.set_min_inner_size((w > 0 || h > 0)
-                .then(|| Size::Physical(PhysicalSize::new(w.max(1) as u32, h.max(1) as u32))));
+            win.set_min_inner_size(
+                (w > 0 || h > 0)
+                    .then(|| Size::Physical(PhysicalSize::new(w.max(1) as u32, h.max(1) as u32))),
+            );
         }
     });
 }
@@ -1468,8 +1470,10 @@ pub extern "C" fn dd_window_secondary_set_min_size(handle: c_int, w: c_int, h: c
 pub extern "C" fn dd_window_secondary_set_max_size(handle: c_int, w: c_int, h: c_int) {
     ffi!((), {
         if let Some(win) = window_by_handle(handle.max(0) as u32) {
-            win.set_max_inner_size((w > 0 || h > 0)
-                .then(|| Size::Physical(PhysicalSize::new(w.max(1) as u32, h.max(1) as u32))));
+            win.set_max_inner_size(
+                (w > 0 || h > 0)
+                    .then(|| Size::Physical(PhysicalSize::new(w.max(1) as u32, h.max(1) as u32))),
+            );
         }
     });
 }

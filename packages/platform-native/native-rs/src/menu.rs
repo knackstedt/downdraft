@@ -93,10 +93,7 @@ pub extern "C" fn dd_menu_next_action(out: *mut c_char, max_len: usize) -> c_int
     let mut queue = ACTIONS.lock().unwrap();
     // Sizing peek — the front id stays queued for the copy call.
     if out.is_null() || max_len == 0 {
-        return queue
-            .front()
-            .map(|id| (id.len() + 1) as c_int)
-            .unwrap_or(0);
+        return queue.front().map(|id| (id.len() + 1) as c_int).unwrap_or(0);
     }
     let id = match queue.pop_front() {
         Some(s) => s,
@@ -129,9 +126,7 @@ pub(crate) mod imp {
     use muda::accelerator::Accelerator;
     #[cfg(any(windows, target_os = "macos"))]
     use muda::ContextMenu;
-    use muda::{
-        CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
-    };
+    use muda::{CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
     use serde_json::Value;
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -330,8 +325,7 @@ pub(crate) mod imp {
                 }
                 _ => {
                     let id = id(spec);
-                    let it =
-                        MenuItem::with_id(id.clone(), label, enabled, accelerator(spec));
+                    let it = MenuItem::with_id(id.clone(), label, enabled, accelerator(spec));
                     parent.append(&it);
                     registry.insert(id, ItemHandle::Item(it));
                 }
@@ -347,7 +341,10 @@ pub(crate) mod imp {
         if let Some(list) = opts.get("items").and_then(|v| v.as_array()) {
             add_items(&Parent::Menu(&menu), list, &mut registry, id_prefix);
         }
-        MenuBuild { menu, items: registry }
+        MenuBuild {
+            menu,
+            items: registry,
+        }
     }
 
     /// Replace the tray-menu half of the item registry (called by tray.rs
@@ -411,17 +408,15 @@ pub(crate) mod imp {
         })
     }
 
-    fn item_by_id<R>(
-        id: &str,
-        f: impl Fn(&ItemHandle) -> Option<R>,
-    ) -> Option<R> {
-        APP_MENU.with(|m| {
-            m.borrow()
-                .as_ref()
-                .and_then(|menu| menu.items.get(id))
-                .and_then(&f)
-        })
-        .or_else(|| TRAY_ITEMS.with(|t| t.borrow().get(id).and_then(f)))
+    fn item_by_id<R>(id: &str, f: impl Fn(&ItemHandle) -> Option<R>) -> Option<R> {
+        APP_MENU
+            .with(|m| {
+                m.borrow()
+                    .as_ref()
+                    .and_then(|menu| menu.items.get(id))
+                    .and_then(&f)
+            })
+            .or_else(|| TRAY_ITEMS.with(|t| t.borrow().get(id).and_then(f)))
     }
 
     pub(super) fn set_item_enabled(id: *const c_char, on: bool) -> c_int {
@@ -436,13 +431,16 @@ pub(crate) mod imp {
 
     pub(super) fn set_item_checked(id: *const c_char, on: bool) -> c_int {
         let id = unsafe { std::ffi::CStr::from_ptr(id) }.to_string_lossy();
-        item_by_id(id.as_ref(), |h| {
-            if h.set_checked(on) {
-                Some(())
-            } else {
-                None
-            }
-        })
+        item_by_id(
+            id.as_ref(),
+            |h| {
+                if h.set_checked(on) {
+                    Some(())
+                } else {
+                    None
+                }
+            },
+        )
         .map(|_| 1)
         .unwrap_or(0)
     }

@@ -145,7 +145,10 @@ pub enum Ev {
     /// A dd_dialog_* picker finished — req_id + result kind. Pushed by
     /// dialog.rs's detached rfd threads; not window-scoped (wid 0).
     #[cfg_attr(target_os = "android", allow(dead_code))]
-    DialogResult { req_id: i32, kind: i32 },
+    DialogResult {
+        req_id: i32,
+        kind: i32,
+    },
     /// A native menu item was activated — id pulled via
     /// dd_menu_next_action. Not window-scoped (wid 0).
     #[cfg_attr(target_os = "android", allow(dead_code))]
@@ -401,7 +404,13 @@ pub fn write(wid: u32, ev: Ev, out_data: *mut c_void) -> i32 {
                 DIALOG_RESULT
             }
             Ev::MenuAction => MENU_ACTION,
-            Ev::TrayEvent { kind, button, state, x, y } => {
+            Ev::TrayEvent {
+                kind,
+                button,
+                state,
+                x,
+                y,
+            } => {
                 *iout.add(0) = kind;
                 *iout.add(1) = button;
                 *iout.add(2) = state;

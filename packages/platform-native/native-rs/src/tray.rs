@@ -32,7 +32,9 @@ mod imp {
     use std::cell::RefCell;
     use std::ffi::{c_char, c_int};
     use std::sync::Once;
-    use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
+    use tray_icon::{
+        Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
+    };
 
     thread_local! {
         static TRAY: RefCell<Option<TrayIcon>> = const { RefCell::new(None) };
@@ -53,7 +55,12 @@ mod imp {
             TrayIconEvent::set_event_handler(Some(|ev: TrayIconEvent| {
                 use TrayIconEvent as T;
                 let (kind, button, state, pos) = match ev {
-                    T::Click { button, button_state, position, .. } => (
+                    T::Click {
+                        button,
+                        button_state,
+                        position,
+                        ..
+                    } => (
                         1,
                         btn(button),
                         match button_state {
@@ -62,9 +69,9 @@ mod imp {
                         },
                         position,
                     ),
-                    T::DoubleClick { button, position, .. } => {
-                        (2, btn(button), 0, position)
-                    }
+                    T::DoubleClick {
+                        button, position, ..
+                    } => (2, btn(button), 0, position),
                     T::Enter { position, .. } => (3, 0, 0, position),
                     T::Move { position, .. } => (4, 0, 0, position),
                     T::Leave { position, .. } => (5, 0, 0, position),
@@ -134,7 +141,11 @@ mod imp {
                 .to_string_lossy()
                 .into_owned()
         };
-        let icon = if path.is_empty() { None } else { load_icon(&path) };
+        let icon = if path.is_empty() {
+            None
+        } else {
+            load_icon(&path)
+        };
         if path.len() > 0 && icon.is_none() {
             return 0;
         }

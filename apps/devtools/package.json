@@ -12,12 +12,12 @@
     "test": "bun test ../../packages/devtools/tests/"
   },
   "dependencies": {
-    "@downdraft/engine": "^0.7.0",
-    "@downdraft/platform-native": "^0.7.0",
-    "@downdraft/devtools": "^0.7.0"
+    "@downdraft/engine": "workspace:*",
+    "@downdraft/platform-native": "workspace:*",
+    "@downdraft/devtools": "workspace:*"
   },
   "devDependencies": {
-    "@downdraft/cli": "^0.7.0",
+    "@downdraft/cli": "workspace:*",
     "@types/node": "^22.10.0",
     "@webgpu/types": "^0.1.71",
     "oxlint": "^1.4.0",

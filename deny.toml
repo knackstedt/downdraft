@@ -48,6 +48,10 @@ ignore = [
   "RUSTSEC-2026-0370", # zvariant
   "RUSTSEC-2026-0371", # zbus_names
   "RUSTSEC-2026-0372", # zvariant_derive
+  # proc-macro-error (unmaintained) — transitive via gtk/glib-macros → muda
+  # (native menus). INFO advisory, not a vulnerability; no patched version
+  # exists — drop once the gtk/muda chain migrates to proc-macro-error2.
+  "RUSTSEC-2024-0370",
 ]
 
 [bans]
