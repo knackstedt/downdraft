@@ -1689,3 +1689,91 @@ pub unsafe extern "C" fn dd_osr_destroy(handle: *mut OsrDoc) -> c_int {
         0
     })
 }
+
+#[cfg(test)]
+mod anim_tests {
+    use super::*;
+    use blitz_dom::{ns, DocumentMutator, LocalName, QualName};
+
+    /// A class flip must start a CSS transition: resolve(now) should report
+    /// is_animating and interpolate the transitioned property over time.
+    #[test]
+    fn css_transition_interpolates() {
+        let html = r#"<!doctype html><html><style>
+            .x { padding-left:0px; transition: padding-left 0.5s linear; }
+            .x.on { padding-left:16px; }
+            </style><body><div class="x" id="t">hi</div></body></html>"#;
+        let mut doc = build_doc(300, 200, 1.0, html, Arc::new(AtomicBool::new(false)));
+        doc.inner_mut().resolve(0.0);
+        let id = doc.inner().query_selector("#t").unwrap().expect("node #t");
+        assert_eq!(doc.inner().resolved_style_value(id, "padding-left"), "0px");
+
+        {
+            let mut inner = doc.inner_mut();
+            let mut m = DocumentMutator::new(&mut inner);
+            m.set_attribute(
+                id,
+                QualName::new(None, ns!(), LocalName::from("class")),
+                "x on",
+            );
+        }
+
+        let mut saw_mid = false;
+        for i in 0..=10 {
+            let t = i as f64 * 0.1;
+            doc.inner_mut().resolve(t);
+            let v = doc.inner().resolved_style_value(id, "padding-left");
+            eprintln!(
+                "t={t:.2} animating={} padding-left={v}",
+                doc.inner().is_animating()
+            );
+            if t > 0.0 && t < 0.5 && v != "16px" {
+                saw_mid = true;
+            }
+        }
+        assert!(saw_mid, "transition never interpolated");
+    }
+
+    /// Same, but the transitioned property lives on the element's ::before —
+    /// pseudo-element transitions must interpolate too (toggle knobs etc.).
+    #[test]
+    fn css_transition_interpolates_pseudo() {
+        let html = r#"<!doctype html><html><style>
+            .x::before { content:""; display:block; width:4px; transition: width 0.5s linear; }
+            .x.on::before { width:20px; }
+            </style><body><div class="x" id="t">hi</div></body></html>"#;
+        let mut doc = build_doc(300, 200, 1.0, html, Arc::new(AtomicBool::new(false)));
+        doc.inner_mut().resolve(0.0);
+        let id = doc.inner().query_selector("#t").unwrap().expect("node #t");
+        let before_id = doc
+            .inner()
+            .get_node(id)
+            .and_then(|n| n.before())
+            .expect("::before node");
+
+        {
+            let mut inner = doc.inner_mut();
+            let mut m = DocumentMutator::new(&mut inner);
+            m.set_attribute(
+                id,
+                QualName::new(None, ns!(), LocalName::from("class")),
+                "x on",
+            );
+        }
+
+        let mut saw_mid = false;
+        for i in 0..=10 {
+            let t = i as f64 * 0.1;
+            doc.inner_mut().resolve(t);
+            let v = doc.inner().resolved_style_value(before_id, "width");
+            eprintln!(
+                "t={t:.2} animating={} ::before width={v}",
+                doc.inner().is_animating()
+            );
+            if t > 0.0 && t < 0.5 && v != "20px" {
+                saw_mid = true;
+            }
+        }
+        assert!(saw_mid, "pseudo-element transition never interpolated");
+    }
+}
