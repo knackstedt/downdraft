@@ -97,7 +97,14 @@ export async function devNative(parsed: any, overrideDir?: string): Promise<void
   const verbose = parsed.flags.verbose as boolean;
   const noHmr = parsed.flags["no-hmr"] as boolean;
 
+  // Positional/`--` args are forwarded to the app: appended to the spawn
+  // argv on --no-hmr; carried via DD_APP_ARGS into the dev shell, which
+  // rewrites process.argv before evaluating the entry (app code reads
+  // process.argv.slice(2) exactly as it would on a direct `bun run`).
+  const appArgs = parsed.positionals;
+
   const env = { ...process.env };
+  if (appArgs.length > 0) env.DD_APP_ARGS = JSON.stringify(appArgs);
   const port = parsed.flags.port as number;
   if (port) env.MCP_PORT = String(port);
   // --native-debug → the runtime resolves <plat>-<arch>-debug/ lib dirs
@@ -212,7 +219,7 @@ function wpeNamespaceWrap(cmd: string, args: string[], appDir: string, env: Node
     const agentPath = resolveAgentPath();
     // `bun --preload <mod> <entry>` — `run` omitted so the flag binds to the
     // entry script regardless of subcommand arg parsing.
-    const bunArgs = agentPath ? ["--preload", agentPath, nativeEntry] : ["run", nativeEntry];
+    const bunArgs = agentPath ? ["--preload", agentPath, nativeEntry, ...appArgs] : ["run", nativeEntry, ...appArgs];
     log.info("draft", `dev ${app} — ${nativeEntry} (bun, no hmr${agentPath ? ", devtools-agent" : ""})`);
     const w = wpeNamespaceWrap("bun", bunArgs, appDir, env)
       ?? { cmd: "bun", args: bunArgs };

@@ -178,3 +178,62 @@ describe("RendererModuleHost — batch registration", () => {
     expect(host.injectResourceOptional(TokenA)).toBeUndefined();
   });
 });
+
+describe("RendererModuleHost — camera aspect", () => {
+  it("replays the last resize dims into a controller registered afterwards", () => {
+    const host = new RendererModuleHost(createMockCanvas(), createMockCallbacks());
+    // Resize dispatched while no camera controller is registered (the common
+    // boot order — the watcher fires before the camera module activates).
+    host.dispatchResize(1876, 1020, 1);
+
+    const setAspect = vi.fn();
+    const controller = {
+      setAspect,
+      getCameraState: vi.fn(() => null),
+    } as unknown as import("../module/renderer-module").CameraControllerLike;
+
+    const mod = makeModule("camera-controls");
+    mod.plugin.register = (ctx) => {
+      ctx.setCameraController(controller);
+    };
+    host.registerModule(mod.plugin);
+
+    expect(setAspect).toHaveBeenCalledWith(1876, 1020);
+  });
+
+  it("dispatchResize forwards physical px (css × dpr) to the controller", () => {
+    const host = new RendererModuleHost(createMockCanvas(), createMockCallbacks());
+    const setAspect = vi.fn();
+    const controller = {
+      setAspect,
+      getCameraState: vi.fn(() => null),
+    } as unknown as import("../module/renderer-module").CameraControllerLike;
+
+    const mod = makeModule("camera-controls");
+    mod.plugin.register = (ctx) => {
+      ctx.setCameraController(controller);
+    };
+    host.registerModule(mod.plugin);
+    setAspect.mockClear();
+
+    host.dispatchResize(938, 510, 2);
+    expect(setAspect).toHaveBeenCalledWith(1876, 1020);
+  });
+
+  it("does not replay when no resize has been dispatched", () => {
+    const host = new RendererModuleHost(createMockCanvas(), createMockCallbacks());
+    const setAspect = vi.fn();
+    const controller = {
+      setAspect,
+      getCameraState: vi.fn(() => null),
+    } as unknown as import("../module/renderer-module").CameraControllerLike;
+
+    const mod = makeModule("camera-controls");
+    mod.plugin.register = (ctx) => {
+      ctx.setCameraController(controller);
+    };
+    host.registerModule(mod.plugin);
+
+    expect(setAspect).not.toHaveBeenCalled();
+  });
+});

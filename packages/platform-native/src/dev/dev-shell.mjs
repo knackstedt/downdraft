@@ -82,6 +82,20 @@ if (!existsSync(entry)) {
   process.exit(2);
 }
 
+// ── App args (draft dev -- <args> → DD_APP_ARGS) ────────────────────────────
+// The entry is evaluated in-process by the module runner, so app code sees
+// the dev shell's argv. Rewrite it to [runtime, entry, ...appArgs] — the
+// same shape a direct `bun run <entry> <args>` produces — so
+// process.argv.slice(2) carries the app's own args (e.g. model paths).
+{
+  let appArgs = [];
+  try { appArgs = JSON.parse(process.env.DD_APP_ARGS ?? "[]"); } catch { /* malformed — ignore */ }
+  if (Array.isArray(appArgs) && appArgs.length > 0) {
+    process.argv.length = 1;
+    process.argv.push(entry, ...appArgs.map(String));
+  }
+}
+
 /** Walk up from dir looking for the downdraft monorepo root. */
 function findRepoRoot(dir) {
   let d = resolve(dir);

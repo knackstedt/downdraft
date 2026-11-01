@@ -11,7 +11,7 @@ import type { InputEventControl, RendererInputBus } from "@downdraft/engine/modu
 import { getHostCapabilities, getNativeHost } from "@downdraft/engine/platform/runtime";
 import { createLogger } from "@downdraft/engine/util/logger";
 import { untrackedTimeout } from "@downdraft/engine/util/session-timer";
-import { PanelBlitPass } from "./composite";
+import { PanelBlitPass, type CompositePanel } from "./composite";
 import { createLocalBackend, createWorkerBackend, type DocBackend } from "./doc-backend";
 import type { DocInputMsg, DocMutation, NavNodeInfo, UiPointerMsg, WorkerToUi } from "./protocol";
 
@@ -119,6 +119,20 @@ interface Panel {
   handlers: Set<PanelEventHandler>;
   /** True while an editable element (<input>/<textarea>) holds DOM focus. */
   editing: boolean;
+  /** Latest caret rect in doc CSS px (attached to every frame message when
+   *  the cdylib supports it); the compositor draws the animated caret. */
+  caret: { x: number; y: number; w: number; h: number } | null;
+  /** Compositor-side sprite — a crop of the panel's own raster drawn at an
+   *  arbitrary doc position (drag ghosts). Pure host state: updates cost a
+   *  dirty mark, never a worker roundtrip or repaint. */
+  sprite: UiPanelSprite | null;
+  /** Sprite draw resources — must NOT alias p.ubo/p.bindGroup: blit.render
+   *  writes each entry's uniforms into its ubo via queue.writeBuffer, which
+   *  lands on the queue timeline before the pass executes, so a shared ubo
+   *  would make EVERY entry in the draw list see the last-written values. */
+  spriteUbo: GPUBuffer | null;
+  spriteBg: GPUBindGroup | null;
+  spriteBgTex: GPUTexture | null;
   /** Bound SAB frame channel — frames arrive as headers, pixels stay shared. */
   sab: SharedArrayBuffer | null;
   sabI32: Int32Array | null;
@@ -158,6 +172,18 @@ export interface UiDocStats {
   at: number;
 }
 
+/** A compositor overlay cropped from the panel's own raster — e.g. a drag
+ *  ghost that tracks the pointer without DOM writes. Doc CSS px space. */
+export interface UiPanelSprite {
+  /** Source rect in doc CSS px — the sub-image lifted out of the raster. */
+  src: { x: number; y: number; w: number; h: number };
+  /** Destination top-left in doc CSS px (same space as event x/y). */
+  at: { x: number; y: number };
+  /** Color/alpha multiplier applied while blitting — [1,1,1,0.85] reads
+   *  "lifted" without a full re-style of the card. */
+  modulate?: [number, number, number, number];
+}
+
 export interface UiPanelHandle {
   readonly id: string;
   /** Current screen-space rect (input/backing-buffer px) — a snapshot copy. */
@@ -195,6 +221,11 @@ export interface UiPanelHandle {
    *  full texture. Pure compositor state — no doc repaint, so this is the
    *  cheap per-frame scroll path. */
   setSrcRect(src: { x: number; y: number; w: number; h: number } | null): void;
+  /** Lift a doc-space sub-rect of the panel's raster into a compositor
+   *  overlay at `at` (doc CSS px). Draws above the panel on the next frame;
+   *  each call is a dirty mark only — pointer-rate updates are free.
+   *  Pass null to clear (drag end / cancel). */
+  setSprite(sprite: UiPanelSprite | null): void;
   setZ(z: number): void;
   /** Toggle pointer-input eligibility at runtime — `panelAt` skips
    *  non-interactive panels. HUD strips use this to stop eating clicks
@@ -423,7 +454,8 @@ export class HtmlUiHost {
       docH: spec.docH ?? null, docW: spec.docW ?? null, src: null,
       texture: null, texW: 0, texH: 0, ubo: null, bindGroup: null,
       handlers: new Set(spec.onEvent ? [spec.onEvent] : []),
-      editing: false, sab: null, sabI32: null, lastSeq: 0, lastRect: null,
+      editing: false, caret: null, sprite: null, spriteUbo: null, spriteBg: null, spriteBgTex: null,
+      sab: null, sabI32: null, lastSeq: 0, lastRect: null,
       gpuBound: false, boundPtr: null, postedBindPtr: null,
       fit: !!spec.fit,
       fitDebounceMs: typeof spec.fit === "object" ? Math.max(0, spec.fit.debounceMs ?? 0) : 0,
@@ -477,7 +509,7 @@ export class HtmlUiHost {
     return {
       id: p.id,
       get rect() { return { ...p.rect }; },
-      setHtml: (html) => { sent.clear(); this.send({ type: "setHtml", id: p.id, html }); },
+      setHtml: (html) => { sent.clear(); p.caret = null; p.sprite = null; this.send({ type: "setHtml", id: p.id, html }); },
       setText: (t, text) => mutate({ op: "text", ...tgt(t), text }),
       setAttr: (t, name, value) => mutate({ op: "attr", ...tgt(t), name, value }),
       removeAttr: (t, name) => mutate({ op: "rattr", ...tgt(t), name }),
@@ -529,6 +561,16 @@ export class HtmlUiHost {
         if (src === null && p.src === null) return;
         if (src && p.src && src.x === p.src.x && src.y === p.src.y && src.w === p.src.w && src.h === p.src.h) return;
         p.src = src ? { ...src } : null;
+        this.markDirty();
+      },
+      setSprite: (sprite) => {
+        if (sprite === null && p.sprite === null) return;
+        if (sprite && p.sprite
+          && sprite.at.x === p.sprite.at.x && sprite.at.y === p.sprite.at.y
+          && sprite.src.x === p.sprite.src.x && sprite.src.y === p.sprite.src.y
+          && sprite.src.w === p.sprite.src.w && sprite.src.h === p.sprite.src.h
+          && sprite.modulate?.join() === p.sprite.modulate?.join()) return;
+        p.sprite = sprite ? { src: { ...sprite.src }, at: { ...sprite.at }, modulate: sprite.modulate ? [...sprite.modulate] : undefined } : null;
         this.markDirty();
       },
       setZ: (z) => { if (p.z === z) return; p.z = z; this.markDirty(); },
@@ -704,6 +746,178 @@ export class HtmlUiHost {
   onDamage: (() => void) | null = null;
   private markDirty(): void { this.uiDirty = true; this.onDamage?.(); }
 
+  // ── Animated caret overlay (Salticus-style blink + eased slide) ──
+  // The worker attaches the focused editable's caret rect (doc CSS px) to
+  // every emitted frame; the in-raster caret is suppressed via
+  // caret-color:transparent when the cdylib exports dd_osr_caret_rect. The
+  // host owns the animation: blink alpha runs on a wall-clock period that
+  // RESETS on every caret move (OS convention), and position eases toward
+  // the target so typing/clicking slides the caret instead of jumping.
+
+  /** Shown caret position in doc CSS px + the doc-space target it eases
+   *  toward. `panelId` tracks which panel's caret is live — only one
+   *  editable can hold focus across all docs. */
+  private caretAnim = {
+    panelId: "",
+    x: 0, y: 0,
+    tx: 0, ty: 0, tw: 0, th: 0,
+    /** Wall-clock ms the current blink cycle began — reset on caret moves
+     *  so the caret is always visible right after typing/navigation. */
+    blinkOrigin: 0,
+    /** Wall-clock ms of the last rendered frame (dt source). */
+    lastDrawT: 0,
+    /** Blink alpha at the last drawn frame — takeDirty compares against it
+     *  to wake only on phase flips instead of keeping the chain hot for the
+     *  whole time an input is focused. */
+    lastAlpha: -1,
+    /** Lazily-built 1×1 white texture + ubo for the caret quad. */
+    tex: null as GPUTexture | null,
+    ubo: null as GPUBuffer | null,
+    bg: null as GPUBindGroup | null,
+  };
+  /** 1.06s blink period: 530ms visible / 530ms hidden. */
+  private static readonly CARET_PERIOD = 1060;
+  private static readonly CARET_VISIBLE = 530;
+  /** Caret tint — matches the kit's --dd-accent (#4fc2f7). */
+  private static readonly CARET_RGB: [number, number, number] = [0.31, 0.76, 0.97];
+
+  private caretBlinkAlpha(now: number): number {
+    return ((now - this.caretAnim.blinkOrigin) % HtmlUiHost.CARET_PERIOD) < HtmlUiHost.CARET_VISIBLE ? 1 : 0;
+  }
+
+  /** The panel whose caret should draw, or null. Frames carry the caret
+   *  only while an editable is focused, so a non-null p.caret IS the live
+   *  caret (cross-panel focus churn clears the old one via its own frame). */
+  private caretPanel(): Panel | null {
+    for (const p of this.panels.values()) if (p.caret) return p;
+    return null;
+  }
+
+  /** Frame needed for caret animation: blink phase flipped since the last
+   *  draw, or the eased position hasn't settled on the target. */
+  private caretNeedsFrame(now: number): boolean {
+    const a = this.caretAnim;
+    const p = this.caretPanel();
+    if (!p) { this.disarmCaretWake(); return a.lastAlpha > 0; }
+    this.armCaretWake(now);
+    if (a.panelId !== p.id) return true; // caret appeared / moved panels
+    const moving = Math.abs(a.tx - a.x) >= 0.5 || Math.abs(a.ty - a.y) >= 0.5;
+    return moving || this.caretBlinkAlpha(now) !== a.lastAlpha;
+  }
+
+  /** Under damageOnly, takeDirty is only polled on scheduled ticks — a blink
+   *  phase boundary can fall between two keepalive polls and arrive late or
+   *  not at all, leaving a "never blinks" caret. Arm a one-shot timer for
+   *  the exact next boundary so the chain wakes on cadence; disarmed as soon
+   *  as no editable holds focus. */
+  private caretWakeTimer: ReturnType<typeof setTimeout> | null = null;
+  private caretWakeAt = 0;
+  private armCaretWake(now: number): void {
+    const a = this.caretAnim;
+    const elapsed = (now - a.blinkOrigin) % HtmlUiHost.CARET_PERIOD;
+    const inOn = elapsed < HtmlUiHost.CARET_VISIBLE;
+    const boundary = now - elapsed + (inOn ? HtmlUiHost.CARET_VISIBLE : HtmlUiHost.CARET_PERIOD);
+    if (boundary === this.caretWakeAt && this.caretWakeTimer) return;
+    this.disarmCaretWake();
+    this.caretWakeAt = boundary;
+    this.caretWakeTimer = setTimeout(() => { this.caretWakeTimer = null; this.markDirty(); }, Math.max(4, boundary - now));
+  }
+  private disarmCaretWake(): void {
+    if (this.caretWakeTimer) { clearTimeout(this.caretWakeTimer); this.caretWakeTimer = null; }
+    this.caretWakeAt = 0;
+  }
+
+  /** Append a panel's compositor sprite (drag ghost) to the draw list —
+   *  a crop of its own raster moved by pure host state. */
+  private drawSprite(draw: CompositePanel[], p: Panel): void {
+    const s = p.sprite;
+    if (!s || !p.bindGroup || !p.ubo || !p.texture || p.texW <= 0 || p.texH <= 0) return;
+    const z = this.effZoom(p), k = z * p.scale;
+    // src: texture texel = doc px * k (doc origin = texel origin).
+    const tx0 = s.src.x * k, ty0 = s.src.y * k;
+    const tw = s.src.w * k, th = s.src.h * k;
+    if (tw <= 0 || th <= 0 || tx0 >= p.texW || ty0 >= p.texH) return;
+    // dst: doc px → screen, undoing the scroll window like the caret.
+    const sx = p.src ? p.src.x / k : 0;
+    const sy = p.src ? p.src.y / k : 0;
+    let dx = p.rect.x + (s.at.x - sx) * z;
+    let dy = p.rect.y + (s.at.y - sy) * z;
+    let dw = s.src.w * z, dh = s.src.h * z;
+    let u0 = tx0 / p.texW, v0 = ty0 / p.texH, u1 = (tx0 + tw) / p.texW, v1 = (ty0 + th) / p.texH;
+    // Clamp UVs to the texture and shrink the quad in step.
+    if (u1 > 1) { dw *= (1 - u0) / (u1 - u0); u1 = 1; }
+    if (v1 > 1) { dh *= (1 - v0) / (v1 - v0); v1 = 1; }
+    // Clip the destination quad to the panel's display rect, trimming the
+    // src window by the same fraction so a partially-offscreen ghost
+    // doesn't smear.
+    const px1 = p.rect.x + p.rect.w, py1 = p.rect.y + p.rect.h;
+    if (dx < p.rect.x) { const f = (p.rect.x - dx) / dw; u0 += (u1 - u0) * f; dw -= p.rect.x - dx; dx = p.rect.x; }
+    if (dy < p.rect.y) { const f = (p.rect.y - dy) / dh; v0 += (v1 - v0) * f; dh -= p.rect.y - dy; dy = p.rect.y; }
+    if (dx + dw > px1) { const over = dx + dw - px1; u1 -= (u1 - u0) * (over / dw); dw -= over; }
+    if (dy + dh > py1) { const over = dy + dh - py1; v1 -= (v1 - v0) * (over / dh); dh -= over; }
+    if (dw <= 0.5 || dh <= 0.5) return;
+    // Dedicated ubo + bind group: sharing p.ubo would let this entry's
+    // writeBuffer clobber the panel's uniforms (see field note above).
+    if (!p.spriteUbo) p.spriteUbo = this.blit.createUbo();
+    if (!p.spriteBg || p.spriteBgTex !== p.texture) {
+      p.spriteBg = this.blit.createBindGroup(p.texture, p.spriteUbo);
+      p.spriteBgTex = p.texture;
+    }
+    draw.push({ bindGroup: p.spriteBg, ubo: p.spriteUbo, rect: { x: dx, y: dy, w: dw, h: dh }, src: [u0, v0, u1, v1], modulate: s.modulate });
+  }
+
+  /** Advance the caret animation and append its quad to the draw list. */
+  private drawCaret(draw: CompositePanel[], now: number): void {
+    const a = this.caretAnim;
+    const p = this.caretPanel();
+    const dt = Math.min(100, Math.max(0, now - (a.lastDrawT || now)));
+    a.lastDrawT = now;
+    if (!p) { a.lastAlpha = 0; a.panelId = ""; return; }
+    const c = p.caret!;
+    const targetMoved = c.x !== a.tx || c.y !== a.ty || c.w !== a.tw || c.h !== a.th;
+    if (a.panelId !== p.id || targetMoved) {
+      // New caret / moved target: snap-only-on-first, then ease; blink
+      // restarts so the caret is visible exactly when it moves.
+      if (a.panelId !== p.id) { a.x = c.x; a.y = c.y; }
+      a.panelId = p.id;
+      a.tx = c.x; a.ty = c.y; a.tw = c.w; a.th = c.h;
+      a.blinkOrigin = now;
+    }
+    const ease = 1 - Math.exp(-dt * 0.02); // ~τ=50ms exponential approach
+    a.x += (a.tx - a.x) * ease;
+    a.y += (a.ty - a.y) * ease;
+    if (Math.abs(a.tx - a.x) < 0.5) a.x = a.tx;
+    if (Math.abs(a.ty - a.y) < 0.5) a.y = a.ty;
+
+    const alpha = this.caretBlinkAlpha(now);
+    a.lastAlpha = alpha;
+    if (!alpha) return;
+
+    // Doc CSS px → surface px: same mapping as the IME anchor — undo the
+    // srcRect scroll window, scale by effective zoom, offset to the quad.
+    const z = this.effZoom(p), k = z * p.scale;
+    const sx = p.src ? p.src.x / k : 0;
+    const sy = p.src ? p.src.y / k : 0;
+    const dx = p.rect.x + (a.x - sx) * z;
+    const dy = p.rect.y + (a.y - sy) * z;
+    const dw = Math.max(1, a.tw * z);
+    const dh = Math.max(1, a.th * z);
+    // Clip to the panel's displayed quad — a scrolled-to-edge caret must
+    // not bleed outside its doc.
+    const cx = Math.max(p.rect.x, Math.min(dx, p.rect.x + p.rect.w - dw));
+    const cy = Math.max(p.rect.y, Math.min(dy, p.rect.y + p.rect.h - dh));
+    if (cy >= p.rect.y + p.rect.h || cy + dh <= p.rect.y) return;
+
+    if (!a.tex) {
+      a.tex = this.device.createTexture({ size: [1, 1, 1], format: "rgba8unorm-srgb", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+      this.device.queue.writeTexture({ texture: a.tex }, new Uint8Array([255, 255, 255, 255]), {}, { width: 1, height: 1, depthOrArrayLayers: 1 });
+    }
+    if (!a.ubo) a.ubo = this.blit.createUbo();
+    if (!a.bg) a.bg = this.blit.createBindGroup(a.tex, a.ubo);
+    const [r, g, b] = HtmlUiHost.CARET_RGB;
+    draw.push({ bindGroup: a.bg, ubo: a.ubo, rect: { x: cx, y: cy, w: dw, h: dh }, src: [0, 0, 1, 1], modulate: [r, g, b, 1] });
+  }
+
   /** Compositor surface for AppRenderer's end-of-frame UI pass. */
   get compositor(): { hasContent(): boolean; takeDirty(): boolean; render(pass: GPURenderPassEncoder, w: number, h: number): void } {
     return {
@@ -711,7 +925,9 @@ export class HtmlUiHost {
       // keepalive timer, and takeDirty is the only compositor call that
       // still runs — without it a SAB-only frame (gpuUpload off) arriving
       // while idle would never be noticed until an unrelated wake.
-      takeDirty: () => { this.pollSabFrames(); const d = this.uiDirty; this.uiDirty = false; return d; },
+      // Caret: wakes only on blink-phase flips and unsettled slides, so a
+      // focused input costs ~2 wakeups/sec, not a hot loop.
+      takeDirty: () => { this.pollSabFrames(); const d = this.uiDirty || this.caretNeedsFrame(performance.now()); this.uiDirty = false; return d; },
       // Polling here (not only in render) means a freshly-bound panel's
       // first SAB frame lands the same frame — hasContent is what gates the
       // compositor into the UI pass.
@@ -721,7 +937,7 @@ export class HtmlUiHost {
       },
       render: (pass, w, h) => {
         this.pollSabFrames();
-        const draw = this.sortedPanels()
+        const draw: CompositePanel[] = this.sortedPanels()
           .filter((p) => p.bindGroup && p.ubo)
           .map((p) => ({
             bindGroup: p.bindGroup!, ubo: p.ubo!, rect: p.rect,
@@ -730,6 +946,8 @@ export class HtmlUiHost {
                  (p.src.x + p.src.w) / p.texW, (p.src.y + p.src.h) / p.texH] as [number, number, number, number]
               : undefined,
           }));
+        for (const p of this.panels.values()) if (p.sprite) this.drawSprite(draw, p);
+        this.drawCaret(draw, performance.now());
         this.blit.render(pass, draw, w, h);
       },
     };
@@ -738,8 +956,9 @@ export class HtmlUiHost {
   dispose(): void {
     this.unsubInput.forEach((u) => u());
     this.unsubInput = [];
+    this.disarmCaretWake();
     if (this.moveTimer) { clearTimeout(this.moveTimer); this.moveTimer = null; }
-    for (const p of this.panels.values()) { if (p.fitTimer) clearTimeout(p.fitTimer); this.retireTexture(p); p.ubo?.destroy(); p.sab = null; p.sabI32 = null; }
+    for (const p of this.panels.values()) { if (p.fitTimer) clearTimeout(p.fitTimer); this.retireTexture(p); p.ubo?.destroy(); p.spriteUbo?.destroy(); p.sab = null; p.sabI32 = null; }
     this.panels.clear();
     this.order = [];
     if (this.gpuAttachSent && this.backend.kind === "worker" && !this.gpuDetachAcked) {
@@ -990,6 +1209,7 @@ export class HtmlUiHost {
           log.info("html-ui", `frame ${m.id} x=${m.x} y=${m.y} w=${m.w} h=${m.h} pw=${m.pw} ph=${m.ph} seq=${m.seq ?? "-"} gpu=${m.gpu === true}${m.texPtr !== undefined ? ` tex=${m.texPtr}` : ""}`);
         }
         if (!p) return;
+        p.caret = m.caret ?? null;
         if (m.gpu === true) {
           // GPU-direct: the worker already wrote the dirty rect into a
           // texture — nothing to upload when it's the displayed one. A

@@ -504,9 +504,6 @@ export class AppRenderer implements CanvasResizeHandler {
       // Telemetry
       this.telemetryCollector = new TelemetryCollector(this.config.enableTelemetry ?? true);
 
-      // Canvas resize watcher
-      this.resizeWatcher = new CanvasResizeWatcher(this.canvas, this);
-
       // Input listeners
       this.inputManager.setupListeners();
 
@@ -547,6 +544,15 @@ export class AppRenderer implements CanvasResizeHandler {
       this.inputManager.setUiConsumedCheck(
         () => this.rendererModuleHost?.getInputBus().wasPointerDownConsumed() ?? false,
       );
+
+      // Canvas resize watcher — created AFTER the module host so the
+      // constructor's initial resize() dispatch actually reaches it. Before
+      // this ordering, the boot-time onResize ran while rendererModuleHost
+      // was still null, silently dropping the first dispatchResize — and if
+      // no window resize event ever followed (already-maximized launches),
+      // the camera stayed on its default aspect (1.0) forever: a permanently
+      // stretched render on any non-square window.
+      this.resizeWatcher = new CanvasResizeWatcher(this.canvas, this);
 
       // Initial viewport layout
       this.updateViewports(1);
@@ -1096,6 +1102,14 @@ export class AppRenderer implements CanvasResizeHandler {
       this.frameCount = 0;
       this.fpsTimer = 0;
     }
+
+    // Convergence check — native resize events can be lost (coalesced pump,
+    // surface recreation, wedged acquire streak). Without this the camera
+    // aspect + viewports stay pinned at stale dims and the frame renders
+    // stretched until some later event happens to fire. poll() is a no-op
+    // when nothing drifted; when it fires, onResize marks damage so the
+    // damage gate below still repaints.
+    this.resizeWatcher?.poll();
 
     // Before frame callback (app-specific: camera updates, input processing)
     this.callbacks.beforeFrame?.(dt, this.elapsedTime);

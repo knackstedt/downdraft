@@ -280,8 +280,10 @@ export function contextMenu(o: { id: string; items: MenuItem[]; x?: number; y?: 
     ? `<div class="dd-msep"></div>`
     : `<div class="dd-mi" data-action="kit:ctxitem" data-id="${esc(o.id)}"` +
       ` data-value="${esc(it.value ?? it.label)}">${esc(it.label)}</div>`).join("");
-  return `<div class="dd-ctx" id="${esc(o.id)}" data-kit="ctxmenu" data-open="${o.open ? "true" : "false"}"` +
-    ` style="left:${o.x ?? 0}px;top:${o.y ?? 0}px">${items}</div>`;
+  return `<div class="dd-ctxwrap" id="${esc(o.id)}" data-kit="ctxmenu" data-open="${o.open ? "true" : "false"}"` +
+    ` style="left:${o.x ?? 0}px;top:${o.y ?? 0}px">` +
+    `<div class="dd-ctxback" data-action="kit:close" data-id="${esc(o.id)}"></div>` +
+    `<div class="dd-ctx dd-menu">${items}</div></div>`;
 }
 
 export type ToastKind = "good" | "warn" | "bad" | "info";

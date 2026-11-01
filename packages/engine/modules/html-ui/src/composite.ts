@@ -13,6 +13,7 @@ struct Uniforms {
   srcUV: vec4<f32>,       // u0, v0, u1, v1 — texture subregion (GPU scroll)
   surfaceSize: vec2<f32>,
   pad: vec2<f32>,
+  modulate: vec4<f32>,    // premul color/alpha multiplier (caret tint+blink)
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var uiTex: texture_2d<f32>;
@@ -46,7 +47,7 @@ fn srgb_encode(l: f32) -> f32 {
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let c = textureSample(uiTex, samp, input.uv); // -srgb view → linear premul
-  return vec4<f32>(srgb_encode(c.r), srgb_encode(c.g), srgb_encode(c.b), c.a);
+  return vec4<f32>(srgb_encode(c.r), srgb_encode(c.g), srgb_encode(c.b), c.a) * u.modulate;
 }
 `;
 
@@ -61,6 +62,9 @@ export interface CompositePanel {
    *  Lets a panel display a window into a taller texture (scroll views that
    *  scroll without a doc repaint). */
   src?: [number, number, number, number];
+  /** Premultiplied color/alpha multiplier — defaults to [1,1,1,1]. Overlay
+   *  quads (the animated caret) drive color + blink alpha through this. */
+  modulate?: [number, number, number, number];
 }
 
 export class PanelBlitPass {
@@ -71,7 +75,7 @@ export class PanelBlitPass {
   constructor(private device: GPUDevice, format: GPUTextureFormat) {
     this.bindGroupLayout = device.createBindGroupLayout({
       entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
+        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
       ],
@@ -96,10 +100,10 @@ export class PanelBlitPass {
     });
   }
 
-  /** Allocate the per-panel uniform buffer (12 floats). */
+  /** Allocate the per-panel uniform buffer (16 floats). */
   createUbo(): GPUBuffer {
     return this.device.createBuffer({
-      size: 48,
+      size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   }
@@ -122,12 +126,14 @@ export class PanelBlitPass {
   /** Draw `panels` (paint order = array order) into an open render pass. */
   render(pass: GPURenderPassEncoder, panels: CompositePanel[], surfaceW: number, surfaceH: number): void {
     pass.setPipeline(this.pipeline);
-    const uni = new Float32Array(12);
+    const uni = new Float32Array(16);
     panels.forEach((p) => {
       const s = p.src;
+      const m = p.modulate;
       uni.set([p.rect.x, p.rect.y, p.rect.w, p.rect.h,
         s?.[0] ?? 0, s?.[1] ?? 0, s?.[2] ?? 1, s?.[3] ?? 1,
-        surfaceW, surfaceH]);
+        surfaceW, surfaceH, 0, 0,
+        m?.[0] ?? 1, m?.[1] ?? 1, m?.[2] ?? 1, m?.[3] ?? 1]);
       this.device.queue.writeBuffer(p.ubo, 0, uni);
       pass.setBindGroup(0, p.bindGroup);
       pass.draw(6, 1, 0, 0);

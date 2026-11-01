@@ -97,7 +97,7 @@ export type UiToWorker =
 
 /** Backend → host */
 export type WorkerToUi =
-  | { type: "ready"; caps?: { incrementalDom?: boolean } }
+  | { type: "ready"; caps?: { incrementalDom?: boolean; caretRect?: boolean } }
   /**
    * A frame is ready. Three shapes:
    *  - pixel-carrying (`pixels` present): `w*h*4` tightly-packed RGBA bytes to
@@ -107,7 +107,12 @@ export type WorkerToUi =
    *  - GPU-direct (`gpu: true`): the worker already queue.writeTextured the
    *    dirty rect into the bound panel texture — stats/bookkeeping only.
    */
-  | { type: "frame"; id: string; x: number; y: number; w: number; h: number; pw: number; ph: number; pixels?: ArrayBuffer; seq?: number; stride?: number; gpu?: boolean; texPtr?: number | bigint }
+  | { type: "frame"; id: string; x: number; y: number; w: number; h: number; pw: number; ph: number; pixels?: ArrayBuffer; seq?: number; stride?: number; gpu?: boolean; texPtr?: number | bigint;
+      /** Caret rect of the focused editable in doc CSS px (same space as
+       *  node rects / event coords) — present on every emitted frame when
+       *  the cdylib supports it; absent/zero when nothing editable has
+       *  focus. The host draws an animated caret overlay from this. */
+      caret?: { x: number; y: number; w: number; h: number } }
   /** Bind/rebind the per-doc SAB frame staging buffer. Always emitted on
    *  (re)bind so the host's copy stays current — `gpuFallback: true` marks
    *  the "worker dropped GPU-direct" emits where the host must also resume

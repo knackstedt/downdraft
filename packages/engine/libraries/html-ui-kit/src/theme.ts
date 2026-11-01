@@ -22,6 +22,34 @@ export const KIT_CSS = `
 }
 body { background: var(--dd-bg); color: var(--dd-text); font-family: ${KIT_FONT_FAMILY}; font-size: 13px; overflow: hidden; }
 
+/* ── motion ── Engine-native transitions: state lives in data-* attrs, so
+   these run entirely inside Blitz's animation clock (DocumentAnimationSet
+   keeps the doc animating → the OSR pump stays dirty until they settle,
+   then the damage loop sleeps again). Timings are intentionally short —
+   they read as smoothing, not lag. */
+.dd-btn { transition: background .12s ease, color .12s ease, border-color .12s ease; }
+.dd-check .dd-box { transition: background .12s ease, border-color .12s ease; }
+.dd-switch .dd-rail { transition: background .15s ease, border-color .15s ease; }
+.dd-switch .dd-knob { transition: left .15s ease, background .15s ease; }
+.dd-radio .dd-dot { transition: background .12s ease, border-color .12s ease; }
+.dd-input, .dd-textarea { transition: border-color .12s ease; }
+.dd-seg .dd-o { transition: background .12s ease, color .12s ease; }
+.dd-tabs .dd-t { transition: color .12s ease, border-bottom-color .12s ease; }
+.dd-menu .dd-mi { transition: background .08s ease; }
+.dd-list .dd-li, .dd-tree .dd-trow, .dd-table tr { transition: background .08s ease; }
+.dd-progress .dd-pfill { transition: width .2s ease; }
+/* Slider parts transition on the same props the drag path writes — the
+   coalesced updates in bindKit keep this a trailing ease, not a queue. */
+.dd-slider .dd-fill { transition: width .07s ease-out; }
+.dd-slider .dd-thumb { transition: left .07s ease-out; }
+.dd-dd .dd-ddbtn { transition: border-color .12s ease; }
+
+/* Page-switch convention: panels toggled via data-hidden re-run this each
+   time they reappear (display:none restarts the animation). Apps opt in by
+   putting .dd-page on their page containers. */
+.dd-page[data-hidden="false"] { animation: dd-page-in .18s ease-out; }
+@keyframes dd-page-in { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+
 /* ── primitives ── */
 .dd-btn { display:inline-block; padding:7px 14px; border-radius:var(--dd-radius);
   border:1px solid var(--dd-line2); background:var(--dd-panel2); color:var(--dd-text);
@@ -152,7 +180,17 @@ body { background: var(--dd-bg); color: var(--dd-text); font-family: ${KIT_FONT_
 .dd-menu .dd-mi > span { flex:1; }
 .dd-menu .dd-mi .dd-maccel { flex:none; color:var(--dd-dim); font-size:10px; margin-left:24px; }
 .dd-menu .dd-mi .dd-ckm { flex:none; width:14px; text-align:center; }
+/* Checkmark drawn in CSS (borders + rotate) — no font glyph needed; the
+   Blitz font chain may not carry ✓ and falls back to tofu. */
+.dd-menu .dd-mi .dd-ckm .dd-ckdot { display:block; width:5px; height:9px; margin:0 auto;
+  border-right:2px solid transparent; border-bottom:2px solid transparent; }
+.dd-menu .dd-mi[data-on="true"] .dd-ckm .dd-ckdot { border-color:var(--dd-accent);
+  transform:rotate(45deg); }
+/* Submenu arrow — CSS triangle (border trick) for the same reason. */
 .dd-menu .dd-mi .dd-caret { flex:none; }
+.dd-menu .dd-msub .dd-caret .dd-tri { display:block; width:0; height:0;
+  border-top:4px solid transparent; border-bottom:4px solid transparent;
+  border-left:5px solid var(--dd-dim); }
 .dd-menu .dd-mi[data-disabled="true"] { color:var(--dd-dim); }
 .dd-menu .dd-mi[data-disabled="true"]:hover { background:transparent; }
 
@@ -240,10 +278,19 @@ body { background: var(--dd-bg); color: var(--dd-text); font-family: ${KIT_FONT_
   font-size:10px; color:var(--dd-dim); }
 .dd-tipwrap:hover .dd-tip { display:block; }
 
-.dd-ctx { display:none; position:absolute; min-width:150px;
-  background:var(--dd-panel); border:1px solid var(--dd-line2); border-radius:5px;
+/* Wrap carries position + data-open; the backdrop covers the viewport
+   (giant negative margins — position:fixed isn't a Blitz thing) so a click
+   anywhere outside the menu dismisses it via kit:close. */
+.dd-ctxwrap { display:none; position:absolute; }
+.dd-ctxwrap[data-open="true"] { display:block; }
+.dd-ctxback { position:absolute; left:-5000px; top:-5000px; width:11000px; height:11000px; }
+.dd-ctx { position:absolute; left:0; top:0; min-width:170px; padding:4px;
+  background:var(--dd-panel); border:1px solid var(--dd-line2); border-radius:6px;
   overflow:hidden; }
-.dd-ctx[data-open="true"] { display:block; }
+/* Context menus share .dd-menu item styling via the dd-menu class on the
+   root; round the item hover like a native ctx menu. */
+.dd-ctx.dd-menu .dd-mi { border-radius:4px; }
+.dd-ctx.dd-menu .dd-msep { margin:4px 2px; }
 
 .dd-toasts { position:absolute; right:14px; top:14px; display:flex;
   flex-direction:column; gap:8px; }

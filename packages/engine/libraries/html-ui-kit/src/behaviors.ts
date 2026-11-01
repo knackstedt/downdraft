@@ -54,24 +54,55 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 
 export function bindKit(handle: UiPanelHandle, delegate: KitDelegate = {}): KitBinding {
   // One active slider drag at a time; rect measured on press (ev coords are
-  // doc-space CSS px, matching getRect).
-  let drag: { id: string; min: number; max: number; x0: number; w: number } | null = null;
+  // doc-space CSS px, matching getRect). lastV/lastPct dedupe applies —
+  // pointer travel between whole-value steps writes nothing.
+  let drag: { id: string; min: number; max: number; x0: number; w: number; lastV?: number; lastPct?: number } | null = null;
+  // Pointermove events arrive uncoalesced (one per OS event). Applying each
+  // one synchronously storms the doc worker with 4 mutations + a re-resolve
+  // per event — the visible "drag lag". Coalesce to one apply per frame
+  // (~16ms); the latest pointer position always wins, and mouseup flushes.
+  let pendingX: number | null = null;
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
   // Tree row selection is a single (tree → path) map — no queryAll needed.
   const treeSel = new Map<string, string>();
 
   const setOn = (sel: string, on: boolean): DocMutation =>
     ({ op: "attr", sel, name: "data-on", value: on ? "true" : "false" });
 
-  function sliderApply(d: { id: string; min: number; max: number; x0: number; w: number }, x: number) {
+  function sliderApply(d: NonNullable<typeof drag>, x: number) {
     const pct = d.w > 0 ? clamp((x - d.x0) / d.w, 0, 1) : 0;
     const v = Math.round(d.min + pct * (d.max - d.min));
-    handle.mutate([
-      { op: "attr", sel: `#${d.id}`, name: "data-value", value: String(v) },
-      { op: "style", sel: `#${d.id} [data-part="fill"]`, prop: "width", value: `${pct * 100}%` },
-      { op: "style", sel: `#${d.id} [data-part="thumb"]`, prop: "left", value: `${pct * 100}%` },
-      { op: "text", sel: `#${d.id} [data-part="value"]`, text: String(v) },
-    ]);
-    delegate.onChange?.(d.id, "slider", v, { t: "input" } as OsrDomEvent);
+    if (v !== d.lastV || pct !== d.lastPct) {
+      d.lastV = v; d.lastPct = pct;
+      handle.mutate([
+        { op: "attr", sel: `#${d.id}`, name: "data-value", value: String(v) },
+        { op: "style", sel: `#${d.id} [data-part="fill"]`, prop: "width", value: `${pct * 100}%` },
+        { op: "style", sel: `#${d.id} [data-part="thumb"]`, prop: "left", value: `${pct * 100}%` },
+        { op: "text", sel: `#${d.id} [data-part="value"]`, text: String(v) },
+      ]);
+      delegate.onChange?.(d.id, "slider", v, { t: "input" } as OsrDomEvent);
+    }
+  }
+
+  /** Frame-coalesced slider move — collapses the pointermove event storm
+   *  into at most one mutate batch per ~16ms while keeping the freshest x. */
+  function sliderMove(x: number) {
+    pendingX = x;
+    if (flushTimer) return;
+    flushTimer = setTimeout(() => {
+      flushTimer = null;
+      if (drag && pendingX !== null) sliderApply(drag, pendingX);
+      pendingX = null;
+    }, 16);
+  }
+
+  /** Release: apply the freshest pending x synchronously so the released
+   *  value is never a stale frame behind the pointer. */
+  function sliderEnd() {
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    if (drag && pendingX !== null) sliderApply(drag, pendingX);
+    pendingX = null;
+    drag = null;
   }
 
   function route(ev: OsrDomEvent): void {
@@ -80,8 +111,8 @@ export function bindKit(handle: UiPanelHandle, delegate: KitDelegate = {}): KitB
     const id = d.id ?? ev.id ?? "";
 
     // ── slider drag lifecycle ──
-    if (drag && ev.t === "pointermove") { sliderApply(drag, ev.x ?? 0); return; }
-    if (ev.t === "mouseup" && drag) { drag = null; return; }
+    if (drag && ev.t === "pointermove") { sliderMove(ev.x ?? 0); return; }
+    if (ev.t === "mouseup" && drag) { sliderEnd(); return; }
     if (ev.t === "mousedown" && verb === "kit:drag") {
       const min = Number(d.min ?? 0), max = Number(d.max ?? 100);
       handle.getRect(`#${id} [data-part="track"]`).then((r) => {
@@ -267,7 +298,7 @@ export function bindKit(handle: UiPanelHandle, delegate: KitDelegate = {}): KitB
   const off = handle.onEvent(route);
 
   return {
-    dispose: off,
+    dispose: () => { if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; } off(); },
     setToggle: (id, onV) => { handle.setAttr(`#${id}`, "data-on", onV ? "true" : "false"); },
     setSelect(id, i, count) {
       const ops: DocMutation[] = [setOn(`#${id} [data-i="${i}"]`, true)];

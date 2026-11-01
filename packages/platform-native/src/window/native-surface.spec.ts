@@ -8,6 +8,9 @@ import { describe, expect, it, mock } from "bun:test";
 const releasedTextures: bigint[] = [];
 const presents: number[] = [];
 let nextTexturePtr = 0x1000n;
+// >0 → acquire returns Outdated (each frame consumes 2 decrements — the
+// attempt-0 failure reconfigures then attempt-1 fails too).
+let acquireOutdated = 0;
 
 mock.module("../gpu/wgpu-ffi", () => ({
   wgpu: {
@@ -15,6 +18,11 @@ mock.module("../gpu/wgpu-ffi", () => ({
     wgpu_shim_surface_configure: () => {},
     wgpu_shim_surface_unconfigure: () => {},
     wgpu_shim_surface_get_current_texture: (_s: number, out: BigUint64Array) => {
+      out[0] = 0n; // the real shim nulls the out-param before attempting
+      if (acquireOutdated > 0) {
+        acquireOutdated--;
+        return 4; // Outdated
+      }
       out[0] = nextTexturePtr;
       return 1; // Success
     },
@@ -83,5 +91,45 @@ describe("NativeCanvasContext surface texture lifecycle", () => {
     (tex as any).__ddWritten = true;
     ctx.present();
     expect(ctx.peekCurrentTexture()).toBeNull();
+  });
+
+  it("fires onSwapchainDead on a sustained outdated streak, capped per episode", () => {
+    const ctx = makeConfiguredContext();
+    releasedTextures.length = 0;
+    let deadCalls = 0;
+    ctx.onSwapchainDead = () => { deadCalls++; };
+
+    // A brief outdated burst heals through the normal reconfigure retry —
+    // no escalation.
+    acquireOutdated = 4; // 2 failed frames
+    expect(ctx.getCurrentTexture()).toBeNull();
+    expect(ctx.getCurrentTexture()).toBeNull();
+    const healed = ctx.getCurrentTexture();
+    expect(healed).not.toBeNull();
+    (healed as any).__ddWritten = true;
+    ctx.present(); // release the outstanding texture so the next acquire runs
+    expect(deadCalls).toBe(0);
+
+    // A persistent streak escalates. Frames 1-8 consume 2 acquires (the
+    // reconfigure-and-retry path), frames 9+ consume 1 (dead-surface
+    // backoff skips the retry) — 20 outdated acquires = 12 failed frames,
+    // the 12th firing the hook.
+    acquireOutdated = 20;
+    for (let i = 0; i < 12; i++) expect(ctx.getCurrentTexture()).toBeNull();
+    expect(deadCalls).toBe(1);
+    const recreated = ctx.getCurrentTexture();
+    expect(recreated).not.toBeNull();
+    (recreated as any).__ddWritten = true;
+    ctx.present();
+    expect(deadCalls).toBe(1);
+
+    // A streak that survives recreation keeps escalating — bounded at 3
+    // attempts per wedge episode (and the >1.5s spacing means only the
+    // first lands in this burst).
+    acquireOutdated = 10_000;
+    for (let i = 0; i < 12; i++) expect(ctx.getCurrentTexture()).toBeNull();
+    expect(deadCalls).toBe(2);
+    for (let i = 0; i < 40; i++) expect(ctx.getCurrentTexture()).toBeNull();
+    expect(deadCalls).toBe(2); // spaced out, not per-frame
   });
 });

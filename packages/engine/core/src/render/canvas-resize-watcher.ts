@@ -8,6 +8,11 @@ export class CanvasResizeWatcher {
   private dpr = 1;
   /** Explicit override via setDpr — 0 means "track the host's live ratio". */
   private dprOverride = 0;
+  /** Dims/dpr handed to the handler on the last dispatch — poll() converges
+   *  against these so a dropped "resize" event can't pin a stale aspect. */
+  private lastW = -1;
+  private lastH = -1;
+  private lastDpr = -1;
   private onSurfaceResize = () => this.resize();
 
   constructor(
@@ -20,6 +25,12 @@ export class CanvasResizeWatcher {
     this.resize();
   }
 
+  private effectiveDpr(): number {
+    if (this.dprOverride > 0) return this.dprOverride;
+    const live = (typeof window !== "undefined" ? window.devicePixelRatio : 0) || 0;
+    return live > 0 ? live : this.dpr;
+  }
+
   private resize(): void {
     // Re-read devicePixelRatio on every resize — on the native host it's a
     // live query (the current monitor's scale factor), so this self-heals
@@ -27,9 +38,29 @@ export class CanvasResizeWatcher {
     // ratio silently diverges from the surface's clientWidth (which divides
     // the physical extent by the live factor), sizing the swapchain to the
     // wrong extent — wgpu then reports Outdated on every acquire forever.
-    const live = (typeof window !== "undefined" ? window.devicePixelRatio : 0) || 0;
-    this.dpr = this.dprOverride > 0 ? this.dprOverride : (live > 0 ? live : this.dpr);
-    this.handler.onResize(this.canvas.clientWidth, this.canvas.clientHeight, this.dpr);
+    this.dpr = this.effectiveDpr();
+    this.lastW = this.canvas.clientWidth;
+    this.lastH = this.canvas.clientHeight;
+    this.lastDpr = this.dpr;
+    this.handler.onResize(this.lastW, this.lastH, this.dpr);
+  }
+
+  /** Re-read the surface's CSS dims + live DPR and fire onResize only when
+   *  they drifted from the last dispatch. Call once per frame (or per render
+   *  tick) — native resize events are coalesced/re-emitted through several
+   *  layers and a lost one otherwise leaves the camera aspect + viewports
+   *  pinned at stale dims forever (e.g. maximize during a surface
+   *  recreation, or an event eaten while the loop was wedged). */
+  poll(): void {
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    const dpr = this.effectiveDpr();
+    if (w === this.lastW && h === this.lastH && dpr === this.lastDpr) return;
+    this.dpr = dpr;
+    this.lastW = w;
+    this.lastH = h;
+    this.lastDpr = dpr;
+    this.handler.onResize(w, h, dpr);
   }
 
   /** Pin the ratio explicitly (tests, forced-DPR harnesses). 0 resumes

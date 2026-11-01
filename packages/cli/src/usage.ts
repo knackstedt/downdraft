@@ -84,9 +84,10 @@ export const COMMANDS: CommandEntry[] = [
   },
   {
     name: "dev",
-    usage: "draft dev [options]",
+    usage: "draft dev [options] [-- app-args...]",
     summary: "Start the app on the native runtime (winit + wgpu; Bun, Node, or Deno host — see --runtime). Run from an app directory (cwd inference).",
     schema: {
+      positionals: [{ name: "app-args", variadic: true, description: "Arguments forwarded to the app (e.g. model/file paths) — visible to it as process.argv.slice(2)" }],
       flags: [
         { name: "entry", type: "string", description: "App entrypoint file (defaults to src/native-entry.ts)" },
         { name: "port", type: "number", description: "MCP HTTP port (default: auto-assign)" },

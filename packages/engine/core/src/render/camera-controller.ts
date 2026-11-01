@@ -94,6 +94,9 @@ function quatSlerp(a: Quat, b: Quat, t: number): Quat {
 export class CameraController implements CameraControllerLike {
   private cameras: Map<string, Camera> = new Map();
   private activeId: string | null = null;
+  /** Last dims passed to setAspect — applied to cameras added later so a
+   *  post-registration addCamera doesn't stay on the default aspect (1.0). */
+  private lastAspect: { w: number; h: number } | null = null;
 
   /** Lerp factor in [0,1]. 0 = instant, 1 = never moves. */
   lerpFactor: number;
@@ -123,6 +126,7 @@ export class CameraController implements CameraControllerLike {
   // ── Multi-camera management ──
 
   addCamera(id: string, camera: Camera): void {
+    if (this.lastAspect) camera.setAspect(this.lastAspect.w, this.lastAspect.h);
     this.cameras.set(id, camera);
     if (this.activeId === null) this.activeId = id;
   }
@@ -176,6 +180,7 @@ export class CameraController implements CameraControllerLike {
   // ── CameraControllerLike ──
 
   setAspect(w: number, h: number): void {
+    this.lastAspect = { w, h };
     for (const cam of this.cameras.values()) {
       cam.setAspect(w, h);
     }

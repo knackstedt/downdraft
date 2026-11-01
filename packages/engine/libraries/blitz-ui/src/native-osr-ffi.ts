@@ -101,11 +101,25 @@ const OSR_APPEND_SPEC = {
 
 export type OsrAppendSymbols = Record<keyof typeof OSR_APPEND_SPEC, (...args: any[]) => any>;
 
+/**
+ * Caret-geometry export — resolved on its own dlopen like the append spec so
+ * a cdylib predating it simply reports `caretRect: false` and keeps the
+ * native in-raster caret (the host only hides it when the overlay works).
+ */
+const OSR_CARET_SPEC = {
+  dd_osr_caret_rect: { args: ["ptr"], returns: "ptr" },
+} satisfies Record<string, CFunction>;
+
+export type OsrCaretSymbols = Record<keyof typeof OSR_CARET_SPEC, (...args: any[]) => any>;
+
 /** What the loaded cdylib can do — surfaced to hosts via the doc core's
  *  `ready` message so panels can pick incremental vs full-render paths. */
 export interface OsrCaps {
   /** dd_osr_append_html + dd_osr_trim_children are bound. */
   incrementalDom: boolean;
+  /** dd_osr_caret_rect is bound — the host may draw the animated caret
+   *  overlay and suppress the in-raster caret. */
+  caretRect: boolean;
 }
 
 /** One DOM event emitted by a document — see events.rs for the field schema. */
@@ -139,11 +153,11 @@ export function registerOsrResource(url: string, bytes: Uint8Array | ArrayBuffer
   ) as number) === 0;
 }
 
-let cached: { symbols: OsrSymbols; append: OsrAppendSymbols | null; path: string } | null = null;
+let cached: { symbols: OsrSymbols; append: OsrAppendSymbols | null; caret: OsrCaretSymbols | null; path: string } | null = null;
 
 /** dlopen the Blitz OSR cdylib. Returns null when the artifact is absent
  *  (not built / not staged) so hosts can disable OSR instead of crashing. */
-export function loadOsrLib(): { symbols: OsrSymbols; append: OsrAppendSymbols | null; path: string } | null {
+export function loadOsrLib(): { symbols: OsrSymbols; append: OsrAppendSymbols | null; caret: OsrCaretSymbols | null; path: string } | null {
   if (cached) return cached;
   const path = findOsrLibrary();
   if (!path) return null;
@@ -153,7 +167,11 @@ export function loadOsrLib(): { symbols: OsrSymbols; append: OsrAppendSymbols | 
     try {
       append = dlopen(path, OSR_APPEND_SPEC).symbols as OsrAppendSymbols;
     } catch { /* older cdylib — incrementalDom stays off */ }
-    cached = { symbols, append, path };
+    let caret: OsrCaretSymbols | null = null;
+    try {
+      caret = dlopen(path, OSR_CARET_SPEC).symbols as OsrCaretSymbols;
+    } catch { /* older cdylib — no caret overlay geometry */ }
+    cached = { symbols, append, caret, path };
     return cached;
   } catch {
     return null;
@@ -201,13 +219,15 @@ export class OsrDoc {
   private handle: number;
   private lib: OsrSymbols;
   private appendLib: OsrAppendSymbols | null;
+  private caretLib: OsrCaretSymbols | null;
   /** Physical px dimensions tracked host-side (updated on resize). */
   width: number;
   height: number;
 
-  private constructor(lib: OsrSymbols, appendLib: OsrAppendSymbols | null, handle: number, width: number, height: number) {
+  private constructor(lib: OsrSymbols, appendLib: OsrAppendSymbols | null, caretLib: OsrCaretSymbols | null, handle: number, width: number, height: number) {
     this.lib = lib;
     this.appendLib = appendLib;
+    this.caretLib = caretLib;
     this.handle = handle;
     this.width = width;
     this.height = height;
@@ -216,7 +236,8 @@ export class OsrDoc {
   /** Capabilities of the loaded cdylib — read once and cache; the lib is
    *  resolved lazily so this stays false before the first create(). */
   static get caps(): OsrCaps {
-    return { incrementalDom: !!loadOsrLib()?.append };
+    const lib = loadOsrLib();
+    return { incrementalDom: !!lib?.append, caretRect: !!lib?.caret };
   }
 
   static create(width: number, height: number, scale: number, html: string): OsrDoc | null {
@@ -225,7 +246,7 @@ export class OsrDoc {
     const bytes = enc.encode(html);
     const h = entry.symbols.dd_osr_init(width, height, scale, ptr(bytes), bytes.length) as number;
     if (!h) return null;
-    return new OsrDoc(entry.symbols, entry.append, h, width, height);
+    return new OsrDoc(entry.symbols, entry.append, entry.caret, h, width, height);
   }
 
   /** Replace the whole document (Blitz has no in-place reparse). */
@@ -465,6 +486,22 @@ export class OsrDoc {
     if (!p) return null;
     const u8 = readMappedRange(p, 32);
     const f = new Float64Array(u8.buffer, u8.byteOffset, 4);
+    return { x: f[0], y: f[1], w: f[2], h: f[3] };
+  }
+
+  /**
+   * Caret rect of the focused editable in logical px (same doc space as
+   * nodeRect / DOM event coords), or null when nothing editable is focused
+   * or the cdylib predates dd_osr_caret_rect. The host animates its own
+   * caret overlay from these coords.
+   */
+  caretRect(): { x: number; y: number; w: number; h: number } | null {
+    if (!this.caretLib) return null;
+    const p = this.caretLib.dd_osr_caret_rect(this.handle) as number;
+    if (!p) return null;
+    const u8 = readMappedRange(p, 32);
+    const f = new Float64Array(u8.buffer, u8.byteOffset, 4);
+    if (f[2] <= 0 || f[3] <= 0) return null;
     return { x: f[0], y: f[1], w: f[2], h: f[3] };
   }
 

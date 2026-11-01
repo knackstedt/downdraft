@@ -295,6 +295,55 @@ pub extern "C" fn dd_osr_node_rect(handle: *mut OsrDoc, node: u64) -> *const f64
     })
 }
 
+/// Text-editing caret rect in the same logical-CSS-px document space as
+/// dd_osr_node_rect / DOM event client coords: writes [x, y, w, h] into the
+/// doc's rect buffer and returns its pointer. All-zero when no editable
+/// node (<input>/<textarea>) is focused or the editor has no cursor
+/// geometry — the host draws its own animated caret overlay at these
+/// coords and hides the native one (caret-color:transparent).
+///
+/// The math mirrors blitz-paint's draw_text_input_text: the caret lives in
+/// the input's content box, vertically centered for single-line inputs,
+/// translated by -scroll_offset along the scrolling axis (horizontal for
+/// inputs, vertical for textareas). cursor_geometry returns device px, so
+/// it is unscaled by the viewport scale.
+#[no_mangle]
+pub extern "C" fn dd_osr_caret_rect(handle: *mut OsrDoc) -> *const f64 {
+    fn caret_rect(d: &OsrDoc) -> Option<[f64; 4]> {
+        let doc = d.doc.inner();
+        let fid = doc.get_focussed_node_id()?;
+        let node = doc.get_node(fid)?;
+        let input = node.element_data().and_then(|e| e.text_input_data())?;
+        let cursor = input.editor.cursor_geometry(1.5)?;
+        let scale = doc.viewport().scale_f64();
+        let pos = node.unrounded_absolute_position(0.0, 0.0);
+        let lay = node.final_layout();
+        let v_off = node.text_input_v_centering_offset(scale);
+        let content_x = (lay.padding.left + lay.border.left) as f64;
+        let content_y = (lay.padding.top + lay.border.top) as f64 + v_off;
+        let scroll = input.scroll_offset as f64;
+        let (sx, sy) = if input.is_multiline {
+            (0.0, scroll)
+        } else {
+            (scroll, 0.0)
+        };
+        Some([
+            pos.x as f64 + content_x + cursor.x0 / scale - sx,
+            pos.y as f64 + content_y + cursor.y0 / scale - sy,
+            (cursor.x1 - cursor.x0) / scale,
+            (cursor.y1 - cursor.y0) / scale,
+        ])
+    }
+    ffi(std::ptr::null(), || {
+        let Some(mut g) = doc_enter(handle) else {
+            return std::ptr::null();
+        };
+        let d = g.get();
+        d.rect_buf = caret_rect(d).unwrap_or([0.0; 4]);
+        d.rect_buf.as_ptr()
+    })
+}
+
 /// Byte length of the out-buffer written by dd_osr_get_attr.
 #[no_mangle]
 pub extern "C" fn dd_osr_out_len(handle: *mut OsrDoc) -> usize {

@@ -153,7 +153,7 @@ function menuItemHtml(it: AppMenuItem, barId: string, mbIndex: number | null, pa
     const kids = it.items.map((c, j) => menuItemHtml(c, barId, mbIndex, `${path}-${j}`)).join("");
     const dis = it.enabled === false ? ` data-disabled="true"` : "";
     return `<div class="dd-mi dd-msub"${dis}><span>${esc(it.label)}</span>` +
-      `<span class="dd-caret">▸</span><div class="dd-menu dd-msubm">${kids}</div></div>`;
+      `<span class="dd-caret"><i class="dd-tri"></i></span><div class="dd-menu dd-msubm">${kids}</div></div>`;
   }
   // it: item | check | predefined — narrow on it.type directly (a derived
   // local doesn't narrow the union).
@@ -170,7 +170,7 @@ function menuItemHtml(it: AppMenuItem, barId: string, mbIndex: number | null, pa
     // data-mi is the element's own id so the verb can flip the checkmark.
     return `<div class="dd-mi dd-mck" id="m-${esc(barId)}-${path}"${dis}${on}` +
       ` data-action="kit:menuitem" data-mi="m-${esc(barId)}-${path}"${mb}${mbi}` +
-      ` data-mid="${esc(id)}"><span class="dd-ckm">${it.checked ? "✓" : ""}</span>` +
+      ` data-mid="${esc(id)}"><span class="dd-ckm"><i class="dd-ckdot"></i></span>` +
       `<span>${esc(label)}</span>${accelSpan(it.accelerator)}</div>`;
   }
   const accel = "accelerator" in it ? accelSpan(it.accelerator) : "";
@@ -237,6 +237,12 @@ export interface PopupMenuOpts {
  *  (binding.showContextMenu moves + opens it). */
 export function popupMenu(o: PopupMenuOpts): string {
   const items = o.model.items.map((it, j) => menuItemHtml(it, o.id, null, `p-${j}`)).join("");
-  return `<div class="dd-ctx dd-popmenu" id="${esc(o.id)}" data-kit="ctxmenu" data-open="false"` +
-    ` style="left:${o.x ?? 0}px;top:${o.y ?? 0}px">${items}</div>`;
+  // dd-menu on the inner div shares dropdown item styling (padding, hover,
+  // checks, submenus). The wrap carries id/data-open/position so an
+  // outside-click backdrop can sit between page and menu (DOM order = paint
+  // order in Blitz). kit:close / kit:ctxitem flip data-open on the wrap.
+  return `<div class="dd-ctxwrap" id="${esc(o.id)}" data-kit="ctxmenu" data-open="false"` +
+    ` style="left:${o.x ?? 0}px;top:${o.y ?? 0}px">` +
+    `<div class="dd-ctxback" data-action="kit:close" data-id="${esc(o.id)}"></div>` +
+    `<div class="dd-ctx dd-popmenu dd-menu">${items}</div></div>`;
 }

@@ -60,6 +60,12 @@ export class NativeCanvasContext {
   private lastAcquireLog = 0;
   // Dead-surface backoff — see the outdated/lost arm in getCurrentTexture.
   private lastHealConfigureMs = 0;
+  // Swapchain-dead escalation — when reconfiguring at the real extent still
+  // can't acquire (the window's drawable was recreated under the surface),
+  // onSwapchainDead recreates the whole VkSurface. Bounded per wedge
+  // episode so a genuinely-gone window doesn't churn native surfaces.
+  private deadHealCount = 0;
+  private lastDeadHealMs = -Infinity;
   private static loggedFirstAcquire = false;
 
   /** Host truth source: the window's real extent (winit inner_size). Used to
@@ -70,6 +76,9 @@ export class NativeCanvasContext {
    *  to the real window extent — the surface uses it to re-sync its JS-side
    *  dims and re-fire "resize" so the renderer's watcher converges too. */
   onExtentAdopted?: (width: number, height: number) => void;
+  /** Fired when even a correctly-sized swapchain keeps failing to acquire —
+   *  the VkSurface itself is presumed dead and should be recreated. */
+  onSwapchainDead?: () => void;
 
   constructor(surfacePtr: ptr) {
     this.surfacePtr = surfacePtr;
@@ -230,6 +239,8 @@ export class NativeCanvasContext {
           catch { /* best-effort */ }
         }
         this.acquireFailures = 0;
+        this.deadHealCount = 0;
+        this.lastDeadHealMs = -Infinity;
         this.currentTexture = new WgpuTexture(texPtr, {
           size: { width: this.width, height: this.height },
           format: this.format,
@@ -276,6 +287,20 @@ export class NativeCanvasContext {
           this.resize(ext.width, ext.height);
           this.onExtentAdopted?.(ext.width, ext.height);
         }
+      }
+      // Escalate: the streak survived extent adoption (or the requested
+      // size already matched) — a same-size reconfigure can't heal a
+      // surface whose drawable died underneath it (X11 window recreation,
+      // maximize fullscreen transitions). Recreate the VkSurface; capped
+      // and spaced so a permanently dead window doesn't allocate forever.
+      if ((status === SURFACE_TEX_OUTDATED || status === SURFACE_TEX_LOST)
+          && this.acquireFailures >= 12
+          && this.deadHealCount < 3
+          && performance.now() - this.lastDeadHealMs > 1500) {
+        this.lastDeadHealMs = performance.now();
+        this.deadHealCount++;
+        log.warn("surface", `acquire still failing after ${this.acquireFailures} frames — recreating the wgpu surface`);
+        try { this.onSwapchainDead?.(); } catch (e) { log.error("surface", `surface recreation failed: ${e}`); }
       }
       // Throttle the log — a minimized/occluded window otherwise spams this
       // every frame for the entire occlusion.
@@ -430,6 +455,21 @@ export class NativeSurface extends MiniEventTarget {
       this._cssHeight = h / this.cssScale;
       this.setSize(w, h);
       this.dispatchEvent({ type: "resize", width: w, height: h });
+    };
+    this.context.onSwapchainDead = () => {
+      // Same escalation the Android resume path uses: drop the dead
+      // VkSurface and create a fresh one on the same window. rebindSurface
+      // zeroes the configured dims so the next acquire reconfigures; the
+      // "resize" re-fire wakes damage-gated renderers so the healed frame
+      // actually repaints.
+      const g = globalThis as {
+        __nativeWindow?: { recreateGpuSurface?: (instancePtr: unknown) => void };
+        __wgpuInstancePtr?: unknown;
+      };
+      if (g.__nativeWindow?.recreateGpuSurface && g.__wgpuInstancePtr !== undefined) {
+        g.__nativeWindow.recreateGpuSurface(g.__wgpuInstancePtr);
+        this.dispatchEvent({ type: "resize", width: this._width, height: this._height });
+      }
     };
     this.context["resize"](width, height);
   }

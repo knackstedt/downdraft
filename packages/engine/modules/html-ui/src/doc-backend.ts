@@ -55,6 +55,16 @@ export function createWorkerBackend(worker: Worker): DocBackend {
 
 import { OsrDoc, registerOsrResource } from "@downdraft/engine/libraries/blitz-ui/native-osr-ffi";
 
+/** Appended to doc HTML when the cdylib exports caret geometry — the host
+ *  draws an animated caret overlay instead, so the in-raster caret is made
+ *  transparent. Skipped on older libs (native caret stays visible). */
+const HIDE_CARET_CSS = "<style>input,textarea{caret-color:transparent}</style>";
+function withCaretCss(html: string): string {
+  if (!OsrDoc.caps.caretRect) return html;
+  const i = html.lastIndexOf("</body>");
+  return i >= 0 ? html.slice(0, i) + HIDE_CARET_CSS + html.slice(i) : html + HIDE_CARET_CSS;
+}
+
 interface DocState {
   doc: OsrDoc;
   scale: number;
@@ -162,6 +172,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
       seq: Atomics.load(u, H_SEQ),
       x: u[H_X], y: u[H_Y], w: u[H_W], h: u[H_H],
       pw: u[H_PW], ph: u[H_PH], stride: u[H_STRIDE],
+      caret: s.doc.caretRect() ?? undefined,
     });
   }
 
@@ -188,7 +199,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
             { offset: 64 + y * stride + x * 4, bytesPerRow: stride, rowsPerImage: h },
             { width: w, height: h, depthOrArrayLayers: 1 },
           );
-          emit({ type: "frame", id, x, y, w, h, pw, ph, gpu: true, texPtr: g.ptr });
+          emit({ type: "frame", id, x, y, w, h, pw, ph, gpu: true, texPtr: g.ptr, caret: s.doc.caretRect() ?? undefined });
           return;
         } catch {
           // The view died between the check and the FFI call — fall through
@@ -295,11 +306,11 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
           const src = (rect.y + r) * pw * 4 + rect.x * 4;
           tight.set(pixels.subarray(src, src + rect.w * 4), r * rect.w * 4);
         }
-        emit({ type: "frame", id, x: rect.x, y: rect.y, w: rect.w, h: rect.h, pw, ph, pixels: tight.buffer });
+        emit({ type: "frame", id, x: rect.x, y: rect.y, w: rect.w, h: rect.h, pw, ph, pixels: tight.buffer, caret: s.doc.caretRect() ?? undefined });
       } else {
         collectStats(s, pw * ph * 4);
         const copy = pixels.slice();
-        emit({ type: "frame", id, x: 0, y: 0, w: pw, h: ph, pw, ph, pixels: copy.buffer as ArrayBuffer });
+        emit({ type: "frame", id, x: 0, y: 0, w: pw, h: ph, pw, ph, pixels: copy.buffer as ArrayBuffer, caret: s.doc.caretRect() ?? undefined });
       }
     }
     emitStats(now);
@@ -314,7 +325,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
           if (old?.gpuTex) emit({ type: "texAck", id: m.id, texPtr: old.gpuTex.ptr });
           old?.doc.destroy();
           if (/float\s*:/.test(m.html)) emit({ type: "error", id: m.id, message: "CSS float hangs Blitz layout — use flex instead" });
-          const doc = OsrDoc.create(m.cssW * m.scale, m.cssH * m.scale, m.scale, m.html);
+          const doc = OsrDoc.create(m.cssW * m.scale, m.cssH * m.scale, m.scale, withCaretCss(m.html));
           if (!doc) { emit({ type: "error", id: m.id, message: "OsrDoc.create failed" }); return; }
           const s: DocState = {
             doc, scale: m.scale, cssW: m.cssW, cssH: m.cssH,
@@ -340,7 +351,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
           // Drop any in-flight smooth-wheel drain — its remainder belongs to
           // the document being replaced.
           s.wheelRx = s.wheelRy = 0;
-          s.doc.setHtml(m.html);
+          s.doc.setHtml(withCaretCss(m.html));
           break;
         }
         case "resize": {
@@ -581,7 +592,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
     : null;
   memStatsTimer?.unref?.();
 
-  emit({ type: "ready", caps: { incrementalDom: OsrDoc.caps.incrementalDom } });
+  emit({ type: "ready", caps: { incrementalDom: OsrDoc.caps.incrementalDom, caretRect: OsrDoc.caps.caretRect } });
 
   return {
     handle,

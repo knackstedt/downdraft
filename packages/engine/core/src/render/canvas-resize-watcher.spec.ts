@@ -70,4 +70,27 @@ describe("CanvasResizeWatcher", () => {
     watcher.setDpr(2);
     expect(onResize).toHaveBeenLastCalledWith(800, 600, 2);
   });
+
+  it("poll() self-heals when a resize event is dropped", () => {
+    const surface = createMockSurface();
+    const onResize = vi.fn();
+    const watcher = new CanvasResizeWatcher(surface, { onResize });
+    onResize.mockClear();
+    // Backing store changed but the "resize" event never arrived — e.g. a
+    // lost native event during maximize/surface recreation.
+    surface.width = 1876;
+    surface.height = 1020;
+    watcher.poll();
+    expect(onResize).toHaveBeenCalledWith(1876, 1020, 1);
+  });
+
+  it("poll() is a no-op when nothing changed", () => {
+    const surface = createMockSurface();
+    const onResize = vi.fn();
+    const watcher = new CanvasResizeWatcher(surface, { onResize });
+    onResize.mockClear();
+    watcher.poll();
+    watcher.poll();
+    expect(onResize).not.toHaveBeenCalled();
+  });
 });

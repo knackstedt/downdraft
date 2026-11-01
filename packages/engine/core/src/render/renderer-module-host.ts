@@ -30,8 +30,6 @@ import type {
 import type { RenderSurface } from "../platform/render-surface";
 import { getNativeHost } from "../platform/runtime";
 import { createLogger } from "../util/logger";
-import type { CameraState } from "./camera";
-import type { FrameGraph, SlotRegistry } from "./frame-graph";
 import type {
     CameraViewportInfo,
     CancelRAF,
@@ -39,6 +37,8 @@ import type {
     RAFSource,
     RenderTargetProvider
 } from "./app-renderer";
+import type { CameraState } from "./camera";
+import type { FrameGraph, SlotRegistry } from "./frame-graph";
 import { RendererInputBusImpl } from "./renderer-input-bus";
 
 const log = createLogger();
@@ -105,6 +105,9 @@ export class RendererModuleHost {
   private cameraController: CameraControllerLike | null = null;
   /** Name of the module that installed the current camera controller (for unload cleanup). */
   private cameraControllerOwner: string | null = null;
+  /** Last physical-px dims from dispatchResize — replayed into a camera
+   *  controller registered after the most recent resize. */
+  private lastResize: { w: number; h: number } | null = null;
   private viewportCameraProvider: ((viewportIdx: number, dt: number, elapsedTime: number) => CameraViewportInfo | null) | null = null;
   /** Name of the module that installed the current viewport camera provider (for unload cleanup). */
   private viewportCameraProviderOwner: string | null = null;
@@ -440,6 +443,10 @@ export class RendererModuleHost {
   }
 
   dispatchResize(cssWidth: number, cssHeight: number, dpr: number): void {
+    this.lastResize = {
+      w: Math.round(cssWidth * dpr),
+      h: Math.round(cssHeight * dpr),
+    };
     for (let i = 0; i < this.resizeHooks.length; i++) {
       try {
         this.resizeHooks[i].fn(cssWidth, cssHeight, dpr);
@@ -447,10 +454,7 @@ export class RendererModuleHost {
         log.error("renderer-module-host", `Resize hook error in "${this.resizeHooks[i].owner}": ${err}`);
       }
     }
-    this.cameraController?.setAspect(
-      Math.round(cssWidth * dpr),
-      Math.round(cssHeight * dpr),
-    );
+    this.cameraController?.setAspect(this.lastResize.w, this.lastResize.h);
   }
 
   dispatchRenderPass(
@@ -607,6 +611,13 @@ export class RendererModuleHost {
         // should null this in its dispose fn if it wants to release the slot.
         this.cameraController = controller;
         this.cameraControllerOwner = controller ? name : null;
+        // Replay the last known surface dims — a resize dispatched before the
+        // controller registered would otherwise leave it on Camera's default
+        // aspect (1.0) until the next resize event, which reads as a
+        // horizontally stretched render on any non-square window.
+        if (controller && this.lastResize) {
+          controller.setAspect(this.lastResize.w, this.lastResize.h);
+        }
       },
       getCameraController: () => this.cameraController,
 
