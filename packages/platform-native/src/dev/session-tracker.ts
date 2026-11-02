@@ -813,6 +813,12 @@ export class SessionTracker {
         const wrappedFn = typeof fn === "function" && sref
           ? (...a: any[]) => {
               const ss = sref.deref();
+              // A fired one-shot retires its tracked id — only clearTimeout
+              // removes ids otherwise, so a plain add() would pin every
+              // handle (and this closure's env → the caller's fn) for the
+              // session's lifetime. Same fix as the rAF wrap below.
+              ss?.timeouts.delete(id);
+              self.zombies.timeouts.delete(id);
               if (!ss || ss.dead) { try { origClear?.(id); } catch {} return; }
               return fn(...a);
             }
@@ -861,8 +867,21 @@ export class SessionTracker {
       this.orig.setImmediate = g.setImmediate;
       const origClear = g.clearImmediate?.bind(g);
       g.setImmediate = function (fn: any, ...rest: any[]) {
-        const id = self.orig.setImmediate(fn, ...rest);
         const s = self.session;
+        // Same self-disarm + fire-retire as setTimeout — immediates also
+        // fire once and would otherwise sit in s.immediates forever.
+        let id: any;
+        const sref = s ? new WeakRef(s) : null;
+        const wrappedFn = typeof fn === "function" && sref
+          ? (...a: any[]) => {
+              const ss = sref.deref();
+              ss?.immediates.delete(id);
+              self.zombies.immediates.delete(id);
+              if (!ss || ss.dead) { try { origClear?.(id); } catch {} return; }
+              return fn(...a);
+            }
+          : fn;
+        id = self.orig.setImmediate(wrappedFn, ...rest);
         if (s && !s.dead) s.immediates.add(id);
         else if (s?.dead) { self.zombies.immediates.add(id); warnOrphan("setImmediate(dead-session)"); }
         else self.zombies.immediates.add(id);
