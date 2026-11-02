@@ -46,8 +46,8 @@ pub fn paint_scene(
     scale: f64,
     width: u32,
     height: u32,
-    x_offset: u32,
-    y_offset: u32,
+    x_offset: impl Into<f64>,
+    y_offset: impl Into<f64>,
 ) {
     // Run `.paint()` on every custom widget in the document (and all subdocuments) ahead of time.
     // This helps us avoid borrow-checker issues as we recurse down the tree (`.paint()` require `&mut self`).
@@ -63,8 +63,8 @@ pub fn paint_scene(
         scale,
         width,
         height,
-        x_offset as f64,
-        y_offset as f64,
+        x_offset.into(),
+        y_offset.into(),
         &custom_widget_scenes,
     );
     generator.paint_scene(scene);

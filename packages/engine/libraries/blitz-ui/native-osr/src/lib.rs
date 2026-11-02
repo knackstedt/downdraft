@@ -35,10 +35,12 @@ use blitz_traits::shell::{ColorScheme, ShellProvider, Viewport};
 use keyboard_types::{Code, Key, Location, Modifiers};
 use linebender_resource_handle::Blob;
 
+mod damage;
 mod events;
 mod mutate;
 mod resources;
 
+use damage::{Damage, DamageTracker};
 use events::{new_event_queue, EventQueue, QueueingHandler};
 use resources::{register_resource, UiNetProvider};
 
@@ -204,6 +206,16 @@ pub struct OsrDoc {
     /// Per-frame timings + counters surfaced via dd_osr_last_stats.
     /// [resolve_ms, paint_ms, diff_ms, pixels_len, rasters, skips]
     stats: [f64; 8],
+    /// Geometric damage tracking — predicts the changed region from DOM
+    /// state so raster+diff scale with damage instead of frame size.
+    damage: DamageTracker,
+    /// Region-raster scratch — `rw*rh*4` bytes for the current damage
+    /// rect. Sourced by write_bound_frame (SAB path) or folded into
+    /// d.pixels (pointer path). Empty when the last raster was full-frame.
+    region: Vec<u8>,
+    /// Frame-space [x,y,w,h] of the raster inside `region` (zero when the
+    /// last raster was full-frame).
+    region_rect: [u32; 4],
     /// Optional SAB staging buffer for zero-copy frame delivery.
     frame_buf: Option<BoundBuf>,
     /// The bound buffer currently holds the last delivered frame — set by
@@ -211,6 +223,9 @@ pub struct OsrDoc {
     /// dd_osr_refresh_into republishes it header-only; with no retained
     /// pixels to copy, a false flag is the only honest "no frame yet".
     sab_valid: bool,
+    /// Hash of the last markup handed to init/set_html — dedupes
+    /// no-change rebuilds.
+    last_html_hash: u64,
     /// Currently-pressed mouse buttons (mirrors winit shell bookkeeping).
     buttons: MouseEventButtons,
     /// Node under the last main-button press, via element_from_point. Blitz's
@@ -631,6 +646,10 @@ pub unsafe extern "C" fn dd_osr_init(
             pixels: Vec::new(),
             prev_pixels: Vec::new(),
             dirty_rect: [0, 0, 0, 0],
+            damage: DamageTracker::new(),
+            region: Vec::new(),
+            region_rect: [0, 0, 0, 0],
+            last_html_hash: html_hash(html.as_bytes()),
             dirty: true,
             redraw,
             stats: [0.0; 8],
@@ -663,9 +682,28 @@ pub unsafe extern "C" fn dd_osr_init(
     })
 }
 
-/// Replace the document's HTML content. The viewport, scale and renderer are
-/// preserved; the DOM is rebuilt from scratch (Blitz has no in-place HTML
-/// reparse). Marks the document dirty. Returns 0 on success.
+/// FNV-1a over the markup — dedupes set_html calls that hand back
+/// identical content (app re-renders often produce the same string; a
+/// rebuild or subtree swap would churn the DOM for nothing).
+fn html_hash(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325 ^ bytes.len() as u64;
+    for &b in bytes {
+        h = (h ^ b as u64).wrapping_mul(0x1000_0000_01b3);
+    }
+    h
+}
+
+/// Replace the document's HTML content.
+///
+/// Identical markup short-circuits. Otherwise the swap is done in place:
+/// `set_inner_html` on the root `<html>` element reparses the markup as
+/// its children (html5ever fragment parsing synthesizes head/body exactly
+/// like a full document parse) while preserving the `HtmlDocument` shell —
+/// font/net providers, the DOM slab's allocations, the event queue
+/// plumbing and document-level state survive, and the allocator keeps the
+/// doc instead of ratcheting the arena on a drop+rebuild cycle. Element
+/// NodeIds below the root still invalidate, as they did on rebuild.
+/// Marks the document dirty. Returns 0 on success.
 ///
 /// # Safety
 /// `handle` must be a live OsrDoc from dd_osr_init; `html_ptr` must point to
@@ -684,24 +722,33 @@ pub unsafe extern "C" fn dd_osr_set_html(
         let Some(html) = (unsafe { read_str(html_ptr, html_len) }) else {
             return -2;
         };
-        let (w, h) = d.doc.inner().viewport().window_size;
-        let scale = d.doc.inner().viewport().scale_f64() as f32;
-        // Focus dies with the doc — emit the blur so the host's editing
-        // state clears (the event queue is wiped with the rebuild, so this
-        // has to go back in after the clear).
+        let hash = html_hash(html.as_bytes());
+        if hash == d.last_html_hash {
+            return 0;
+        }
+        let root = d.doc.inner().root_element().id;
+        // Mutations can drop the focused node — emit the blur so the
+        // host's editing state clears.
         let prev_focus = d.doc.inner().get_focussed_node_id();
-        d.doc = build_doc(w, h, scale, html, Arc::clone(&d.redraw));
+        {
+            let mut doc = d.doc.inner_mut();
+            let mut mutator = blitz_dom::DocumentMutator::new(&mut doc);
+            mutator.set_inner_html(root, html);
+        }
         d.buttons = MouseEventButtons::None;
         d.active_pointers.borrow_mut().clear();
+        // Clear before emitting the blur so it isn't wiped with the stale
+        // pre-swap events.
         d.events.borrow_mut().clear();
-        if let Some(f) = prev_focus {
-            push_blur_event(d, f);
-        }
+        emit_focus_change(d, prev_focus);
         d.prev_pixels.clear();
+        // New DOM — geometry snapshots are stale.
+        d.damage.reset();
         // The bound buffer still holds the last delivered (stale) frame —
         // it stays the diff reference, and a refresh may legitimately
         // republish it until the pending raster lands.
         d.dirty = true;
+        d.last_html_hash = hash;
         maybe_trim_malloc();
         0
     })
@@ -771,9 +818,76 @@ fn sanitize_scroll(d: &mut OsrDoc) {
     });
 }
 
-/// Resolve + rasterize + diff when dirty. Returns Some(rect) when the pixel
-/// buffer changed (rect = pixel-space dirty region), None when clean or
-/// identical. Writes per-call timings into d.stats.
+/// Diff `cur` (a contiguous `w`px-wide region) against `prev` rows at
+/// `(x,y)` in a `prev_stride`-strided frame. Returns the tightened changed
+/// rect in FRAME pixel coords, or None when the region is identical.
+fn diff_region(
+    prev: &[u8],
+    prev_stride: usize,
+    cur: &[u8],
+    x: usize,
+    y: usize,
+    w: usize,
+    h: usize,
+) -> Option<[u32; 4]> {
+    if prev_stride < (x + w) * 4 || prev.len() < prev_stride * (y + h) {
+        return Some([x as u32, y as u32, w as u32, h as u32]);
+    }
+    let mut min_x = w;
+    let mut min_y = h;
+    let mut max_x = 0usize;
+    let mut max_y = 0usize;
+    for r in 0..h {
+        let row = &cur[r * w * 4..r * w * 4 + w * 4];
+        let ps = (y + r) * prev_stride + x * 4;
+        let prow = &prev[ps..ps + w * 4];
+        if row == prow {
+            continue;
+        }
+        min_y = min_y.min(r);
+        max_y = r;
+        let mut first = None;
+        let mut last = 0usize;
+        for i in 0..w {
+            let b = i * 4;
+            if row[b..b + 4] != prow[b..b + 4] {
+                if first.is_none() {
+                    first = Some(i);
+                }
+                last = i;
+            }
+        }
+        if let Some(f) = first {
+            min_x = min_x.min(f);
+            max_x = max_x.max(last);
+        }
+    }
+    if min_y > max_y {
+        return None;
+    }
+    Some([
+        (x + min_x) as u32,
+        (y + min_y) as u32,
+        (max_x + 1 - min_x) as u32,
+        (max_y + 1 - min_y) as u32,
+    ])
+}
+
+/// Copy `rw`-px-wide rows of `src` into `dst` (a `dst_stride`-strided frame)
+/// at `(x,y)`.
+fn blit_rows(src: &[u8], rw: usize, dst: &mut [u8], dst_stride: usize, x: usize, y: usize, h: usize) {
+    for r in 0..h {
+        let s = r * rw * 4;
+        let d0 = (y + r) * dst_stride + x * 4;
+        dst[d0..d0 + rw * 4].copy_from_slice(&src[s..s + rw * 4]);
+    }
+}
+
+/// Resolve + rasterize + diff when dirty. Returns Some(rect) when pixels
+/// changed (rect = pixel-space dirty region); the new pixels live in
+/// d.pixels for a full raster or d.region for a damage-scoped raster
+/// (d.region_rect = its frame-space bounds). Writes
+/// per-call timings into d.stats.
 fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
     sanitize_scroll(d);
     fold_redraw(d);
@@ -783,6 +897,9 @@ fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
     let t0 = Instant::now();
     let anim_now = d.t0.elapsed().as_secs_f64();
     let mut inner = d.doc.inner_mut();
+    // Damage flags die with resolve() — collect the flagged nodes first so
+    // post-resolve geometry can attribute the repaint region.
+    d.damage.collect_pre_resolve(&inner);
     inner.resolve(anim_now);
     restore_collapsed_borders(&mut inner);
     let (w, h) = inner.viewport().window_size;
@@ -792,12 +909,65 @@ fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
         return None;
     }
     d.stats[0] = t0.elapsed().as_secs_f64() * 1000.0;
+
+    // Predict the repaint region from DOM damage + geometry diffs. Region
+    // is document CSS px → convert to framebuffer px (scene space =
+    // (doc - viewport_scroll) * scale).
+    let region_px = match d.damage.compute(&inner) {
+        Damage::None => {
+            d.dirty = inner.is_animating();
+            d.stats[5] += 1.0;
+            return None;
+        }
+        Damage::Full => None,
+        Damage::Region(r) => {
+            let vps = inner.viewport_scroll();
+            let x0 = ((r[0] - vps.x) * scale).floor().max(0.0);
+            let y0 = ((r[1] - vps.y) * scale).floor().max(0.0);
+            let x1 = ((r[0] + r[2] - vps.x) * scale).ceil().min(w as f64);
+            let y1 = ((r[1] + r[3] - vps.y) * scale).ceil().min(h as f64);
+            if x1 <= x0 || y1 <= y0 {
+                d.dirty = inner.is_animating();
+                d.stats[5] += 1.0;
+                return None;
+            }
+            let (rx, ry, rw, rh) = (x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32);
+            // Region raster pays off only when it actually shrinks the
+            // shaded area; near-full damage falls back to the full path.
+            if rw as u64 * rh as u64 > (w as u64 * h as u64) * 3 / 4
+                || rw > u16::MAX as u32
+                || rh > u16::MAX as u32
+            {
+                None
+            } else {
+                Some([rx, ry, rw, rh])
+            }
+        }
+    };
+
     let t1 = Instant::now();
     d.renderer.reset();
-    d.renderer.render_to_vec(
-        |scene| paint_scene(scene, &mut inner, scale, w, h, 0, 0),
-        &mut d.pixels,
-    );
+    if let Some([rx, ry, rw, rh]) = region_px {
+        // Region raster: the scene is encoded translated by -r.xy into a
+        // rw*rh scratch — fine rasterization only shades inside the target
+        // pixmap, so cost scales with the damage rect.
+        d.region_rect = [rx, ry, rw, rh];
+        d.renderer.render_region_to_vec(
+            |scene| paint_scene(scene, &mut inner, scale, rw, rh, -(rx as f64), -(ry as f64)),
+            &mut d.region,
+            rw as u16,
+            rh as u16,
+        );
+        d.dirty_rect = [rx, ry, rw, rh];
+        d.stats[3] = (rw * rh * 4) as f64;
+    } else {
+        d.region_rect = [0, 0, 0, 0];
+        d.renderer.render_to_vec(
+            |scene| paint_scene(scene, &mut inner, scale, w, h, 0.0, 0.0),
+            &mut d.pixels,
+        );
+        d.stats[3] = d.pixels.len() as f64;
+    }
     d.stats[1] = t1.elapsed().as_secs_f64() * 1000.0;
     d.dirty = inner.is_animating();
     drop(inner);
@@ -809,12 +979,31 @@ fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
     // is zeroed, which diffs to a full frame — rebind recovery for free).
     // Docs on the pointer path (no bound buffer) keep the prev_pixels copy.
     let wu = w as usize;
-    let hu = if wu > 0 { d.pixels.len() / (wu * 4) } else { 0 };
+    let hu = h as usize;
     let sab_prev = d
         .frame_buf
         .as_ref()
         .is_some_and(|b| b.len >= needed_buf_len(d));
-    let rect = if sab_prev {
+    let rect = if let Some([rx, ry, rw, rh]) = region_px {
+        // Scoped verify-diff: compare just the rastered region against the
+        // retained frame. Damage prediction can over-cover (envelopes are
+        // conservative); the verify-diff tightens to the pixels that
+        // actually changed — or to None when the restyle repainted
+        // identical pixels.
+        if sab_prev {
+            let buf = d.frame_buf.as_ref().unwrap();
+            let stride = align256(wu * 4);
+            // SAFETY: same bounds argument as the full-frame path.
+            let prev = unsafe {
+                std::slice::from_raw_parts(buf.ptr.add(FRAME_HEADER), stride * hu)
+            };
+            diff_region(prev, stride, &d.region, rx as usize, ry as usize, rw as usize, rh as usize)
+        } else if d.prev_pixels.len() == wu * hu * 4 {
+            diff_region(&d.prev_pixels, wu * 4, &d.region, rx as usize, ry as usize, rw as usize, rh as usize)
+        } else {
+            Some([rx, ry, rw, rh])
+        }
+    } else if sab_prev {
         let buf = d.frame_buf.as_ref().unwrap();
         let stride = align256(wu * 4);
         // SAFETY: buf.len >= FRAME_HEADER + stride*ph (needed_buf_len) and
@@ -822,26 +1011,49 @@ fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
         // reads race nothing — its only writer is this thread.
         let prev = unsafe { std::slice::from_raw_parts(buf.ptr.add(FRAME_HEADER), stride * hu) };
         diff_rect(prev, stride, &d.pixels, wu)
-    } else if d.prev_pixels.len() == d.pixels.len() {
+    } else if d.prev_pixels.len() == d.pixels.len() && !d.pixels.is_empty() {
         diff_rect(&d.prev_pixels, wu * 4, &d.pixels, wu)
     } else {
         Some([0, 0, w, hu as u32])
     };
     d.stats[2] = t2.elapsed().as_secs_f64() * 1000.0;
-    d.stats[3] = d.pixels.len() as f64;
     match rect {
         Some(rect) => {
-            d.dirty_rect = rect;
             // Retain only the changed rows — copying the whole buffer each
             // dirty frame doubles memory traffic for a small HUD update.
             // SAB-diffed docs need no copy at all: the bound buffer is the
             // reference and gets the same dirty rows in write_bound_frame.
+            // Region rasters fold their changed rows into the retained
+            // pointer-path buffers so d.pixels stays a complete frame.
             if !sab_prev {
-                let [rx, ry, rw, rh] = rect.map(|v| v as usize);
-                if d.prev_pixels.len() != d.pixels.len() {
+                if let Some([rx, ry, rw, rh]) = region_px {
+                    let [cx, cy, cw, ch] = rect.map(|v| v as usize);
+                    let (rw, rh, rx, ry) = (rw as usize, rh as usize, rx as usize, ry as usize);
+                    if d.pixels.len() == wu * hu * 4 && d.prev_pixels.len() == wu * hu * 4 {
+                        // Blit the changed sub-rect out of the region
+                        // scratch into both retained frames.
+                        let (ox, oy) = (cx - rx, cy - ry);
+                        for r in 0..ch {
+                            let s = ((oy + r) * rw + ox) * 4;
+                            let e = s + cw * 4;
+                            let d0 = ((cy + r) * wu + cx) * 4;
+                            d.pixels[d0..d0 + cw * 4].copy_from_slice(&d.region[s..e]);
+                            d.prev_pixels[d0..d0 + cw * 4].copy_from_slice(&d.region[s..e]);
+                        }
+                    } else {
+                        // No retained frame to fold into (e.g. first frame
+                        // after a buffer swap) — fall back to retaining the
+                        // region scratch wholesale.
+                        let mut full = vec![0u8; wu * hu * 4];
+                        blit_rows(&d.region, rw, &mut full, wu * 4, rx, ry, rh);
+                        d.pixels = full.clone();
+                        d.prev_pixels = full;
+                    }
+                } else if d.prev_pixels.len() != d.pixels.len() {
                     d.prev_pixels.clear();
                     d.prev_pixels.extend_from_slice(&d.pixels);
                 } else {
+                    let [rx, ry, rw, rh] = rect.map(|v| v as usize);
                     for row in ry..ry + rh {
                         let s = (row * wu + rx) * 4;
                         let e = s + rw * 4;
@@ -849,6 +1061,7 @@ fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
                     }
                 }
             }
+            d.dirty_rect = rect;
             d.stats[4] += 1.0;
             Some(rect)
         }
@@ -910,9 +1123,11 @@ pub extern "C" fn dd_osr_bind_frame_buf(handle: *mut OsrDoc, ptr: *mut u8, len: 
         }
         d.frame_buf = Some(BoundBuf { ptr, len, seq: 0 });
         // The bound buffer takes over as the diff reference — release the
-        // private copy (a zeroed SAB diffs to a full frame, so delivery is
-        // self-correcting on the next raster).
+        // private copy AND the damage snapshots: a fresh buffer is zeroed,
+        // so a damage-scoped raster would only fill its own region and
+        // leave the rest of the frame black. Force a full raster.
         d.prev_pixels = Vec::new();
+        d.damage.reset();
         // A freshly bound buffer is zeroed — no delivered frame to
         // republish until the first write lands.
         d.sab_valid = false;
@@ -960,9 +1175,12 @@ fn write_bound_close(d: &mut OsrDoc) {
     d.sab_valid = true;
 }
 
-/// Write `pixels`' dirty rect into the bound buffer (seqlock-guarded header).
-/// Returns 1 on write. Pixel rows land at `stride`-byte offsets so the host
-/// can upload straight out of the buffer via writeTexture(bytesPerRow).
+/// Write the last raster's dirty rect into the bound buffer
+/// (seqlock-guarded header). Source pixels are `d.region` for a
+/// damage-scoped raster (region_rect bounds it) or `d.pixels` for a full
+/// raster. Returns 1 on write. Pixel rows land at `stride`-byte offsets so
+/// the host can upload straight out of the buffer via
+/// writeTexture(bytesPerRow).
 fn write_bound_frame(d: &mut OsrDoc, rect: [u32; 4]) -> c_int {
     if write_bound_header(d, rect) != 0 {
         return -3;
@@ -973,11 +1191,21 @@ fn write_bound_frame(d: &mut OsrDoc, rect: [u32; 4]) -> c_int {
     let buf = d.frame_buf.as_mut().unwrap();
     unsafe {
         let base = buf.ptr;
-        let src = d.pixels.as_ptr();
-        for r in 0..h as usize {
-            let src_off = ((y as usize + r) * pw as usize + x as usize) * 4;
-            let dst_off = FRAME_HEADER + (y as usize + r) * stride + x as usize * 4;
-            std::ptr::copy_nonoverlapping(src.add(src_off), base.add(dst_off), w as usize * 4);
+        if d.region_rect[2] > 0 {
+            let [rx, ry, rw, _rh] = d.region_rect.map(|v| v as usize);
+            let src = d.region.as_ptr();
+            for r in 0..h as usize {
+                let src_off = ((y as usize + r - ry) * rw + (x as usize - rx)) * 4;
+                let dst_off = FRAME_HEADER + (y as usize + r) * stride + x as usize * 4;
+                std::ptr::copy_nonoverlapping(src.add(src_off), base.add(dst_off), w as usize * 4);
+            }
+        } else {
+            let src = d.pixels.as_ptr();
+            for r in 0..h as usize {
+                let src_off = ((y as usize + r) * pw as usize + x as usize) * 4;
+                let dst_off = FRAME_HEADER + (y as usize + r) * stride + x as usize * 4;
+                std::ptr::copy_nonoverlapping(src.add(src_off), base.add(dst_off), w as usize * 4);
+            }
         }
     }
     write_bound_close(d);
@@ -1107,6 +1335,8 @@ pub extern "C" fn dd_osr_resize(handle: *mut OsrDoc, width: f64, height: f64, sc
         // The bound buffer's retained frame is the old size — a refresh
         // must not republish it under the new viewport's header.
         d.sab_valid = false;
+        // Geometry snapshots are the old viewport's — force a full repaint.
+        d.damage.reset();
         d.dirty = true;
         0
     })
@@ -1825,7 +2055,7 @@ pub unsafe extern "C" fn dd_osr_destroy(handle: *mut OsrDoc) -> c_int {
 #[cfg(test)]
 mod anim_tests {
     use super::*;
-    use blitz_dom::{ns, DocumentMutator, LocalName, QualName};
+    use blitz_dom::{ns, LocalName, QualName};
 
     /// A class flip must start a CSS transition: resolve(now) should report
     /// is_animating and interpolate the transitioned property over time.
@@ -1842,7 +2072,7 @@ mod anim_tests {
 
         {
             let mut inner = doc.inner_mut();
-            let mut m = DocumentMutator::new(&mut inner);
+            let mut m = blitz_dom::DocumentMutator::new(&mut inner);
             m.set_attribute(
                 id,
                 QualName::new(None, ns!(), LocalName::from("class")),
@@ -1885,7 +2115,7 @@ mod anim_tests {
 
         {
             let mut inner = doc.inner_mut();
-            let mut m = DocumentMutator::new(&mut inner);
+            let mut m = blitz_dom::DocumentMutator::new(&mut inner);
             m.set_attribute(
                 id,
                 QualName::new(None, ns!(), LocalName::from("class")),
@@ -1907,5 +2137,218 @@ mod anim_tests {
             }
         }
         assert!(saw_mid, "pseudo-element transition never interpolated");
+    }
+}
+
+#[cfg(test)]
+mod region_tests {
+    use super::*;
+
+    /// render_region_to_vec with a full-frame region (0,0 offsets) must
+    /// byte-match render_to_vec — isolates cutout mechanics from damage
+    /// bookkeeping.
+    #[test]
+    fn full_size_region_matches_full_render() {
+        let html = r#"<!doctype html><html><body style="margin:0;background:#223;color:#eee;">
+            <div style="position:absolute;left:10px;top:10px;">Hello glyphs</div>
+        </body></html>"#;
+        let mut doc = build_doc(200, 100, 1.0, html, Arc::new(AtomicBool::new(false)));
+        let mut inner = doc.inner_mut();
+        inner.resolve(0.0);
+        let scale = inner.viewport().scale_f64();
+        let mut renderer = VelloCpuImageRenderer::new(200, 100);
+
+        let mut full = Vec::new();
+        renderer.render_to_vec(
+            |scene| paint_scene(scene, &mut inner, scale, 200, 100, 0.0, 0.0),
+            &mut full,
+        );
+
+        let mut region = Vec::new();
+        renderer.reset();
+        renderer.render_region_to_vec(
+            |scene| paint_scene(scene, &mut inner, scale, 200, 100, 0.0, 0.0),
+            &mut region,
+            200,
+            100,
+        );
+
+        assert_eq!(full.len(), region.len());
+        let diffs = full
+            .iter()
+            .zip(region.iter())
+            .enumerate()
+            .filter(|(_, (a, b))| a != b)
+            .count();
+        assert_eq!(diffs, 0, "full-size region raster diverged");
+    }
+
+    /// Reproduce the FFI pipeline: full render, set_text mutation, then a
+    /// damage-sized cutout — must match the full-render frame at the same
+    /// pixels.
+    #[test]
+    fn text_mutation_region() {
+        let html = r#"<html><body style="margin:0;background:#223;color:#eee;">
+            <div id="bar" style="position:absolute;left:0;top:0;width:480px;height:36px;background:#334;border-bottom:2px solid #556;">
+                <span id="clock" style="position:absolute;right:12px;top:8px;color:#8fd;">00:00</span>
+            </div></body></html>"#;
+        let mut doc = build_doc(480, 360, 1.0, html, Arc::new(AtomicBool::new(false)));
+        let mut renderer = VelloCpuImageRenderer::new(480, 360);
+        {
+            let mut inner = doc.inner_mut();
+            inner.resolve(0.0);
+            let scale = inner.viewport().scale_f64();
+            let mut full = Vec::new();
+            renderer.render_to_vec(
+                |scene| paint_scene(scene, &mut inner, scale, 480, 360, 0.0, 0.0),
+                &mut full,
+            );
+        }
+        // Mutate the text, resolve, re-render full + cutout.
+        let id = doc.inner().query_selector("#clock").unwrap().unwrap();
+        {
+            let mut inner = doc.inner_mut();
+            let mut m = blitz_dom::DocumentMutator::new(&mut inner);
+            m.set_node_text(id, "12:34");
+            drop(m);
+            inner.resolve(0.1);
+        }
+        let mut inner = doc.inner_mut();
+        let scale = inner.viewport().scale_f64();
+        let mut full2 = Vec::new();
+        renderer.reset();
+        renderer.render_to_vec(
+            |scene| paint_scene(scene, &mut inner, scale, 480, 360, 0.0, 0.0),
+            &mut full2,
+        );
+        let (rx, ry, rw, rh) = (420u32, 0u32, 60u32, 30u32);
+        let mut region = Vec::new();
+        renderer.reset();
+        renderer.render_region_to_vec(
+            |scene| paint_scene(scene, &mut inner, scale, rw, rh, -(rx as f64), -(ry as f64)),
+            &mut region,
+            rw as u16,
+            rh as u16,
+        );
+        let mut diffs = 0;
+        for y in 0..rh {
+            for x in 0..rw {
+                let a = ((ry + y) * 480 + (rx + x)) as usize * 4;
+                let b = (y * rw + x) as usize * 4;
+                if full2[a..a + 4] != region[b..b + 4] {
+                    diffs += 1;
+                }
+            }
+        }
+        assert_eq!(diffs, 0, "cutout diverged ({diffs} px)");
+    }
+
+    #[test]
+    fn translated_region_bg_only() {
+        let html = r#"<!doctype html><html><body style="margin:0;background:#223;"></body></html>"#;
+        let mut doc = build_doc(200, 100, 1.0, html, Arc::new(AtomicBool::new(false)));
+        let mut inner = doc.inner_mut();
+        inner.resolve(0.0);
+        let scale = inner.viewport().scale_f64();
+        let mut renderer = VelloCpuImageRenderer::new(200, 100);
+        let mut full = Vec::new();
+        renderer.render_to_vec(
+            |scene| paint_scene(scene, &mut inner, scale, 200, 100, 0.0, 0.0),
+            &mut full,
+        );
+        let (rx, ry, rw, rh) = (5u32, 5u32, 120u32, 60u32);
+        let mut region = Vec::new();
+        renderer.reset();
+        renderer.render_region_to_vec(
+            |scene| paint_scene(scene, &mut inner, scale, rw, rh, -(rx as f64), -(ry as f64)),
+            &mut region,
+            rw as u16,
+            rh as u16,
+        );
+        // The translated root-background rect must still cover the whole
+        // cutout — a hole here means the background stopped at `height`
+        // scene units from the document origin.
+        let zero = region.chunks(4).filter(|px| *px == [0, 0, 0, 0]).count();
+        assert_eq!(zero, 0, "cutout has unpainted pixels");
+    }
+
+    #[test]
+    fn translated_region_div_only() {
+        for (rx, ry, rw, rh, tag) in [
+            (5u32, 5u32, 120u32, 60u32, "clips-bottom"),
+            (5, 5, 120, 70, "fits"),
+            (0, 0, 120, 60, "zero-off-clip"),
+        ] {
+            let html = r#"<!doctype html><html><body style="margin:0;background:#223;">
+                <div style="position:absolute;left:60px;top:40px;width:80px;height:30px;background:#a33;"></div>
+            </body></html>"#;
+            let mut doc = build_doc(200, 100, 1.0, html, Arc::new(AtomicBool::new(false)));
+            let mut inner = doc.inner_mut();
+            inner.resolve(0.0);
+            let scale = inner.viewport().scale_f64();
+            let mut renderer = VelloCpuImageRenderer::new(200, 100);
+            let mut full = Vec::new();
+            renderer.render_to_vec(
+                |scene| paint_scene(scene, &mut inner, scale, 200, 100, 0.0, 0.0),
+                &mut full,
+            );
+            let mut region = Vec::new();
+            renderer.reset();
+            renderer.render_region_to_vec(
+                |scene| paint_scene(scene, &mut inner, scale, rw, rh, -(rx as f64), -(ry as f64)),
+                &mut region,
+                rw as u16,
+                rh as u16,
+            );
+            let zero = region.chunks(4).filter(|px| *px == [0, 0, 0, 0]).count();
+            assert_eq!(zero, 0, "{tag}: cutout has unpainted pixels");
+        }
+    }
+
+    /// A translated cutout must byte-match the same sub-rect of a full render.
+    #[test]
+    fn translated_region_matches_full_render_subrect() {
+        let html = r#"<!doctype html><html><body style="margin:0;background:#223;color:#eee;">
+            <div style="position:absolute;left:10px;top:10px;">Hello glyphs</div>
+            <div style="position:absolute;left:60px;top:40px;width:80px;height:30px;background:#a33;"></div>
+        </body></html>"#;
+        let mut doc = build_doc(200, 100, 1.0, html, Arc::new(AtomicBool::new(false)));
+        let mut inner = doc.inner_mut();
+        inner.resolve(0.0);
+        let scale = inner.viewport().scale_f64();
+        let mut renderer = VelloCpuImageRenderer::new(200, 100);
+
+        let mut full = Vec::new();
+        renderer.render_to_vec(
+            |scene| paint_scene(scene, &mut inner, scale, 200, 100, 0.0, 0.0),
+            &mut full,
+        );
+
+        let (rx, ry, rw, rh) = (5u32, 5u32, 120u32, 60u32);
+        let mut region = Vec::new();
+        renderer.reset();
+        renderer.render_region_to_vec(
+            |scene| paint_scene(scene, &mut inner, scale, rw, rh, -(rx as f64), -(ry as f64)),
+            &mut region,
+            rw as u16,
+            rh as u16,
+        );
+
+        assert_eq!(region.len(), (rw * rh * 4) as usize);
+        // A translated cutout rasterizes the same geometry through different
+        // tile batches, so AA edge pixels may round ±1 LSB either way — but
+        // any structural difference (missing fill, culled glyph, hole) shows
+        // up as a large channel delta. Assert no structural divergence.
+        let mut maxd = 0i32;
+        for y in 0..rh {
+            for x in 0..rw {
+                let a = ((ry + y) * 200 + (rx + x)) as usize * 4;
+                let b = (y * rw + x) as usize * 4;
+                for c in 0..4 {
+                    maxd = maxd.max((full[a + c] as i32 - region[b + c] as i32).abs());
+                }
+            }
+        }
+        assert!(maxd <= 1, "translated region raster diverged (max delta {maxd})");
     }
 }

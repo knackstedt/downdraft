@@ -187,8 +187,15 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             return;
         };
         let root_id = root_element.id;
-        let bg_width = (self.width as f32).max(root_element.final_layout().size.width);
-        let bg_height = (self.height as f32).max(root_element.final_layout().size.height);
+        // The background rect must cover the whole viewport window in scene
+        // coordinates. With a nonzero initial offset (region raster), the
+        // window is `[0, width] x [0, height]` while the document origin sits
+        // at `(initial_x, initial_y)`, so the span is
+        // `initial_x .. max(width, initial_x + content_width)`.
+        let bg_width = (self.width as f32 - self.initial_x as f32)
+            .max(root_element.final_layout().size.width);
+        let bg_height = (self.height as f32 - self.initial_y as f32)
+            .max(root_element.final_layout().size.height);
 
         let background_color = {
             let html_color = root_element
@@ -227,10 +234,16 @@ impl<'dom, 'a> BlitzDomPainter<'dom, 'a> {
             scene.fill(Fill::NonZero, Affine::IDENTITY, bg_color, None, &rect);
         }
 
-        // The root clip rectangle is the viewport (in screen coordinates, with the
-        // initial offset already subtracted). Elements outside of this are culled, and
+        // The root clip rectangle is the viewport (in the same document space as
+        // `screen_transform` below, i.e. with the initial offset already subtracted
+        // from painted screen coordinates). Elements outside of this are culled, and
         // scrollports narrow this rectangle further for their descendants.
-        let viewport_clip_rect = Rect::new(0.0, 0.0, self.width as f64, self.height as f64);
+        let viewport_clip_rect = Rect::new(
+            -self.initial_x,
+            -self.initial_y,
+            self.width as f64 - self.initial_x,
+            self.height as f64 - self.initial_y,
+        );
 
         self.render_element(
             scene,

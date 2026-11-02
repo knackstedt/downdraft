@@ -22,6 +22,9 @@ blitz-paint = { git = "https://github.com/DioxusLabs/blitz", rev = "efef6519fe65
 # Same rev blitz-dom resolves to — needed to name taffy::Display for the
 # display:none check in dd_osr_node_rect.
 taffy = { git = "https://github.com/DioxusLabs/taffy", rev = "4863877b9cab21645b160d7f247901f90214fe27", default-features = false }
+# Same stylo build blitz-dom links — needed to read RestyleDamage bits and
+# paint-bleed styles (box-shadow/filter/outline) in damage.rs.
+style = { version = "0.21.0", package = "stylo", default-features = false }
 # Enable the vendored glifo's FreeType mask path (see [patch.crates-io] in the
 # workspace root). Feature unification turns it on inside vello_cpu's copy.
 glifo = { version = "0.2", features = ["freetype"] }

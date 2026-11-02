@@ -99,3 +99,37 @@ impl ImageRenderer for VelloCpuImageRenderer {
         self.render(draw_fn, buffer);
     }
 }
+
+impl VelloCpuImageRenderer {
+    /// Rasterize a cut-out of the scene into a `w*h*4` buffer. `draw_fn`
+    /// must encode the scene already translated so the region's top-left
+    /// lands at pixmap (0,0) — the bucketer still walks the full command
+    /// list but fine rasterization only shades pixels inside the target
+    /// pixmap, so cost scales with the region, not the scene.
+    ///
+    /// (vendored addition: upstream only exposes full-frame renders.)
+    pub fn render_region_to_vec<F: FnOnce(&mut VelloCpuScenePainter)>(
+        &mut self,
+        draw_fn: F,
+        region: &mut Vec<u8>,
+        w: u16,
+        h: u16,
+    ) {
+        draw_fn(&mut self.scene);
+        self.scene.render_ctx.flush();
+        region.resize(w as usize * h as usize * 4, 0);
+        if w == 0 || h == 0 {
+            self.scene.maintain();
+            return;
+        }
+        self.scene.render_ctx.render_with(
+            PixmapMut::new(w, h, region.as_mut_slice()).unwrap(),
+            &mut self.scene.resources,
+            vello_cpu::RasterizerSettings {
+                offset: (0, 0),
+                ..Default::default()
+            },
+        );
+        self.scene.maintain();
+    }
+}

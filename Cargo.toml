@@ -71,7 +71,10 @@ glifo = { path = "vendor/glifo" }
 # Vendored anyrender_vello_cpu 0.17.0 — upstream calls glyph_run() without
 # .atlas_cache(true), so glifo's atlas is disabled entirely and the FreeType
 # mask path (which uploads masks as pending atlas entries) can never engage.
-# vendor/anyrender_vello_cpu enables the atlas for fill glyph runs.
+# vendor/anyrender_vello_cpu enables the atlas for fill glyph runs, and adds
+# VelloCpuImageRenderer::render_region_to_vec — a cut-out raster for the
+# html-ui damage path (scene encoded translated into a small PixmapMut so
+# fine rasterization only shades the damage rect).
 anyrender_vello_cpu = { path = "vendor/anyrender_vello_cpu" }
 
 # Vendored vello_cpu 0.1.0 — upstream hardcodes DEFAULT_GLYPH_ATLAS_SIZE=4096,
@@ -98,6 +101,9 @@ vello_cpu = { path = "vendor/vello_cpu" }
 #    siblings. svg now participates in the replaced-content clip.
 # (anableps's perf charts relied on par="none" edge-to-edge stretching and
 # squished into a centered band on wide windows.)
+# 3. paint_scene's x_offset/y_offset take f64 (was u32) so the html-ui
+#    damage path can encode the scene translated by a negative region
+#    origin for cut-out rasterization.
 blitz-paint = { path = "vendor/blitz-paint" }
 
 # `cargo build --release` stays fast for local dev. CI artifact builds use
