@@ -2295,6 +2295,7 @@ dependencies = [
  "idna_adapter",
  "keyboard-types 0.7.0",
  "linebender_resource_handle",
+ "taffy",
 ]
 
 [[package]]

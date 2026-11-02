@@ -73,6 +73,11 @@ export type UiToWorker =
   | { type: "navSnapshot"; reqId: number; id: string; sel: string }
   /** Host detected a torn SAB frame read — re-emit the current pixels. */
   | { type: "refresh"; id: string }
+  /** Watch selector rects: after every emitted frame the backend measures
+   *  each selector's first match and streams changes via "watched" —
+   *  screen-side consumers (overlays composited above the panel) track the
+   *  doc lockstep instead of polling getRect with a roundtrip of lag. */
+  | { type: "watchRects"; id: string; sels: string[] }
   /** Attach the engine ProfilingSAB — the worker claims a metrics slot so the
    *  devtools perf tab can see it. Best-effort; ignored when profiling is off. */
   | { type: "profilingAttach"; sab: SharedArrayBuffer; workerTag: string; layout?: { maxSlots: number; iopsRingCap: number; warningRingCap: number; stringTableCap: number } }
@@ -130,6 +135,10 @@ export type WorkerToUi =
    */
   | { type: "texAck"; id: string; texPtr: number | bigint }
   | { type: "events"; id: string; events: OsrDomEvent[] }
+  /** Streamed rects for watchRects selectors — emitted right after a frame
+   *  so positions always describe the raster just presented. Doc CSS px;
+   *  null = no match (also "not present" for presence watches). */
+  | { type: "watched"; id: string; rects: Record<string, { x: number; y: number; w: number; h: number } | null> }
   | { type: "attr"; reqId: number; value: string | null }
   | { type: "rect"; reqId: number; rect: { x: number; y: number; w: number; h: number } | null }
   | { type: "nodes"; reqId: number; nodes: number[] }

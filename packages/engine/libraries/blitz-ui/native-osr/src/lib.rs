@@ -344,7 +344,18 @@ fn resolve_pending_damage(d: &mut OsrDoc) {
 /// Dispatch a UiEvent through the EventDriver, observing DOM events via
 /// QueueingHandler (replaces the default NoopEventHandler dispatch).
 fn dispatch(d: &mut OsrDoc, ui_event: UiEvent) {
-    resolve_pending_damage(d);
+    // During a scrollbar drag every move re-flags hover damage (the content
+    // scrolls under the pointer), so resolving per move pays a full
+    // restyle+layout per move and the input stream outruns it — the thumb
+    // visibly trails the cursor with compounding lag. The drag path scrolls
+    // the node captured at press and doesn't consume the hit-test result,
+    // so a stale layout is tolerable for its moves; real damage is picked
+    // up by the next raster (or the release's resolve).
+    let mid_scrollbar_drag = matches!(ui_event, UiEvent::PointerMove(_))
+        && d.doc.inner().scrollbar_drag_target().is_some();
+    if !mid_scrollbar_drag {
+        resolve_pending_damage(d);
+    }
     let mut driver = EventDriver::new(
         &mut d.doc,
         QueueingHandler {
@@ -729,10 +740,42 @@ fn restore_collapsed_borders(doc: &mut BaseDocument) {
     });
 }
 
+/// A non-finite scroll offset poisons every absolute position under the
+/// node (and f64::clamp passes NaN straight through blitz's scroll write,
+/// so the offset never self-corrects — each subsequent scroll recomputes
+/// NaN). Reset non-finite offsets so a bad delta can't wedge the doc.
+fn sanitize_scroll(d: &mut OsrDoc) {
+    let mut inner = d.doc.inner_mut();
+    let vs = inner.viewport_scroll();
+    if !vs.x.is_finite() || !vs.y.is_finite() {
+        inner.set_viewport_scroll(blitz_dom::util::Point {
+            x: if vs.x.is_finite() { vs.x } else { 0.0 },
+            y: if vs.y.is_finite() { vs.y } else { 0.0 },
+        });
+    }
+    let root = inner.root_element().id;
+    inner.iter_subtree_mut(root, |id, doc| {
+        let Some(node) = doc.get_node_mut(id) else {
+            return;
+        };
+        // Text/comment nodes have no layout data — layout_data_mut panics.
+        let Some(ld) = node.try_layout_data_mut() else {
+            return;
+        };
+        if !ld.scroll_offset.x.is_finite() {
+            ld.scroll_offset.x = 0.0;
+        }
+        if !ld.scroll_offset.y.is_finite() {
+            ld.scroll_offset.y = 0.0;
+        }
+    });
+}
+
 /// Resolve + rasterize + diff when dirty. Returns Some(rect) when the pixel
 /// buffer changed (rect = pixel-space dirty region), None when clean or
 /// identical. Writes per-call timings into d.stats.
 fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
+    sanitize_scroll(d);
     fold_redraw(d);
     if !d.dirty {
         return None;
@@ -1087,6 +1130,79 @@ fn pointer_coords(d: &OsrDoc, x: f64, y: f64) -> PointerCoords {
     }
 }
 
+/// Reveal an overlay scrollbar while the pointer hovers its track lane, so
+/// the thumb is interactive by the time the user presses. Blitz's hit
+/// testing filters out scrollbars at opacity 0 (`set_hover_to`), so a press
+/// on a faded thumb lands on the content beneath — the "drag" selects text
+/// and the scrollbar feels dead/laggy. Chromium fades scrollbars back in on
+/// lane hover; blitz only re-shows them on scroll (`show_scrollbars` is
+/// crate-private and `write_scroll_offset` calls it only on a real write),
+/// so the reveal here is a sub-pixel programmatic scroll — 1/1000px snaps
+/// back to the same layout unit at paint, but counts as a write.
+fn reveal_scrollbar_at(d: &mut OsrDoc, x: f64, y: f64) {
+    use blitz_dom::ScrollBehavior;
+    use taffy::AbsoluteAxis;
+    // Thumb thickness (10) + margin (2) + a few px of border slack.
+    const GUTTER: f64 = 15.0;
+    const EPS: f64 = 0.001;
+
+    let mut inner = d.doc.inner_mut();
+    let scale = inner.viewport().scale_f64();
+    let (cx, cy) = (x / scale, y / scale);
+    let Some(mut cur) = inner.element_from_point(cx as f32, cy as f32) else {
+        return;
+    };
+    for _ in 0..12 {
+        let Some((off, parent, on_v_track, on_h_track)) = ({
+            let Some(node) = inner.get_node(cur) else { break };
+            let pos = node.unrounded_absolute_position(0.0, 0.0);
+            let off = *node.scroll_offset();
+            let size = node.final_layout().size;
+            // Border box in viewport coords — unrounded_absolute_position
+            // also subtracts this node's own scroll offset, so add it back.
+            let bx = pos.x as f64 + off.x;
+            let by = pos.y as f64 + off.y;
+            let (w, h) = (size.width as f64, size.height as f64);
+            let on_v = node.wants_scrollbar(AbsoluteAxis::Vertical)
+                && cx >= bx + w - GUTTER && cx <= bx + w
+                && cy >= by && cy <= by + h;
+            let on_h = node.wants_scrollbar(AbsoluteAxis::Horizontal)
+                && cy >= by + h - GUTTER && cy <= by + h
+                && cx >= bx && cx <= bx + w;
+            Some((off, node.parent, on_v, on_h))
+        }) else {
+            break;
+        };
+        if !(on_v_track || on_h_track) {
+            match parent {
+                Some(p) => {
+                    cur = p;
+                    continue;
+                }
+                None => break,
+            }
+        }
+        // Innermost scrollable lane under the pointer wins. A thumb that's
+        // visible or mid-fade is already interactive (the filter is > 0).
+        if inner.scrollbar_opacity(cur) > 0.0 {
+            return;
+        }
+        let (dx, dy) = if on_v_track { (0.0, EPS) } else { (EPS, 0.0) };
+        inner.scroll_to(cur, off.x + dx, off.y + dy, ScrollBehavior::Instant);
+        let moved = inner
+            .get_node(cur)
+            .is_some_and(|n| {
+                let o = n.scroll_offset();
+                (o.x - off.x).abs() > 1e-12 || (o.y - off.y).abs() > 1e-12
+            });
+        if !moved {
+            inner.scroll_to(cur, off.x - dx, off.y - dy, ScrollBehavior::Instant);
+        }
+        d.dirty = true;
+        return;
+    }
+}
+
 fn make_pointer_event(d: &OsrDoc, x: f64, y: f64, button: MouseEventButton) -> BlitzPointerEvent {
     BlitzPointerEvent {
         id: BlitzPointerId::Mouse,
@@ -1162,6 +1278,12 @@ pub extern "C" fn dd_osr_pointer(
             }
             _ => UiEvent::PointerMove(event),
         };
+        if kind == 0 && d.buttons.is_empty() {
+            // Must run before dispatch so this move's own set_hover_to sees
+            // the revealed thumb — and on fresh layout, hence the resolve.
+            resolve_pending_damage(d);
+            reveal_scrollbar_at(d, x, y);
+        }
         dispatch(d, ui_event);
         if main_down {
             // Record the press target post-dispatch (layout is current now).
@@ -1444,6 +1566,16 @@ pub extern "C" fn dd_osr_wheel(
             return -1;
         };
         let d = g.get();
+        // Non-finite input must never reach scroll_chain_by: NaN writes a
+        // NaN scroll offset that f64::clamp passes through, wedging every
+        // position under the scroller forever (clamp(NaN)→NaN recomputes
+        // on each subsequent scroll). Drop the event; sanitize repairs any
+        // offset already poisoned by an earlier build or caller.
+        if !(x.is_finite() && y.is_finite() && delta_x.is_finite() && delta_y.is_finite()) {
+            sanitize_scroll(d);
+            return -4;
+        }
+        sanitize_scroll(d);
         // set_hover_to hit-tests — resolve first so a pending mutation's
         // stale layout/paint child lists can't panic the descent.
         resolve_pending_damage(d);

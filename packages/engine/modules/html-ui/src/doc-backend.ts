@@ -99,6 +99,13 @@ interface DocState {
   /** performance.now() of the last step — the ease is dt-based so the curve
    *  holds regardless of pump cadence. */
   wheelT: number;
+  /** watchRects selectors — each is measured after every emitted frame and
+   *  streamed to the host as "watched" when changed. The rects therefore
+   *  describe the same doc state as the frame they follow — lockstep
+   *  tracking for overlays composited above the panel. */
+  watchSels: string[];
+  /** JSON snapshot of the last-emitted watched rects (dedupe). */
+  watchLast: string;
 }
 
 // Bound-buffer header (u32 indices) — mirrors BoundBuf layout in lib.rs.
@@ -164,6 +171,23 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
     emit({ type: "bind", id, buf: sab });
   }
 
+  /** Measure every watched selector's first match and emit a "watched"
+   *  message when anything moved. Called right after frame emits so the
+   *  rects describe the raster just produced, and on watchRects arrival so
+   *  the host gets an initial snapshot even with no repaint pending. */
+  function emitWatchedRects(id: string, s: DocState): void {
+    if (!s.watchSels.length) return;
+    const rects: Record<string, { x: number; y: number; w: number; h: number } | null> = {};
+    s.watchSels.forEach((sel) => {
+      const n = s.doc.query(sel);
+      rects[sel] = n ? s.doc.nodeRect(n) : null;
+    });
+    const j = JSON.stringify(rects);
+    if (j === s.watchLast) return;
+    s.watchLast = j;
+    emit({ type: "watched", id, rects });
+  }
+
   /** Emit a frame message describing what frame_into()/refresh_into() wrote. */
   function emitSabFrame(id: string, s: DocState): void {
     const u = s.sabU32!;
@@ -174,6 +198,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
       pw: u[H_PW], ph: u[H_PH], stride: u[H_STRIDE],
       caret: s.doc.caretRect() ?? undefined,
     });
+    emitWatchedRects(id, s);
   }
 
   /**
@@ -200,6 +225,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
             { width: w, height: h, depthOrArrayLayers: 1 },
           );
           emit({ type: "frame", id, x, y, w, h, pw, ph, gpu: true, texPtr: g.ptr, caret: s.doc.caretRect() ?? undefined });
+          emitWatchedRects(id, s);
           return;
         } catch {
           // The view died between the check and the FFI call — fall through
@@ -236,17 +262,21 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
   }
 
   // Smooth-wheel ease: fraction of the remainder applied per elapsed ms.
-  // τ≈45ms → ~30% per 16ms tick, ~95% drained in ~135ms — snappy but
-  // animated. A 1/MAX_TICKS floor bounds any backlog at ~320ms of drain —
-  // a fast wheel can't make scroll trail input indefinitely. Dispatching
-  // real wheel events keeps Blitz's hit-testing, scroll chaining, scrollbar
-  // reveal, and scroll DOM events intact.
-  const WHEEL_TAU_MS = 45;
-  const WHEEL_MAX_TICKS = 20;
+  // τ≈26ms → ~46% per 16ms tick, ~95% drained in ~75ms — the scroll reads
+  // as a quick settle, not a delayed ramp (45ms τ left the position ~τ·rate
+  // behind a continuous gesture, which felt like input lag).
+  // The floor scales with backlog: small residues stay gentle while a
+  // back-to-back detent/flick backlog drains at up to 50%/tick instead of
+  // trailing the user's input. Dispatching real wheel events keeps Blitz's
+  // hit-testing, scroll chaining, scrollbar reveal, and scroll DOM events
+  // intact.
+  const WHEEL_TAU_MS = 26;
+  const WHEEL_MIN_TICKS = 12;
   function stepWheel(s: DocState, now: number): void {
     const dt = Math.min(50, Math.max(1, now - s.wheelT));
     s.wheelT = now;
-    const f = Math.max(1 - Math.exp(-dt / WHEEL_TAU_MS), 1 / WHEEL_MAX_TICKS);
+    const rem = Math.max(Math.abs(s.wheelRx), Math.abs(s.wheelRy));
+    const f = Math.max(1 - Math.exp(-dt / WHEEL_TAU_MS), 1 / WHEEL_MIN_TICKS, Math.min(0.5, rem / 1200));
     // Snap the tail: a step below ~¾px/axis applies the whole residue instead
     // of asymptoting through invisible sub-pixel repaints.
     const dx = Math.abs(s.wheelRx) * f < 0.75 ? s.wheelRx : s.wheelRx * f;
@@ -307,10 +337,12 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
           tight.set(pixels.subarray(src, src + rect.w * 4), r * rect.w * 4);
         }
         emit({ type: "frame", id, x: rect.x, y: rect.y, w: rect.w, h: rect.h, pw, ph, pixels: tight.buffer, caret: s.doc.caretRect() ?? undefined });
+        emitWatchedRects(id, s);
       } else {
         collectStats(s, pw * ph * 4);
         const copy = pixels.slice();
         emit({ type: "frame", id, x: 0, y: 0, w: pw, h: ph, pw, ph, pixels: copy.buffer as ArrayBuffer, caret: s.doc.caretRect() ?? undefined });
+        emitWatchedRects(id, s);
       }
     }
     emitStats(now);
@@ -333,6 +365,7 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
             sab: null, sabU32: null, sabDisabled: false, gpuTex: null,
             smoothWheel: m.smoothWheel === true,
             wheelRx: 0, wheelRy: 0, wheelX: 0, wheelY: 0, wheelT: 0,
+            watchSels: [], watchLast: "",
             stats: freshStats(), statsLast: 0,
           };
           docs.set(m.id, s);
@@ -464,20 +497,33 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
               s.doc.pointerDown(msg.x * k, msg.y * k, msg.button, msg.mods);
               break;
             case "up": s.doc.pointerUp(msg.x * k, msg.y * k, msg.button, msg.mods); break;
-            case "wheel":
+            case "wheel": {
+              // Non-finite deltas/coords must never reach the native scroll
+              // path — a NaN scroll offset wedges the doc's raster loop
+              // permanently (clamp passes NaN through on every re-scroll).
+              // The backlog also self-heals: +Inf and -Inf deltas summed
+              // to NaN must not propagate into the drain.
+              if (!Number.isFinite(msg.x) || !Number.isFinite(msg.y) ||
+                  !Number.isFinite(msg.deltaX) || !Number.isFinite(msg.deltaY)) break;
+              if (!Number.isFinite(s.wheelRx)) s.wheelRx = 0;
+              if (!Number.isFinite(s.wheelRy)) s.wheelRy = 0;
               if (s.smoothWheel) {
-                // A fresh gesture back-dates wheelT so the first pump tick
-                // applies a full ~16ms step immediately — no dead frame.
-                if (s.wheelRx === 0 && s.wheelRy === 0) s.wheelT = performance.now() - 16;
+                // A fresh gesture back-dates wheelT so the first step
+                // applies ~68% of the detent — and dispatch it NOW instead
+                // of waiting for the next 16ms pump tick, so first-response
+                // latency is ~0ms rather than up to a frame of dead time.
+                if (s.wheelRx === 0 && s.wheelRy === 0) s.wheelT = performance.now() - 30;
                 s.wheelRx += msg.deltaX;
                 s.wheelRy += msg.deltaY;
                 s.wheelX = msg.x;
                 s.wheelY = msg.y;
                 s.wheelMods = msg.mods;
+                stepWheel(s, performance.now());
               } else {
                 s.doc.wheel(msg.x * k, msg.y * k, msg.deltaX * k, msg.deltaY * k, msg.mods);
               }
               break;
+            }
             case "key": s.doc.key(msg.down, msg.key, msg.code, msg.text, msg.mods); break;
           }
           break;
@@ -551,6 +597,14 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
             editable: s.doc.getAttr(n, "value") !== null,
           }));
           emit({ type: "navNodes", reqId: m.reqId, nodes });
+          break;
+        }
+        case "watchRects": {
+          const s = docs.get(m.id);
+          if (!s) break;
+          s.watchSels = m.sels;
+          s.watchLast = "";
+          emitWatchedRects(m.id, s);
           break;
         }
         case "getAttr": {

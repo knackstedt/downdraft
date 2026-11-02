@@ -133,6 +133,9 @@ interface Panel {
   spriteUbo: GPUBuffer | null;
   spriteBg: GPUBindGroup | null;
   spriteBgTex: GPUTexture | null;
+  /** Latest watchRects results (doc CSS px), streamed with each frame —
+   *  overlays read these synchronously for zero-lag lockstep tracking. */
+  trackedRects: Record<string, { x: number; y: number; w: number; h: number } | null>;
   /** Bound SAB frame channel — frames arrive as headers, pixels stay shared. */
   sab: SharedArrayBuffer | null;
   sabI32: Int32Array | null;
@@ -241,6 +244,13 @@ export interface UiPanelHandle {
   getRects(nodes: number[]): Promise<({ x: number; y: number; w: number; h: number } | null)[]>;
   /** Currently-focused node handle (0 = none). */
   focusedNode(): Promise<number>;
+  /** Watch selectors: the backend re-measures each first match after every
+   *  emitted frame and streams changes — synchronous reads via trackedRect
+   *  with zero roundtrip lag, in lockstep with the raster. */
+  watchRects(sels: string[]): void;
+  /** Latest watched rect for `sel` in doc CSS px — null when unmatched or
+   *  before the first "watched" emission lands. */
+  trackedRect(sel: string): { x: number; y: number; w: number; h: number } | null;
   /** Scroll the doc so `target` is visible. */
   scrollIntoView(target: number | string, opts?: { smooth?: boolean; vertical?: "start" | "center" | "end" | "nearest"; horizontal?: "start" | "center" | "end" | "nearest" }): void;
   /** Scroll a scroll-container node to absolute offsets — reaches nested
@@ -455,6 +465,7 @@ export class HtmlUiHost {
       texture: null, texW: 0, texH: 0, ubo: null, bindGroup: null,
       handlers: new Set(spec.onEvent ? [spec.onEvent] : []),
       editing: false, caret: null, sprite: null, spriteUbo: null, spriteBg: null, spriteBgTex: null,
+      trackedRects: {},
       sab: null, sabI32: null, lastSeq: 0, lastRect: null,
       gpuBound: false, boundPtr: null, postedBindPtr: null,
       fit: !!spec.fit,
@@ -576,6 +587,8 @@ export class HtmlUiHost {
       setZ: (z) => { if (p.z === z) return; p.z = z; this.markDirty(); },
       setInteractive: (on) => { p.spec.interactive = on; },
       onEvent: (fn) => { p.handlers.add(fn); return () => { p.handlers.delete(fn); }; },
+      watchRects: (sels) => { this.send({ type: "watchRects", id: p.id, sels: [...sels] }); },
+      trackedRect: (sel) => p.trackedRects[sel] ?? null,
       getAttr: (t, name) => new Promise((resolve) => {
         const reqId = this.nextReqId++;
         this.attrReqs.set(reqId, resolve);
@@ -986,17 +999,22 @@ export class HtmlUiHost {
 
   // ── Input coalescing ──
   // Pointermove dominates UI input traffic; at 120Hz+ input rates each move
-  // used to become its own worker message + DOM dispatch. Keep only the
-  // latest move per panel and flush at ~8ms — ordering vs. down/up/wheel/key
-  // is preserved by flushing pending moves before any other input send.
+  // used to become its own worker message + DOM dispatch. Leading-edge
+  // dispatch: with no burst in flight the move sends immediately — hover
+  // and hit-test feedback pay no queue latency. During a burst (input
+  // faster than the ~8ms window) only the latest move per panel is kept
+  // and flushed on the trailing edge — ordering vs. down/up/wheel/key is
+  // preserved by flushing pending moves before any other input send.
   private pendingMoves = new Map<string, DocInputMsg>();
   private moveTimer: ReturnType<typeof setTimeout> | null = null;
 
   private queueMove(id: string, msg: DocInputMsg): void {
-    this.pendingMoves.set(id, msg);
     if (!this.moveTimer) {
+      this.send({ type: "input", id, msg });
       this.moveTimer = setTimeout(() => this.flushMoves(), 8);
+      return;
     }
+    this.pendingMoves.set(id, msg);
   }
 
   private flushMoves(): void {
@@ -1097,8 +1115,13 @@ export class HtmlUiHost {
         ctrl.stopPropagation();
         const z = this.effZoom(p);
         const c = local(p, e);
-        if (p.spec.onWheel?.({ ...c, deltaX: e.deltaX / z, deltaY: e.deltaY / z, mods: modsOf(e) }) === true) return;
-        input(p.id, { kind: "wheel", ...c, deltaX: e.deltaX / z, deltaY: e.deltaY / z, mods: modsOf(e) });
+        const dx = e.deltaX / z, dy = e.deltaY / z;
+        // A non-finite delta (bad zoom, NaN event) poisons the doc's scroll
+        // offset permanently — drop the event rather than wedge the panel.
+        if (!(z > 0) || !Number.isFinite(dx) || !Number.isFinite(dy) ||
+            !Number.isFinite(c.x) || !Number.isFinite(c.y)) return;
+        if (p.spec.onWheel?.({ ...c, deltaX: dx, deltaY: dy, mods: modsOf(e) }) === true) return;
+        input(p.id, { kind: "wheel", ...c, deltaX: dx, deltaY: dy, mods: modsOf(e) });
       }, -10),
       bus.onKeyDown((e: KeyboardEvent, ctrl: InputEventControl) => {
         const p = this.focusedPanel ? this.panels.get(this.focusedPanel) : null;
@@ -1183,6 +1206,14 @@ export class HtmlUiHost {
           this.backend.dispose();
           this.destroyRetired();
         }
+        break;
+      }
+      case "watched": {
+        const p = this.panels.get(m.id);
+        if (!p) return;
+        Object.assign(p.trackedRects, m.rects);
+        // Rect consumers are compositors — a moved rect is their damage.
+        this.markDirty();
         break;
       }
       case "texAck": {

@@ -9,6 +9,7 @@ use blitz_dom::{
     ns, Document, DocumentMutator, LocalName, NodeId, QualName, ScrollBehavior,
     ScrollLogicalPosition,
 };
+use taffy::Display as TaffyDisplay;
 
 use crate::{doc_enter, emit_focus_change, ffi, read_str, OsrDoc};
 
@@ -281,6 +282,22 @@ pub extern "C" fn dd_osr_node_rect(handle: *mut OsrDoc, node: u64) -> *const f64
             let Some(node_ref) = doc.get_node(node_id(node)) else {
                 return std::ptr::null();
             };
+            // display:none produces no box — the node's own layout data is
+            // stale (Taffy never re-layouts hidden subtrees), so walk the
+            // DOM ancestor chain and report NULL when any link is hidden.
+            // Without this, consumers tracking rects (overlay compositors)
+            // keep drawing at the last visible position forever.
+            let mut cur = node_id(node);
+            loop {
+                let Some(n) = doc.get_node(cur) else { break };
+                if n.taffy_display() == TaffyDisplay::None {
+                    return std::ptr::null();
+                }
+                match n.parent {
+                    Some(p) => cur = p,
+                    None => break,
+                }
+            }
             let pos = node_ref.unrounded_absolute_position(0.0, 0.0);
             let size = node_ref.final_layout().size;
             [
@@ -449,6 +466,12 @@ pub extern "C" fn dd_osr_scroll_to(
                 return -1;
             }
         }
+        // Reject non-finite offsets — they clamp to NaN inside blitz and
+        // poison the node's scroll state permanently.
+        if !x.is_finite() || !y.is_finite() {
+            return -4;
+        }
+        crate::sanitize_scroll(d);
         d.doc.inner_mut().scroll_to(
             id,
             x,
