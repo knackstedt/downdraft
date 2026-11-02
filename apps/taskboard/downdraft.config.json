@@ -1,0 +1,11 @@
+{
+  "name": "taskboard",
+  "version": "0.1.0",
+  "native": {
+    "appId": "downdraft-taskboard",
+    "title": "Task Board"
+  },
+  "gpu": {
+    "mode": "stability"
+  }
+}
