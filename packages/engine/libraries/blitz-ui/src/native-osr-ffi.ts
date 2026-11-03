@@ -112,6 +112,20 @@ const OSR_CARET_SPEC = {
 
 export type OsrCaretSymbols = Record<keyof typeof OSR_CARET_SPEC, (...args: any[]) => any>;
 
+/**
+ * GPU-raster exports — dd_osr_frame_vello encodes the doc into a vello
+ * Scene and returns a *const vello_encoding::Encoding, which the worker
+ * hands to the platform lib's wgpu_shim_vello_render for shading on the
+ * shared device. Resolved on its own dlopen like the caret spec — a cdylib
+ * predating it reports `velloGpu: false` and stays on the CPU raster path.
+ */
+const OSR_VELLO_SPEC = {
+  dd_osr_frame_vello: { args: ["ptr"], returns: "ptr" },
+  dd_osr_vello_enc_abi: { args: [], returns: "u64" },
+} satisfies Record<string, CFunction>;
+
+export type OsrVelloSymbols = Record<keyof typeof OSR_VELLO_SPEC, (...args: any[]) => any>;
+
 /** What the loaded cdylib can do — surfaced to hosts via the doc core's
  *  `ready` message so panels can pick incremental vs full-render paths. */
 export interface OsrCaps {
@@ -120,6 +134,9 @@ export interface OsrCaps {
   /** dd_osr_caret_rect is bound — the host may draw the animated caret
    *  overlay and suppress the in-raster caret. */
   caretRect: boolean;
+  /** dd_osr_frame_vello is bound — the doc can encode vello scenes for
+   *  GPU rasterization via the platform shim. */
+  velloGpu: boolean;
 }
 
 /** One DOM event emitted by a document — see events.rs for the field schema. */
@@ -153,11 +170,11 @@ export function registerOsrResource(url: string, bytes: Uint8Array | ArrayBuffer
   ) as number) === 0;
 }
 
-let cached: { symbols: OsrSymbols; append: OsrAppendSymbols | null; caret: OsrCaretSymbols | null; path: string } | null = null;
+let cached: { symbols: OsrSymbols; append: OsrAppendSymbols | null; caret: OsrCaretSymbols | null; vello: OsrVelloSymbols | null; path: string } | null = null;
 
 /** dlopen the Blitz OSR cdylib. Returns null when the artifact is absent
  *  (not built / not staged) so hosts can disable OSR instead of crashing. */
-export function loadOsrLib(): { symbols: OsrSymbols; append: OsrAppendSymbols | null; caret: OsrCaretSymbols | null; path: string } | null {
+export function loadOsrLib(): { symbols: OsrSymbols; append: OsrAppendSymbols | null; caret: OsrCaretSymbols | null; vello: OsrVelloSymbols | null; path: string } | null {
   if (cached) return cached;
   const path = findOsrLibrary();
   if (!path) return null;
@@ -171,7 +188,11 @@ export function loadOsrLib(): { symbols: OsrSymbols; append: OsrAppendSymbols | 
     try {
       caret = dlopen(path, OSR_CARET_SPEC).symbols as OsrCaretSymbols;
     } catch { /* older cdylib — no caret overlay geometry */ }
-    cached = { symbols, append, caret, path };
+    let vello: OsrVelloSymbols | null = null;
+    try {
+      vello = dlopen(path, OSR_VELLO_SPEC).symbols as OsrVelloSymbols;
+    } catch { /* older cdylib — CPU raster only */ }
+    cached = { symbols, append, caret, vello, path };
     return cached;
   } catch {
     return null;
@@ -220,14 +241,16 @@ export class OsrDoc {
   private lib: OsrSymbols;
   private appendLib: OsrAppendSymbols | null;
   private caretLib: OsrCaretSymbols | null;
+  private velloLib: OsrVelloSymbols | null;
   /** Physical px dimensions tracked host-side (updated on resize). */
   width: number;
   height: number;
 
-  private constructor(lib: OsrSymbols, appendLib: OsrAppendSymbols | null, caretLib: OsrCaretSymbols | null, handle: number, width: number, height: number) {
+  private constructor(lib: OsrSymbols, appendLib: OsrAppendSymbols | null, caretLib: OsrCaretSymbols | null, velloLib: OsrVelloSymbols | null, handle: number, width: number, height: number) {
     this.lib = lib;
     this.appendLib = appendLib;
     this.caretLib = caretLib;
+    this.velloLib = velloLib;
     this.handle = handle;
     this.width = width;
     this.height = height;
@@ -237,7 +260,7 @@ export class OsrDoc {
    *  resolved lazily so this stays false before the first create(). */
   static get caps(): OsrCaps {
     const lib = loadOsrLib();
-    return { incrementalDom: !!lib?.append, caretRect: !!lib?.caret };
+    return { incrementalDom: !!lib?.append, caretRect: !!lib?.caret, velloGpu: !!lib?.vello };
   }
 
   static create(width: number, height: number, scale: number, html: string): OsrDoc | null {
@@ -246,7 +269,7 @@ export class OsrDoc {
     const bytes = enc.encode(html);
     const h = entry.symbols.dd_osr_init(width, height, scale, ptr(bytes), bytes.length) as number;
     if (!h) return null;
-    return new OsrDoc(entry.symbols, entry.append, entry.caret, h, width, height);
+    return new OsrDoc(entry.symbols, entry.append, entry.caret, entry.vello, h, width, height);
   }
 
   /** Replace the whole document (Blitz has no in-place reparse). */
@@ -475,6 +498,29 @@ export class OsrDoc {
   /** Re-emit the current pixels into the bound buffer (no raster). */
   refreshInto(): number {
     return this.lib.dd_osr_refresh_into(this.handle) as number;
+  }
+
+  // ── GPU raster path ──
+
+  /** ABI handshake for the Encoding pointer frameVello returns —
+   *  `size_of<<8 | align_of` computed inside the cdylib. The platform
+   *  shim's wgpu_shim_vello_render compares it against its own layout and
+   *  refuses on mismatch. 0 when the cdylib lacks the vello exports. */
+  velloEncAbi(): bigint {
+    return BigInt(this.velloLib?.dd_osr_vello_enc_abi() ?? 0);
+  }
+
+  /**
+   * Encode the document into a vello scene when damaged. Returns the
+   * *const vello_encoding::Encoding pointer (valid until the next call on
+   * this doc — hand it to wgpu_shim_vello_render synchronously), or 0 when
+   * the doc is clean / the cdylib lacks the export. Frame rect is still
+   * exposed via frameRect() — the predicted damage region, informational
+   * only (GPU shading covers the whole scene either way).
+   */
+  frameVello(): number | bigint {
+    if (!this.velloLib) return 0;
+    return this.velloLib.dd_osr_frame_vello(this.handle) as number | bigint;
   }
 
   /**

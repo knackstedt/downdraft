@@ -18,6 +18,7 @@
 
 mod enums;
 mod validate;
+mod vello;
 
 use wgpu::wgc;
 
@@ -3936,6 +3937,7 @@ pub extern "C" fn wgpu_shim_release_device(p: Handle) {
             }
             return;
         }
+        vello::release_renderer_for(p as usize);
         release::<ShimDevice>(p)
     });
 }

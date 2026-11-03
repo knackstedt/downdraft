@@ -22,6 +22,11 @@ cosmic-text = "0.19"
 winit = "0.30"
 raw-window-handle = "0.6"
 wgpu = "30"
+# Vello GPU raster for html-ui OSR panels — wgpu_shim_vello_render shades an
+# encoded scene produced by libdowndraft_blitz_osr (vello_encoding must stay
+# version-identical on both sides of the raw-pointer ABI).
+vello = { version = "0.11", default-features = false, features = ["wgpu"] }
+vello_encoding = "=0.11.0"
 
 # No Android backend for either — dd_window_* clipboard/dialog paths are
 # stubbed under cfg(android) in src/window/mod.rs.

@@ -13,7 +13,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::os::raw::c_int;
+use std::os::raw::{c_int, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -37,11 +37,13 @@ use linebender_resource_handle::Blob;
 
 mod damage;
 mod events;
+mod gpu;
 mod mutate;
 mod resources;
 
 use damage::{Damage, DamageTracker};
 use events::{new_event_queue, EventQueue, QueueingHandler};
+use gpu::VelloScenePainter;
 use resources::{register_resource, UiNetProvider};
 
 /// Same single-font fallback the Dioxus shell uses — the OSR crate has no
@@ -209,6 +211,11 @@ pub struct OsrDoc {
     /// Geometric damage tracking — predicts the changed region from DOM
     /// state so raster+diff scale with damage instead of frame size.
     damage: DamageTracker,
+    /// Retained GPU-path scene — dd_osr_frame_vello encodes the document
+    /// into it and hands `*const Encoding` to the platform shim, which
+    /// imports it and shades on the shared wgpu device. Encoding-only:
+    /// this cdylib links no wgpu.
+    gpu_scene: vello::Scene,
     /// Region-raster scratch — `rw*rh*4` bytes for the current damage
     /// rect. Sourced by write_bound_frame (SAB path) or folded into
     /// d.pixels (pointer path). Empty when the last raster was full-frame.
@@ -653,6 +660,7 @@ pub unsafe extern "C" fn dd_osr_init(
             dirty: true,
             redraw,
             stats: [0.0; 8],
+            gpu_scene: vello::Scene::new(),
             frame_buf: None,
             sab_valid: false,
             buttons: MouseEventButtons::None,
@@ -883,12 +891,11 @@ fn blit_rows(src: &[u8], rw: usize, dst: &mut [u8], dst_stride: usize, x: usize,
     }
 }
 
-/// Resolve + rasterize + diff when dirty. Returns Some(rect) when pixels
-/// changed (rect = pixel-space dirty region); the new pixels live in
-/// d.pixels for a full raster or d.region for a damage-scoped raster
-/// (d.region_rect = its frame-space bounds). Writes
-/// per-call timings into d.stats.
-fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
+/// Shared dirty/resolve/damage preamble for the CPU and GPU raster paths.
+/// Returns (w, h, scale, region_px) when a repaint is due — region_px is the
+/// predicted damage rect converted to framebuffer px (None = full repaint).
+/// resolve_ms lands in stats[0]; a clean doc bumps the skipped-clean counter.
+fn prepare_frame(d: &mut OsrDoc) -> Option<(u32, u32, f64, Option<[u32; 4]>)> {
     sanitize_scroll(d);
     fold_redraw(d);
     if !d.dirty {
@@ -944,7 +951,18 @@ fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
             }
         }
     };
+    Some((w, h, scale, region_px))
+}
 
+/// Resolve + rasterize + diff when dirty. Returns Some(rect) when pixels
+/// changed (rect = pixel-space dirty region); the new pixels live in
+/// d.pixels for a full raster or d.region for a damage-scoped raster
+/// (d.region_rect = its frame-space bounds). Writes
+/// per-call timings into d.stats.
+fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
+    let (w, h, scale, region_px) = prepare_frame(d)?;
+
+    let mut inner = d.doc.inner_mut();
     let t1 = Instant::now();
     d.renderer.reset();
     if let Some([rx, ry, rw, rh]) = region_px {
@@ -978,12 +996,17 @@ fn raster_if_dirty(d: &mut OsrDoc) -> Option<[u32; 4]> {
     // serialized with this call by the doc's busy flag; a freshly bound SAB
     // is zeroed, which diffs to a full frame — rebind recovery for free).
     // Docs on the pointer path (no bound buffer) keep the prev_pixels copy.
+    // sab_valid additionally guards GPU-rendered frames: those bypass the
+    // SAB, leaving it stale — diffing against it would under-tighten the
+    // rect, so the first CPU raster after a GPU frame takes the full-write
+    // branch (damage was reset → full raster) and heals the buffer.
     let wu = w as usize;
     let hu = h as usize;
-    let sab_prev = d
-        .frame_buf
-        .as_ref()
-        .is_some_and(|b| b.len >= needed_buf_len(d));
+    let sab_prev = d.sab_valid
+        && d
+            .frame_buf
+            .as_ref()
+            .is_some_and(|b| b.len >= needed_buf_len(d));
     let rect = if let Some([rx, ry, rw, rh]) = region_px {
         // Scoped verify-diff: compare just the rastered region against the
         // retained frame. Damage prediction can over-cover (envelopes are
@@ -1278,12 +1301,83 @@ pub extern "C" fn dd_osr_refresh_into(handle: *mut OsrDoc) -> c_int {
             return -2;
         }
         if !d.sab_valid {
-            return 0;
+            // Nothing deliverable in the buffer — either never written
+            // (fresh bind) or invalidated by GPU-rendered frames, which
+            // bypass the SAB entirely. Produce the frame now: damage was
+            // reset, so this is a full raster + full write that republishes
+            // the buffer and re-validates it for later refreshes.
+            d.dirty = true;
+            return RASTER_SCRATCH.with(|s| {
+                let mut scratch = s.borrow_mut();
+                std::mem::swap(&mut d.pixels, &mut *scratch);
+                let rc = match raster_if_dirty(d) {
+                    Some(rect) => write_bound_frame(d, rect),
+                    None => 0,
+                };
+                std::mem::swap(&mut d.pixels, &mut *scratch);
+                rc
+            });
         }
         let (pw, ph) = d.doc.inner().viewport().window_size;
         write_bound_header(d, [0, 0, pw, ph]);
         write_bound_close(d);
         1
+    })
+}
+
+/// Layout handshake for the pointer returned by dd_osr_frame_vello:
+/// `size_of<vello_encoding::Encoding>() << 8 | align_of` as computed by THIS
+/// cdylib. The platform shim refuses to dereference when the value differs
+/// from its own — both sides pin vello_encoding 0.11, so a mismatch means a
+/// version/feature drift (e.g. bump_estimate) and the caller must fall back
+/// to the CPU raster path.
+#[no_mangle]
+pub extern "C" fn dd_osr_vello_enc_abi() -> u64 {
+    gpu::enc_abi()
+}
+
+/// GPU raster path: resolve + encode the document into a `vello::Scene`
+/// when damaged, returning a pointer to the scene's `vello_encoding
+/// ::Encoding` (valid until the next call on this handle — the caller must
+/// hand it to `wgpu_shim_vello_render` synchronously). NULL when the doc is
+/// clean. The predicted damage rect is exposed via `dd_osr_frame_rect` for
+/// the frame message, but shading is always the full scene — GPU fine
+/// rasterization is fast enough that scissoring to the damage rect isn't
+/// worth an intermediate texture + copy.
+///
+/// Delivery-side state: a rendered GPU frame bypasses the SAB/prev-pixel
+/// references, so this marks the bound buffer stale, drops prev_pixels and
+/// resets the damage snapshots — the next CPU raster (fallback or heal) is
+/// then a guaranteed full write that re-synchronizes the buffer.
+#[no_mangle]
+pub extern "C" fn dd_osr_frame_vello(handle: *mut OsrDoc) -> *mut c_void {
+    ffi(std::ptr::null_mut(), || {
+        let Some(mut g) = doc_enter(handle) else {
+            return std::ptr::null_mut();
+        };
+        let d = g.get();
+        let Some((w, h, scale, region_px)) = prepare_frame(d) else {
+            return std::ptr::null_mut();
+        };
+        let t1 = Instant::now();
+        d.gpu_scene.reset();
+        {
+            let mut inner = d.doc.inner_mut();
+            let mut painter = VelloScenePainter {
+                inner: &mut d.gpu_scene,
+            };
+            paint_scene(&mut painter, &mut inner, scale, w, h, 0.0, 0.0);
+            d.dirty = inner.is_animating();
+        }
+        d.stats[1] = t1.elapsed().as_secs_f64() * 1000.0;
+        d.stats[2] = 0.0; // no pixel diff on the GPU path
+        d.stats[3] = (w * h * 4) as f64;
+        d.stats[4] += 1.0;
+        d.dirty_rect = region_px.unwrap_or([0, 0, w, h]);
+        d.sab_valid = false;
+        d.prev_pixels.clear();
+        d.damage.reset();
+        d.gpu_scene.encoding_mut() as *mut vello_encoding::Encoding as *mut c_void
     })
 }
 

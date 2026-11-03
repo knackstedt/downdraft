@@ -30,6 +30,12 @@ style = { version = "0.21.0", package = "stylo", default-features = false }
 glifo = { version = "0.2", features = ["freetype"] }
 anyrender_vello_cpu = "0.17.0"
 anyrender = "0.13.0"
+# GPU raster path: paint_scene encodes into a vello::Scene here (no wgpu —
+# the .so holds only the encoding; libdowndraft_platform's wgpu_shim_vello_*
+# renders it on the shared device). vello_encoding is named directly for the
+# ABI handshake — both cdylibs must resolve the identical version.
+vello = { version = "0.11", default-features = false }
+vello_encoding = "=0.11.0"
 atomic_refcell = "0.1"
 keyboard-types = "0.7"
 linebender_resource_handle = "0.1"

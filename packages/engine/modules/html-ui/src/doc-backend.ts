@@ -125,6 +125,21 @@ export interface DocGpuView {
   detach(): void;
 }
 
+/** Render an encoded vello scene straight into a bound texture — the
+ *  GPU-raster counterpart of writeTexture upload. Both pointers are raw
+ *  shim handles (the platform lib's own registry); enc is the
+ *  *const vello_encoding::Encoding OsrDoc.frameVello() just produced.
+ *  Returns 0 on success — anything else means the caller should fall back
+ *  to the CPU raster path for the session. */
+export type DocVelloRender = (
+  devicePtr: number | bigint,
+  texPtr: number | bigint,
+  encPtr: number | bigint,
+  encAbi: bigint,
+  width: number,
+  height: number,
+) => number;
+
 /** Test/injection seam for the GPU-direct path — the real implementation
  *  dynamic-imports @downdraft/platform-native on the first gpuAttach. */
 export interface DocGpuHooks {
@@ -134,6 +149,8 @@ export interface DocGpuHooks {
   ): Promise<{
     view: DocGpuView;
     borrowTexture(ptr: number | bigint, meta: { width: number; height: number; format: GPUTextureFormat; usage?: number }): unknown;
+    /** Present when the platform lib exports wgpu_shim_vello_render. */
+    velloRender?: DocVelloRender;
   } | null>;
 }
 
@@ -149,9 +166,15 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
   // doc borrows its own host-owned texture via texBind. platform-native is
   // an optional peer — attach lazily so non-native hosts never resolve it.
   let gpuView: DocGpuView | null = null;
+  let gpuDevicePtr: number | bigint = 0;
   let borrowGpuTexture:
     | ((ptr: number | bigint, meta: { width: number; height: number; format: GPUTextureFormat; usage?: number }) => unknown)
     | null = null;
+  /** wgpu_shim_vello_render bound at attach — GPU rasterization of the
+   *  doc's encoded vello scene straight into the bound panel texture.
+   *  Cleared permanently on the first non-zero render result: ABI drift
+   *  and init failures don't heal within a session. */
+  let velloRender: DocVelloRender | null = null;
 
   /** Allocate + bind the doc's SAB frame channel; emits a bind message.
    *  The SAB doubles as the worker-local raster scratch in GPU-direct mode,
@@ -296,6 +319,46 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
       if (!s.doc.pending()) continue;
       if (s.maxFps > 0 && now - s.lastFrame < 1000 / s.maxFps) continue;
       if (s.sabU32) {
+        // GPU raster — encode the doc into a vello scene and shade it on
+        // the shared device, straight into the bound panel texture. This
+        // skips the CPU shade, the SAB write and the writeTexture upload;
+        // the SAB is marked stale doc-side and heals on the next CPU
+        // raster (refreshInto / a forced full frame).
+        const g = s.gpuTex;
+        if (
+          g && gpuView && velloRender
+          && gpuView.isValid()
+          && g.w === s.doc.width && g.h === s.doc.height
+        ) {
+          const enc = s.doc.frameVello();
+          if (enc) {
+            let rc = -1;
+            try {
+              rc = velloRender(gpuDevicePtr, g.ptr, enc, s.doc.velloEncAbi(), g.w, g.h);
+            } catch { /* shim threw — same fallback as a nonzero rc */ }
+            if (rc === 0) {
+              s.lastFrame = now;
+              collectStats(s, g.w * g.h * 4);
+              const r = s.doc.frameRect();
+              emit({
+                type: "frame", id,
+                x: r?.x ?? 0, y: r?.y ?? 0, w: r?.w ?? g.w, h: r?.h ?? g.h,
+                pw: g.w, ph: g.h, gpu: true, texPtr: g.ptr,
+                caret: s.doc.caretRect() ?? undefined,
+              });
+              emitWatchedRects(id, s);
+              continue;
+            }
+            // Render failed — disable vello for the session and deliver
+            // this frame through the CPU path: frameVello already consumed
+            // the damage and marked the SAB stale, so refreshInto
+            // re-rasters (full) and republishes the buffer.
+            velloRender = null;
+            if (s.doc.refreshInto() === 1) emitFrame(id, s);
+            continue;
+          }
+          continue; // clean
+        }
         const rc = s.doc.frameInto();
         if (rc === 1) {
           s.lastFrame = now;
@@ -412,17 +475,37 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
             : () => Promise.all([
               import("@downdraft/platform-native/gpu/shared-device"),
               import("@downdraft/platform-native/gpu/borrow"),
-            ]).then(([sd, br]) => {
+              import("@downdraft/platform-native/gpu/wgpu-ffi"),
+            ]).then(([sd, br, wf]) => {
               const view = sd.attachSharedDevice(m.gpu, m.cells);
+              const vello = wf.loadWgpuVello();
               return view
-                ? { view: view as unknown as DocGpuView, borrowTexture: br.borrowGpuTexture }
+                ? {
+                    view: view as unknown as DocGpuView,
+                    borrowTexture: br.borrowGpuTexture,
+                    velloRender: vello
+                      ? (
+                          devicePtr: number | bigint,
+                          texPtr: number | bigint,
+                          encPtr: number | bigint,
+                          encAbi: bigint,
+                          w: number,
+                          h: number,
+                        ) =>
+                          vello.wgpu_shim_vello_render(
+                            devicePtr, texPtr, encPtr, encAbi, w, h, 0,
+                          ) as number
+                      : undefined,
+                  }
                 : null;
             });
           void Promise.resolve()
             .then(attach)
             .then((res) => {
               gpuView = res?.view ?? null;
+              gpuDevicePtr = m.gpu.devicePtr;
               borrowGpuTexture = res?.borrowTexture ?? null;
+              velloRender = res?.velloRender ?? null;
               emit({ type: "gpuReady", ok: !!res });
             })
             .catch(() => emit({ type: "gpuReady", ok: false }));
@@ -432,6 +515,8 @@ export function createDocCore(emit: (m: WorkerToUi) => void, gpuHooks?: DocGpuHo
           for (const s of docs.values()) s.gpuTex = null;
           gpuView?.detach();
           gpuView = null;
+          velloRender = null;
+          gpuDevicePtr = 0;
           emit({ type: "gpuDetached" });
           break;
         }

@@ -1458,7 +1458,11 @@ export class HtmlUiHost {
       size: { width: tw, height: th },
       format: "rgba8unorm",
       viewFormats: ["rgba8unorm-srgb"],
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      // STORAGE_BINDING lets the ui worker shade the doc's vello scene
+      // straight into this texture (wgpu_shim_vello_render); rgba8unorm is
+      // a mandatory storage format so no adapter check is needed. The
+      // CPU-path COPY_DST uploads are unaffected.
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.STORAGE_BINDING,
     } as GPUTextureDescriptor);
     // Zero-fill — dirty-rect uploads only cover painted regions, so
     // un-painted texels (e.g. transparent spacers in overlay docs) would

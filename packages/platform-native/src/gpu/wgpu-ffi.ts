@@ -401,6 +401,34 @@ export interface WgpuExSymbols {
   wgpu_shim_set_icd_allowlist: (list: ptr, len: number) => void;
 }
 
+// ── Vello scene-render symbol ──
+// wgpu_shim_vello_render imports a vello_encoding::Encoding produced by
+// libdowndraft_blitz_osr (dd_osr_frame_vello) and shades it into a texture
+// on the shared device — the html-ui GPU-direct raster path. Optional
+// dlopen like the async/ex specs: a platform lib predating it fails only
+// this load and the doc worker falls back to CPU raster + writeTexture.
+const WGPU_VELLO_SPEC: Record<string, CFunction> = {
+  // (device, texture, encPtr, encAbi u64, width u32, height u32, baseRgba u32) → i32
+  //   0 ok · -1 bad handles · -2 ABI/arg mismatch (disable GPU raster) ·
+  //  -3 renderer init failed · -4 render failed
+  wgpu_shim_vello_render: {
+    args: ["ptr", "ptr", "ptr", "u64", "u32", "u32", "u32"],
+    returns: "i32",
+  },
+};
+
+export interface WgpuVelloSymbols {
+  wgpu_shim_vello_render: (
+    device: ptr,
+    texture: ptr,
+    enc: ptr,
+    encAbi: number | bigint,
+    width: number,
+    height: number,
+    baseRgba: number,
+  ) => number;
+}
+
 export interface WgpuAsyncSymbols {
   wgpu_shim_request_adapter_async: (instance: ptr, powerPreference: number) => number | bigint;
   wgpu_shim_request_device_async: (
@@ -446,6 +474,7 @@ export interface WgpuAsyncSymbols {
 let _wgpu: WgpuShimSymbols | null = null;
 let _wgpuAsync: WgpuAsyncSymbols | null | undefined;
 let _wgpuEx: WgpuExSymbols | null | undefined;
+let _wgpuVello: WgpuVelloSymbols | null | undefined;
 
 function wgpuShimPath(): string {
   if (process.env.WGPU_SHIM_PATH) {
@@ -494,6 +523,23 @@ export function loadWgpuEx(): WgpuExSymbols | null {
     _wgpuEx = null;
   }
   return _wgpuEx;
+}
+
+/**
+ * The optional vello scene-render symbol, or null when the resolved
+ * platform library predates wgpu_shim_vello_render (or the env opts out
+ * via DOWNDRAFT_NO_UI_VELLO=1).
+ */
+export function loadWgpuVello(): WgpuVelloSymbols | null {
+  if (_wgpuVello !== undefined) return _wgpuVello;
+  if (process.env.DOWNDRAFT_NO_UI_VELLO === "1") return null;
+  try {
+    const { symbols } = dlopen(wgpuShimPath(), WGPU_VELLO_SPEC);
+    _wgpuVello = symbols as unknown as WgpuVelloSymbols;
+  } catch {
+    _wgpuVello = null;
+  }
+  return _wgpuVello;
 }
 
 /**
