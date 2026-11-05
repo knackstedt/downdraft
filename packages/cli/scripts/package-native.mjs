@@ -73,7 +73,7 @@ const targetArg = argv.find((a) => a.startsWith("--target="))?.split("=")[1];
 // --mode=<dev|debug|prod> — prod minifies; dev/debug leave the bundle readable.
 const modeArg = argv.find((a) => a.startsWith("--mode="))?.split("=")[1] ?? "prod";
 // Branding flags — value may itself contain '=' so split on the first only.
-const flagValue = (name) => argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 2);
+const flagValue = (name) => argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const productNameFlag = flagValue("product-name");
 const productVersionFlag = flagValue("product-version");
 const iconFlag = flagValue("icon");

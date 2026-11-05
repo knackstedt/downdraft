@@ -307,11 +307,18 @@ export class HtmlUiHost {
     return p.zoom * this.userZoom;
   }
 
+  /** Whether THIS host currently holds the text-input arm. The latch is
+   *  window-global and shared with non-panel consumers (editor surfaces
+   *  arm it for their own textinput use) — a blur on a doc that never
+   *  armed must NOT disarm it, so only our own arm gets released. */
+  private imeArmed = false;
+
   /** Native IME wiring — editable focus arms the platform text-input path
    *  (winit set_ime_allowed + TEXTINPUT/Ime::Commit routing) and anchors
    *  the candidate window at the focused element; editable focus leaving
-   *  EVERY panel disarms. Duck-typed on __nativeWindow — a no-op under
-   *  non-native hosts and on libs predating the text-input exports.
+   *  EVERY panel disarms (only when this host armed — see imeArmed).
+   *  Duck-typed on __nativeWindow — a no-op under non-native hosts and on
+   *  libs predating the text-input exports.
    *  Preedit stays unhandled: the Blitz backend has no marked-text
    *  rendering, so composition text arrives via commit only. */
   private syncIme(p: Panel, ev: OsrDomEvent): void {
@@ -319,6 +326,7 @@ export class HtmlUiHost {
     if (!w?.startTextInput || !w.stopTextInput) return;
     if (p.editing) {
       w.startTextInput();
+      this.imeArmed = true;
       // Anchor the IME candidate window at the focused element — panel-
       // local CSS px → physical window px (doc rect minus the srcRect
       // scroll window, scaled by the panel's effective zoom).
@@ -336,7 +344,8 @@ export class HtmlUiHost {
         );
       });
       this.send({ type: "getRect", reqId, id: p.id, node: ev.n });
-    } else if (![...this.panels.values()].some((q) => q.editing)) {
+    } else if (this.imeArmed && ![...this.panels.values()].some((q) => q.editing)) {
+      this.imeArmed = false;
       w.stopTextInput();
     }
   }

@@ -571,14 +571,23 @@ export class NativeWindow extends MiniEventTarget {
     }
   }
 
-  /** Enable native text input (for the console REPL). */
+  /** Refcounted arm count — the native text-input latch is window-global
+   *  while consumers (editor surfaces, html-ui docs) arm/disarm it
+   *  independently. Pairing start/stop per caller keeps one consumer's
+   *  disarm from killing another's arm. */
+  private textInputArms = 0;
+
+  /** Arm native text input (IME + textinput events). Refcounted — pair
+   *  with stopTextInput; the latch drops when the last armer releases. */
   startTextInput(): void {
-    win.dd_window_start_text_input();
+    this.textInputArms++;
+    if (this.textInputArms === 1) win.dd_window_start_text_input();
   }
 
-  /** Disable native text input. */
+  /** Disarm native text input — releases this caller's arm. */
   stopTextInput(): void {
-    win.dd_window_stop_text_input();
+    if (this.textInputArms === 0) return;
+    if (--this.textInputArms === 0) win.dd_window_stop_text_input();
   }
 
   /** Set the text input rect (for IME candidate window positioning). */
