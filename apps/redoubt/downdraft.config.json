@@ -1,0 +1,11 @@
+{
+  "name": "redoubt",
+  "version": "0.1.0",
+  "native": {
+    "appId": "downdraft-redoubt",
+    "title": "Redoubt"
+  },
+  "gpu": {
+    "mode": "stability"
+  }
+}
