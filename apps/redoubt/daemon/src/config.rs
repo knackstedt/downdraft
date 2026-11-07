@@ -21,6 +21,9 @@ pub struct Repository {
     pub mirrors: Vec<Mirror>,
     #[serde(default)]
     pub created_at: u64,
+    /// Last successful passphrase revalidation (password reminder clock).
+    #[serde(default)]
+    pub last_password_verified_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,7 +184,7 @@ pub struct ExclusionCategory {
 
 // ── persisted config ──
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DaemonConfig {
     #[serde(default)]
@@ -199,8 +202,66 @@ pub struct DaemonConfig {
     pub password_reminder_days: u32,
 }
 
+// Manual impl: serde field defaults don't apply to Default::default() on a
+// missing config file.
+impl Default for DaemonConfig {
+    fn default() -> Self {
+        Self {
+            repositories: vec![],
+            plans: vec![],
+            targets: vec![],
+            syncs: vec![],
+            exclusion_profiles: vec![],
+            password_reminder_days: default_remind_days(),
+        }
+    }
+}
+
 fn default_remind_days() -> u32 {
     30
+}
+
+/// The built-in exclusion profile — categorized toggles, gitignore-style
+/// patterns. Compiled into kopia --ignore-rules at snapshot time and used
+/// verbatim by the local disk-scan preview.
+pub fn default_exclusion_profile() -> ExclusionProfile {
+    let cat = |id: &str, label: &str, enabled: bool, patterns: &[&str]| ExclusionCategory {
+        id: id.into(),
+        label: label.into(),
+        enabled,
+        patterns: patterns.iter().map(|s| s.to_string()).collect(),
+    };
+    ExclusionProfile {
+        id: "default".into(),
+        name: "Default exclusions".into(),
+        categories: vec![
+            cat("caches", "Caches & package registries", true, &[
+                "~/.cache/**", "**/.cache/**", "~/.cargo/registry/**", "~/.cargo/git/**",
+                "~/.npm/**", "~/.bun/install/cache/**", "~/.var/app/*/cache/**",
+                "~/.mozilla/firefox/*/cache2/**", "**/node_modules/.cache/**",
+            ]),
+            cat("trash", "Trash", true, &[
+                "~/.local/share/Trash/**", "**/.Trash-*/**",
+            ]),
+            cat("games", "Game libraries", true, &[
+                "~/.local/share/Steam/**", "~/.steam/**", "~/Steam/**",
+                "~/.var/app/com.valvesoftware.Steam/**", "~/.local/share/lutris/**",
+            ]),
+            cat("vms", "Virtual machines", true, &[
+                "~/VirtualBox VMs/**", "~/.local/share/gnome-boxes/**",
+                "~/vmware/**", "~/.local/share/libvirt/images/**",
+            ]),
+            cat("build", "Build artifacts", true, &[
+                "**/node_modules/**", "**/target/debug/**", "**/target/release/**",
+                "**/__pycache__/**", "**/.gradle/**", "~/.m2/**", "**/.next/**", "**/.nuxt/**",
+            ]),
+            cat("downloads", "Downloads (optional)", false, &["~/Downloads/**"]),
+            cat("system", "System (always)", true, &[
+                "**/.gvfs/**", "**/proc/**", "**/sys/**", "**/dev/**", "**/run/user/**",
+                "**/lost+found/**",
+            ]),
+        ],
+    }
 }
 
 pub fn config_dir() -> PathBuf {
@@ -231,7 +292,7 @@ pub fn config_path() -> PathBuf {
 impl DaemonConfig {
     pub fn load() -> Self {
         let path = config_path();
-        match fs::read_to_string(&path) {
+        let mut cfg = match fs::read_to_string(&path) {
             Ok(text) => match toml::from_str(&text) {
                 Ok(cfg) => cfg,
                 Err(e) => {
@@ -240,7 +301,11 @@ impl DaemonConfig {
                 }
             },
             Err(_) => Self::default(),
+        };
+        if cfg.exclusion_profiles.is_empty() {
+            cfg.exclusion_profiles.push(default_exclusion_profile());
         }
+        cfg
     }
 
     /// Persist config — called by mutation RPCs in later phases.

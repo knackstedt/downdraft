@@ -3,21 +3,25 @@
 //! Newline-delimited JSON both directions. Requests `{jsonrpc, id, method,
 //! params}` get `{jsonrpc, id, result|error}`; daemon events go out as
 //! notifications `{jsonrpc, method, params}` on every connected client.
-//!
-//! Method set (phase 1): daemon.status, daemon.version + list methods over
-//! the config model. Job/engine methods land in later phases.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use anyhow::{bail, Context};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::broadcast;
+use zeroize::Zeroizing;
 
-use crate::config::DaemonConfig;
+use crate::bins::{self, Tool};
+use crate::config::{DaemonConfig, Plan, RepoLocation, Repository};
+use crate::engine::kopia::KopiaAdapter;
+use crate::engine::{EngineAdapter, SnapshotInfo};
+use crate::{jobs, keybox, secrets};
 
 pub fn socket_path() -> PathBuf {
     if let Ok(p) = std::env::var("REDOUBT_SOCK") {
@@ -27,25 +31,17 @@ pub fn socket_path() -> PathBuf {
     PathBuf::from(runtime).join("downdraft-redoubt").join("daemon.sock")
 }
 
-fn which(name: &str) -> Option<String> {
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        let cand = dir.join(name);
-        if cand.is_file() {
-            return Some(cand.to_string_lossy().into_owned());
-        }
-    }
-    None
-}
-
 pub struct DaemonState {
     pub config: Mutex<DaemonConfig>,
     pub start: Instant,
     pub events: broadcast::Sender<Value>,
-    pub jobs: Mutex<Vec<Value>>,
-    /// Next job id — used once the scheduler (phase 4) starts emitting jobs.
-    #[allow(dead_code)]
+    pub jobs: jobs::JobStore,
     pub job_counter: AtomicU64,
+    /// Unlocked repository passwords (in-memory only — the persistent copy
+    /// lives in the keybox; keyring caches it across daemon restarts).
+    pub repo_keys: Mutex<HashMap<String, Zeroizing<String>>>,
+    /// Lazily constructed after bins.ensure lands the kopia binary.
+    pub engine: Mutex<Option<Arc<KopiaAdapter>>>,
 }
 
 impl DaemonState {
@@ -55,18 +51,49 @@ impl DaemonState {
             config: Mutex::new(config),
             start: Instant::now(),
             events,
-            jobs: Mutex::new(Vec::new()),
+            jobs: Mutex::new(std::collections::VecDeque::new()),
             job_counter: AtomicU64::new(1),
+            repo_keys: Mutex::new(HashMap::new()),
+            engine: Mutex::new(None),
         }
     }
 
-    /// Broadcast an event notification to every connected client — used by
-    /// job progress, storage warnings and password reminders (later phases).
-    #[allow(dead_code)]
+    /// Broadcast an event notification to every connected client.
     pub fn emit(&self, method: &str, params: Value) {
         let note = json!({ "jsonrpc": "2.0", "method": method, "params": params });
-        // No subscribers is fine — drop the error.
         let _ = self.events.send(note);
+    }
+
+    /// Engine adapter — resolves the kopia binary on first use; after a
+    /// bins.ensure download this must be retried, so failure is not cached.
+    pub fn engine(&self) -> anyhow::Result<Arc<KopiaAdapter>> {
+        let mut slot = self.engine.lock().unwrap();
+        if let Some(e) = slot.as_ref() {
+            return Ok(Arc::clone(e));
+        }
+        let e = Arc::new(KopiaAdapter::new()?);
+        *slot = Some(Arc::clone(&e));
+        Ok(e)
+    }
+
+    /// Repository password, resolved in order: explicit param → in-memory
+    /// cache → OS keyring. Errors with an unlock hint otherwise.
+    fn repo_password(&self, repo_id: &str, passphrase: Option<&str>) -> anyhow::Result<Zeroizing<String>> {
+        if let Some(p) = passphrase {
+            let box_ = keybox::load(repo_id)?;
+            let pw = keybox::unlock(&box_, p)?;
+            self.repo_keys.lock().unwrap().insert(repo_id.into(), pw.clone());
+            return Ok(pw);
+        }
+        if let Some(pw) = self.repo_keys.lock().unwrap().get(repo_id) {
+            return Ok(pw.clone());
+        }
+        if let Some(pw) = secrets::get(repo_id) {
+            let pw = Zeroizing::new(pw);
+            self.repo_keys.lock().unwrap().insert(repo_id.into(), pw.clone());
+            return Ok(pw);
+        }
+        bail!("repository {repo_id} is locked — call repo.unlock or pass passphrase")
     }
 }
 
@@ -77,8 +104,9 @@ fn status(state: &DaemonState) -> Value {
         "pid": std::process::id(),
         "socketPath": socket_path().to_string_lossy(),
         "uptimeSec": state.start.elapsed().as_secs(),
-        "kopiaBin": which("kopia"),
-        "rcloneBin": which("rclone"),
+        "kopiaBin": bins::resolve(Tool::Kopia).map(|p| p.to_string_lossy().into_owned()),
+        "rcloneBin": bins::resolve(Tool::Rclone).map(|p| p.to_string_lossy().into_owned()),
+        "keyring": secrets::available(),
         "counts": {
             "plans": cfg.plans.len(),
             "repositories": cfg.repositories.len(),
@@ -88,39 +116,368 @@ fn status(state: &DaemonState) -> Value {
     })
 }
 
-fn dispatch(
-    state: &Arc<DaemonState>,
-    method: &str,
-    _params: &Value,
-) -> Result<Value, (i64, String)> {
+fn get_repository(state: &DaemonState, id: &str) -> anyhow::Result<Repository> {
+    let cfg = state.config.lock().unwrap();
+    cfg.repositories
+        .iter()
+        .find(|r| r.id == id)
+        .cloned()
+        .with_context(|| format!("no repository {id}"))
+}
+
+fn get_plan(state: &DaemonState, id: &str) -> anyhow::Result<Plan> {
+    let cfg = state.config.lock().unwrap();
+    cfg.plans
+        .iter()
+        .find(|p| p.id == id)
+        .cloned()
+        .with_context(|| format!("no plan {id}"))
+}
+
+fn p_str<'a>(params: &'a Value, key: &str) -> anyhow::Result<&'a str> {
+    params
+        .get(key)
+        .and_then(Value::as_str)
+        .with_context(|| format!("missing param {key}"))
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+// ── method handlers ──
+
+async fn repo_create(state: &Arc<DaemonState>, params: &Value) -> anyhow::Result<Value> {
+    let name = p_str(params, "name")?.to_string();
+    let passphrase = p_str(params, "passphrase")?.to_string();
+    let loc: RepoLocation = serde_json::from_value(
+        params.get("location").cloned().context("missing location")?,
+    )?;
+
+    let repo = Repository {
+        id: uuid::Uuid::new_v4().to_string(),
+        name,
+        location: loc.clone(),
+        mirrors: vec![],
+        created_at: now_ms(),
+        last_password_verified_at: Some(now_ms()),
+    };
+
+    let (box_, secret) = keybox::create(&passphrase)?;
+    state.engine()?.create_repository(&repo, &secret).await?;
+    keybox::save(&repo.id, &box_)?;
+    if let RepoLocation::Filesystem { path } = &loc {
+        let _ = keybox::export_into_repo(&repo.id, path);
+    }
+    state
+        .repo_keys
+        .lock()
+        .unwrap()
+        .insert(repo.id.clone(), secret.clone());
+    secrets::store(&repo.id, &secret);
+
+    {
+        let mut cfg = state.config.lock().unwrap();
+        cfg.repositories.push(repo.clone());
+        cfg.save()?;
+    }
+    Ok(serde_json::to_value(&repo)?)
+}
+
+async fn repo_connect(state: &Arc<DaemonState>, params: &Value) -> anyhow::Result<Value> {
+    let id = p_str(params, "id")?;
+    let repo = get_repository(state, id)?;
+    let pw = state.repo_password(id, params.get("passphrase").and_then(Value::as_str))?;
+    state.engine()?.connect(&repo, &pw).await?;
+    Ok(json!({ "connected": true }))
+}
+
+async fn repo_unlock(state: &Arc<DaemonState>, params: &Value) -> anyhow::Result<Value> {
+    let id = p_str(params, "id")?;
+    let passphrase = p_str(params, "passphrase")?;
+    let box_ = keybox::load(id)?;
+    let pw = keybox::unlock(&box_, passphrase)?;
+    state
+        .repo_keys
+        .lock()
+        .unwrap()
+        .insert(id.to_string(), pw.clone());
+    if params.get("remember").and_then(Value::as_bool).unwrap_or(true) {
+        secrets::store(id, &pw);
+    }
+    Ok(json!({ "unlocked": true }))
+}
+
+async fn repo_password_verify(state: &Arc<DaemonState>, params: &Value) -> anyhow::Result<Value> {
+    let id = p_str(params, "id")?;
+    let passphrase = p_str(params, "passphrase")?;
+    let box_ = keybox::load(id)?;
+    let ok = keybox::verify(&box_, passphrase);
+    if ok {
+        // A successful revalidation both refreshes the reminder clock and
+        // re-caches the secret so scheduled runs keep working unattended.
+        let pw = keybox::unlock(&box_, passphrase)?;
+        state
+            .repo_keys
+            .lock()
+            .unwrap()
+            .insert(id.to_string(), pw.clone());
+        secrets::store(id, &pw);
+        let mut cfg = state.config.lock().unwrap();
+        if let Some(r) = cfg.repositories.iter_mut().find(|r| r.id == id) {
+            r.last_password_verified_at = Some(now_ms());
+        }
+        cfg.save()?;
+    }
+    Ok(json!({ "ok": ok }))
+}
+
+fn repo_password_status(state: &Arc<DaemonState>, params: &Value) -> anyhow::Result<Value> {
+    let id = p_str(params, "id")?;
+    let cfg = state.config.lock().unwrap();
+    let repo = cfg
+        .repositories
+        .iter()
+        .find(|r| r.id == id)
+        .with_context(|| format!("no repository {id}"))?;
+    let interval_days = cfg.password_reminder_days;
+    let last = repo.last_password_verified_at.unwrap_or(0);
+    let unlocked = state.repo_keys.lock().unwrap().contains_key(id) || secrets::get(id).is_some();
+    let due = interval_days > 0 && now_ms() > last + interval_days as u64 * 86_400_000;
+    Ok(json!({
+        "unlocked": unlocked,
+        "lastVerifiedAt": last,
+        "intervalDays": interval_days,
+        "due": due,
+        "keyringAvailable": secrets::available(),
+    }))
+}
+
+async fn repo_stats(state: &Arc<DaemonState>, params: &Value) -> anyhow::Result<Value> {
+    let id = p_str(params, "id")?;
+    let repo = get_repository(state, id)?;
+    let pw = state.repo_password(id, params.get("passphrase").and_then(Value::as_str))?;
+    let text = state.engine()?.repository_status(&repo, &pw).await?;
+    Ok(json!({ "status": text }))
+}
+
+async fn repo_sync_to(state: &Arc<DaemonState>, params: &Value) -> anyhow::Result<Value> {
+    let id = p_str(params, "id")?;
+    let repo = get_repository(state, id)?;
+    let dest: RepoLocation = serde_json::from_value(
+        params.get("location").cloned().context("missing location")?,
+    )?;
+    let pw = state.repo_password(id, params.get("passphrase").and_then(Value::as_str))?;
+    state.engine()?.sync_to(&repo, &dest, &pw).await?;
+    Ok(json!({ "synced": true }))
+}
+
+fn plan_create(state: &Arc<DaemonState>, params: &Value) -> anyhow::Result<Value> {
+    let mut plan: Plan = serde_json::from_value(params.clone())?;
+    if plan.id.is_empty() {
+        plan.id = uuid::Uuid::new_v4().to_string();
+    }
+    let mut cfg = state.config.lock().unwrap();
+    if let Some(existing) = cfg.plans.iter_mut().find(|p| p.id == plan.id) {
+        *existing = plan.clone();
+    } else {
+        cfg.plans.push(plan.clone());
+    }
+    cfg.save()?;
+    Ok(serde_json::to_value(&plan)?)
+}
+
+fn plan_delete(state: &Arc<DaemonState>, params: &Value) -> anyhow::Result<Value> {
+    let id = p_str(params, "id")?;
+    let mut cfg = state.config.lock().unwrap();
+    cfg.plans.retain(|p| p.id != id);
+    cfg.save()?;
+    Ok(json!({ "deleted": id }))
+}
+
+async fn plan_run_now(state: &Arc<DaemonState>, params: &Value) -> anyhow::Result<Value> {
+    let id = p_str(params, "id")?.to_string();
+    let plan = get_plan(state, &id)?;
+    if !plan.enabled {
+        bail!("plan {id} is disabled");
+    }
+    let repo = get_repository(state, &plan.repository_id)?;
+    let pw = state.repo_password(&repo.id, params.get("passphrase").and_then(Value::as_str))?;
+    let engine = state.engine()?;
+    let st = Arc::clone(state);
+    let job_id = jobs::spawn(state, "backup", Some(id.clone()), move |st2, jid| {
+        let engine = Arc::clone(&engine);
+        let repo = repo.clone();
+        let plan = plan.clone();
+        let pw = pw.clone();
+        let _ = st;
+        async move {
+            let cfg_excludes = {
+                let cfg = st2.config.lock().unwrap();
+                cfg.exclusion_profiles.clone()
+            };
+            let mut created: Vec<SnapshotInfo> = Vec::new();
+            let n = plan.sources.len();
+            for (i, src) in plan.sources.iter().enumerate() {
+                jobs::report(&st2, &jid, i as f32 / n as f32, &format!("snapshotting {}", src.path));
+                let patterns: Vec<String> = cfg_excludes
+                    .iter()
+                    .find(|p| p.id == src.exclude_profile_id)
+                    .map(|p| {
+                        p.categories
+                            .iter()
+                            .filter(|c| c.enabled)
+                            .flat_map(|c| c.patterns.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let mut patterns = patterns;
+                patterns.extend(src.extra_excludes.clone());
+                let tags = vec![("plan".to_string(), plan.name.clone())];
+                let snap = engine
+                    .snapshot_create(&repo, &src.path, &pw, &tags, &patterns)
+                    .await?;
+                created.push(snap);
+            }
+            jobs::report(&st2, &jid, 1.0, "done");
+            Ok(json!({ "snapshots": created }))
+        }
+    });
+    Ok(json!({ "jobId": job_id }))
+}
+
+async fn snapshot_list(state: &Arc<DaemonState>, params: &Value) -> anyhow::Result<Value> {
+    let repo_id = params
+        .get("repositoryId")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            params
+                .get("planId")
+                .and_then(Value::as_str)
+                .and_then(|pid| get_plan(state, pid).ok())
+                .map(|p| p.repository_id)
+        })
+        .context("repositoryId or planId required")?;
+    let repo = get_repository(state, &repo_id)?;
+    let pw = state.repo_password(&repo_id, params.get("passphrase").and_then(Value::as_str))?;
+    let mut snaps = state.engine()?.snapshot_list(&repo, &pw).await?;
+    if let Some(pid) = params.get("planId").and_then(Value::as_str) {
+        if let Ok(plan) = get_plan(state, pid) {
+            snaps.retain(|s| plan.sources.iter().any(|src| s.source == src.path));
+        }
+    }
+    Ok(serde_json::to_value(&snaps)?)
+}
+
+async fn snapshot_restore(state: &Arc<DaemonState>, params: &Value) -> anyhow::Result<Value> {
+    let repo_id = p_str(params, "repositoryId")?.to_string();
+    let snap = p_str(params, "snapshotId")?.to_string();
+    let target = p_str(params, "targetDir")?.to_string();
+    let repo = get_repository(state, &repo_id)?;
+    let pw = state.repo_password(&repo_id, params.get("passphrase").and_then(Value::as_str))?;
+    let engine = state.engine()?;
+    let st = Arc::clone(state);
+    let job_id = jobs::spawn(state, "restore", None, move |st2, jid| {
+        let repo = repo.clone();
+        let snap = snap.clone();
+        let target = target.clone();
+        let engine = Arc::clone(&engine);
+        let pw = pw.clone();
+        let _ = st;
+        async move {
+            jobs::report(&st2, &jid, 0.3, "restoring");
+            engine.restore(&repo, &snap, &target, &pw).await?;
+            Ok(json!({ "restored": snap, "to": target }))
+        }
+    });
+    Ok(json!({ "jobId": job_id }))
+}
+
+async fn snapshot_delete(state: &Arc<DaemonState>, params: &Value) -> anyhow::Result<Value> {
+    let repo_id = p_str(params, "repositoryId")?;
+    let snap = p_str(params, "snapshotId")?;
+    let repo = get_repository(state, repo_id)?;
+    let pw = state.repo_password(repo_id, params.get("passphrase").and_then(Value::as_str))?;
+    state.engine()?.snapshot_delete(&repo, snap, &pw).await?;
+    Ok(json!({ "deleted": snap }))
+}
+
+async fn bins_ensure(state: &Arc<DaemonState>) -> anyhow::Result<Value> {
+    let st = Arc::clone(state);
+    let job_id = jobs::spawn(state, "bins.ensure", None, move |st2, jid| {
+        let _ = st;
+        async move {
+            let mut paths = serde_json::Map::new();
+            for tool in [Tool::Kopia, Tool::Rclone] {
+                jobs::report(&st2, &jid, 0.2, &format!("fetching {}", tool.name()));
+                let p = bins::ensure(tool).await?;
+                paths.insert(tool.name().into(), json!(p.to_string_lossy()));
+            }
+            // Binary landed after engine resolution may have failed earlier —
+            // force re-resolution on next use.
+            *st2.engine.lock().unwrap() = None;
+            Ok(json!({ "bins": Value::Object(paths) }))
+        }
+    });
+    Ok(json!({ "jobId": job_id }))
+}
+
+async fn dispatch(state: &Arc<DaemonState>, method: &str, params: &Value) -> anyhow::Result<Value> {
     match method {
         "daemon.status" => Ok(status(state)),
         "daemon.version" => Ok(json!({ "version": env!("CARGO_PKG_VERSION") })),
-        "plan.list" => {
-            let cfg = state.config.lock().unwrap();
-            Ok(serde_json::to_value(&cfg.plans).unwrap())
-        }
+
+        "bins.status" => Ok(json!({
+            "tools": [
+                { "name": "kopia", "path": bins::resolve(Tool::Kopia), "candidates": bins::candidates(Tool::Kopia) },
+                { "name": "rclone", "path": bins::resolve(Tool::Rclone), "candidates": bins::candidates(Tool::Rclone) },
+            ]
+        })),
+        "bins.ensure" => bins_ensure(state).await,
+
         "repo.list" => {
             let cfg = state.config.lock().unwrap();
-            Ok(serde_json::to_value(&cfg.repositories).unwrap())
+            Ok(serde_json::to_value(&cfg.repositories)?)
         }
+        "repo.create" => repo_create(state, params).await,
+        "repo.connect" => repo_connect(state, params).await,
+        "repo.unlock" => repo_unlock(state, params).await,
+        "repo.passwordVerify" => repo_password_verify(state, params).await,
+        "repo.passwordStatus" => repo_password_status(state, params),
+        "repo.stats" => repo_stats(state, params).await,
+        "repo.syncNow" => repo_sync_to(state, params).await,
+
+        "plan.list" => {
+            let cfg = state.config.lock().unwrap();
+            Ok(serde_json::to_value(&cfg.plans)?)
+        }
+        "plan.create" => plan_create(state, params),
+        "plan.update" => plan_create(state, params),
+        "plan.delete" => plan_delete(state, params),
+        "plan.runNow" => plan_run_now(state, params).await,
+
+        "snapshot.list" => snapshot_list(state, params).await,
+        "snapshot.restore" => snapshot_restore(state, params).await,
+        "snapshot.delete" => snapshot_delete(state, params).await,
+
         "target.list" => {
             let cfg = state.config.lock().unwrap();
-            Ok(serde_json::to_value(&cfg.targets).unwrap())
+            Ok(serde_json::to_value(&cfg.targets)?)
         }
         "sync.list" => {
             let cfg = state.config.lock().unwrap();
-            Ok(serde_json::to_value(&cfg.syncs).unwrap())
-        }
-        "job.list" => {
-            let jobs = state.jobs.lock().unwrap();
-            Ok(Value::Array(jobs.clone()))
+            Ok(serde_json::to_value(&cfg.syncs)?)
         }
         "exclusions.list" => {
             let cfg = state.config.lock().unwrap();
-            Ok(serde_json::to_value(&cfg.exclusion_profiles).unwrap())
+            Ok(serde_json::to_value(&cfg.exclusion_profiles)?)
         }
-        _ => Err((-32601, format!("unknown method: {method}"))),
+        "job.list" => Ok(serde_json::to_value(jobs::list(state))?),
+        _ => bail!("unknown method: {method}"),
     }
 }
 
@@ -147,13 +504,12 @@ async fn handle_conn(state: Arc<DaemonState>, stream: UnixStream) -> anyhow::Res
                     }
                 };
                 let id = req.get("id").cloned().unwrap_or(Value::Null);
-                let method = req.get("method").and_then(Value::as_str).unwrap_or("");
+                let method = req.get("method").and_then(Value::as_str).unwrap_or("").to_string();
                 let params = req.get("params").cloned().unwrap_or(json!({}));
                 let st = Arc::clone(&state);
-                let (m, p) = (method.to_string(), params);
-                let resp = match tokio::task::spawn_blocking(move || dispatch(&st, &m, &p)).await? {
+                let resp = match dispatch(&st, &method, &params).await {
                     Ok(result) => json!({"jsonrpc":"2.0","id":id,"result":result}),
-                    Err((code, message)) => json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}}),
+                    Err(e) => json!({"jsonrpc":"2.0","id":id,"error":{"code":-32000,"message":format!("{e:#}")}}),
                 };
                 write_half.write_all(resp.to_string().as_bytes()).await?;
                 write_half.write_all(b"\n").await?;
@@ -183,7 +539,6 @@ pub async fn serve(state: Arc<DaemonState>) -> anyhow::Result<()> {
             let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
         }
     }
-    // Clear a stale socket — the pid that owned it is gone if we got here.
     if path.exists() {
         std::fs::remove_file(&path)?;
     }

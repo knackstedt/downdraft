@@ -63,6 +63,7 @@ export interface Repository {
   location: { provider: "filesystem"; path: string } | { provider: "rclone"; remote: string; path: string };
   mirrors: Mirror[];
   createdAt: number;
+  lastPasswordVerifiedAt?: number;
 }
 
 export interface Mirror {
@@ -108,18 +109,23 @@ export interface SyncJob {
 export interface JobInfo {
   id: string;
   kind: string;
-  planId: string | null;
+  planId?: string;
   state: "queued" | "running" | "done" | "failed" | "cancelled";
   progress: number;
   message: string;
   startedAt: number;
-  endedAt: number | null;
+  endedAt?: number;
+  error?: string;
+  result?: { snapshots?: SnapshotInfo[]; [k: string]: unknown };
 }
 
 export interface SnapshotInfo {
   id: string;
   source: string;
+  host: string;
+  user: string;
   startTime: number;
   endTime: number;
-  sizeBytes: number | null;
+  sizeBytes: number;
+  fileCount: number;
 }

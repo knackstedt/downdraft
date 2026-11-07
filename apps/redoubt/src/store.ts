@@ -3,7 +3,9 @@
 // daemon RPCs and daemon push events; pages re-render on notify().
 // ============================================================================
 
-import type { DaemonStatus, JobInfo, Plan, Repository, SyncJob, Target } from "./protocol";
+import type { DaemonStatus, JobInfo, Plan, Repository, SnapshotInfo, SyncJob, Target } from "./protocol";
+
+export type ModalKind = "new-repo" | "new-plan" | "restore" | "unlock-repo";
 
 export type PageId = "overview" | "plans" | "targets" | "snapshots" | "sync" | "settings";
 
@@ -28,6 +30,20 @@ class UiStore {
   syncs: SyncJob[] = [];
   jobs: JobInfo[] = [];
   lastError: string | null = null;
+
+  /** Snapshots for the plan selected on the Snapshots page. */
+  snapshots: SnapshotInfo[] = [];
+  snapshotsPlanId: string | null = null;
+  snapshotsLoading = false;
+  selectedSnapIdx = 0;
+
+  /** Modal + form state: which dialog is open, and the current field values
+   *  (kit input onChange writes here; submit handlers read it). */
+  modal: ModalKind | null = null;
+  modalPayload: Record<string, string> = {};
+  form: Record<string, string> = {};
+  formError: string | null = null;
+  busy = false;
 
   private listeners: Listener[] = [];
 

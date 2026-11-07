@@ -204,19 +204,102 @@ export const appModule: AppModule = {
           bindKit(doc, {
             onAction(verb, data) {
               if (verb === "menuitem") { handleMenu(data.mid ?? ""); return; }
-              if (verb === "dismiss") { /* toast dismiss handled by kit */ return; }
+              if (verb === "dismiss") return;
               handleVerb(verb, data);
+            },
+            onChange(id, kind, value) {
+              if (kind === "input" || kind === "number") store.form[id] = String(value);
+              else if (kind === "choice") {
+                if (id === "plan-repo") store.form["plan-repo-i"] = String(store.repositories.findIndex((r) => r.name === value));
+                if (id === "snap-plan") {
+                  const p = store.plans.find((x) => x.name === value);
+                  if (p) { store.snapshotsPlanId = p.id; void loadSnapshots(); }
+                }
+              } else if (kind === "select") {
+                if (id === "snap-table") store.selectedSnapIdx = Number(value);
+              }
             },
           });
 
           ui.onAction("nav", (d) => navTo(d.page as PageId));
 
+          async function loadSnapshots(): Promise<void> {
+            if (!store.snapshotsPlanId) return;
+            store.snapshotsLoading = true; refresh?.();
+            try {
+              store.snapshots = await client.rpc("snapshot.list", { planId: store.snapshotsPlanId }) as typeof store.snapshots;
+            } catch (e) { store.snapshots = []; toast(`snapshot list: ${e}`, "warn"); }
+            store.snapshotsLoading = false; store.notify();
+          }
+
+          function openModal(kind: typeof store.modal, payload: Record<string, string> = {}): void {
+            store.modal = kind; store.modalPayload = payload; store.form = {}; store.formError = null; refresh?.();
+          }
+          function closeModal(): void { store.modal = null; store.busy = false; refresh?.(); }
+          function formErr(msg: string): void { store.formError = msg; refresh?.(); }
+
+          async function pickInto(field: string): Promise<void> {
+            const p = await downdraft.pickFolder?.({});
+            if (p?.[0]) { store.form[field] = p[0]; refresh?.(); }
+          }
+
+          async function submitModal(): Promise<void> {
+            const f = store.form;
+            try {
+              if (store.modal === "new-repo") {
+                if (!f["repo-name"]) return formErr("name required");
+                if (!f["repo-path"]) return formErr("folder required");
+                if (!f["repo-pw"]) return formErr("passphrase required");
+                if (f["repo-pw"] !== f["repo-pw2"]) return formErr("passphrases don't match");
+                store.busy = true; refresh?.();
+                await client.rpc("repo.create", { name: f["repo-name"], passphrase: f["repo-pw"], location: { provider: "filesystem", path: f["repo-path"] } });
+                toast("repository created", "good"); closeModal(); await refreshAll();
+              } else if (store.modal === "new-plan") {
+                if (!f["plan-name"]) return formErr("name required");
+                if (!f["plan-src"]) return formErr("source folder required");
+                const repo = store.repositories[Number(f["plan-repo-i"] ?? 0)];
+                if (!repo) return formErr("create a repository first (Targets page)");
+                store.busy = true; refresh?.();
+                await client.rpc("plan.create", { id: "", name: f["plan-name"], sources: [{ path: f["plan-src"], excludeProfileId: "default", extraExcludes: [] }], repositoryId: repo.id, retention: { minCount: Number(f["plan-min"] ?? 3) || 3, maxAgeDays: Number(f["plan-maxage"]) || null }, enabled: true, schedule: null });
+                toast("plan created", "good"); closeModal(); await refreshAll();
+              } else if (store.modal === "restore") {
+                const dir = f["restore-dir"];
+                if (!dir) return formErr("choose a target folder");
+                store.busy = true; refresh?.();
+                const repo = store.repositories.find((r) => r.id === store.modalPayload.repositoryId);
+                await client.rpc("snapshot.restore", { repositoryId: repo?.id, snapshotId: store.modalPayload.snapshotId, targetDir: dir });
+                toast(`restore started → ${dir}`, "good"); closeModal();
+              } else if (store.modal === "unlock-repo") {
+                store.busy = true; refresh?.();
+                await client.rpc("repo.unlock", { id: store.modalPayload.id, passphrase: f["unlock-pw"] });
+                toast("repository unlocked", "good"); closeModal(); await refreshAll();
+              }
+            } catch (e) {
+              store.busy = false;
+              formErr(String(e));
+            }
+          }
+
           function handleVerb(verb: string, _data: Record<string, string>): void {
             switch (verb) {
               case "daemon:reconnect": void ensureDaemon(client).then(refreshAll); break;
-              case "plan:new": toast("plan editor lands in phase 2", "info"); break;
-              case "target:new": toast("target wizard lands in phase 3", "info"); break;
+              case "repo:new": openModal("new-repo"); break;
+              case "plan:new": openModal("new-plan"); break;
+              case "target:new": toast("remote wizard lands in phase 3", "info"); break;
               case "sync:new": toast("sync editor lands in phase 6", "info"); break;
+              case "snap:refresh": void loadSnapshots(); break;
+              case "snap:restore": {
+                const s = store.snapshots[store.selectedSnapIdx ?? 0];
+                if (!s) { toast("select a snapshot row first", "warn"); break; }
+                const plan = store.plans.find((p) => p.id === store.snapshotsPlanId);
+                openModal("restore", { snapshotId: s.id, source: s.source, repositoryId: plan?.repositoryId ?? "" });
+                break;
+              }
+              case "repo:browse": void pickInto("repo-path"); break;
+              case "src:browse": void pickInto("plan-src"); break;
+              case "restore:browse": void pickInto("restore-dir"); break;
+              case "modal:ok": void submitModal(); break;
+              case "modal:cancel": closeModal(); break;
               default: break;
             }
           }

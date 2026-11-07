@@ -103,18 +103,54 @@ function plansPage(): string {
 }
 
 function targetsPage(): string {
-  const rows = store.targets.map((t) => [t.name, t.kind, t.ref]);
+  const repoRows = store.repositories.map((r) => [
+    r.name,
+    r.location.provider === "filesystem" ? `fs: ${r.location.path}` : `rclone: ${r.location.remote}:${r.location.path}`,
+  ]);
+  const tgtRows = store.targets.map((t) => [t.name, t.kind, t.ref]);
   return `<div class="rd-h">Targets</div>
-    ${store.targets.length
-      ? kit.dataTable({ id: "targets-table", cols: ["Name", "Kind", "Remote / Path"], rows })
+    ${kit.sectionLabel("Repositories (backup destinations)")}
+    ${repoRows.length
+      ? kit.dataTable({ id: "repos-table", cols: ["Name", "Location"], rows: repoRows })
+      : `<div class="rd-empty">No repositories yet.</div>`}
+    ${kit.spacer(6)}
+    ${kit.button({ id: "btn-new-repo", label: "New Repository…", kind: "accent", action: "repo:new" })}
+    ${kit.spacer(10)}
+    ${kit.sectionLabel("Rclone remotes / folders")}
+    ${tgtRows.length
+      ? kit.dataTable({ id: "targets-table", cols: ["Name", "Kind", "Remote / Path"], rows: tgtRows })
       : `<div class="rd-empty">No rclone remotes or folders configured.</div>`}
     ${kit.spacer(8)}
-    ${kit.button({ id: "btn-new-target", label: "Add Target…", kind: "accent", action: "target:new" })}`;
+    ${kit.button({ id: "btn-new-target", label: "Add Remote…", kind: "accent", action: "target:new" })}`;
 }
 
 function snapshotsPage(): string {
+  const planOpts = store.plans.map((p) => p.name);
+  const selIdx = Math.max(0, store.plans.findIndex((p) => p.id === store.snapshotsPlanId));
+  const rows = store.snapshots.map((s) => [
+    new Date(s.startTime).toLocaleString(),
+    s.source,
+    fmtBytes(s.sizeBytes),
+    String(s.fileCount),
+    s.id.slice(0, 10),
+  ]);
+  const list = store.snapshotsLoading
+    ? `<div class="rd-empty">${kit.spinner({})} loading…</div>`
+    : store.snapshots.length
+      ? kit.dataTable({ id: "snap-table", cols: ["When", "Source", "Size", "Files", "ID"], rows })
+      : `<div class="rd-empty">${store.snapshotsPlanId ? "No snapshots for this plan." : "Select a plan."}</div>`;
   return `<div class="rd-h">Snapshots</div>
-    <div class="rd-empty">Select a plan to browse its snapshots. (Phase 5 adds mount + restore.)</div>`;
+    ${store.plans.length
+      ? `<div class="dd-row" style="gap:8px;align-items:center">
+          ${kit.label("Plan:")}
+          ${kit.dropdown({ id: "snap-plan", options: planOpts, selected: store.snapshotsPlanId ? selIdx : undefined, placeholder: "Select plan…" })}
+          ${kit.button({ id: "btn-snap-refresh", label: "Refresh", action: "snap:refresh", disabled: !store.snapshotsPlanId })}
+        </div>`
+      : `<div class="rd-empty">Create a plan first.</div>`}
+    ${kit.spacer(8)}
+    ${list}
+    ${kit.spacer(8)}
+    ${kit.button({ id: "btn-snap-restore", label: "Restore Selected…", action: "snap:restore", disabled: !store.snapshots.length })}`;
 }
 
 function syncPage(): string {
@@ -159,5 +195,48 @@ export function shellHtml(): string {
   return `<div class="rd-shell">
     ${sidebarHtml()}
     <div class="rd-main"><div class="dd-scroll rd-content" id="rd-page" data-kit="scroll" data-id="rd-page">${pageInnerHtml(store.page)}</div></div>
+  </div>${modalHtml()}`;
+}
+
+function pwInput(id: string, label: string): string {
+  return `<div class="dd-field"><div class="dd-lbl">${esc(label)}</div>` +
+    `<input class="dd-input" id="${id}" data-kit="input" data-id="${id}" type="password" style="width:280px"></div>`;
+}
+
+function modalHtml(): string {
+  const err = store.formError ? kit.fieldError(store.formError) : "";
+  const foot = `<div class="dd-row" style="gap:8px;justify-content:flex-end;margin-top:12px">
+    ${kit.button({ id: "modal-cancel", label: "Cancel", action: "modal:cancel" })}
+    ${kit.button({ id: "modal-ok", label: store.busy ? "Working…" : "OK", kind: "accent", action: "modal:ok", disabled: store.busy })}
   </div>`;
+  switch (store.modal) {
+    case "new-repo":
+      return kit.modal({ id: "modal", title: "New Repository", open: true, html:
+        kit.textInput({ id: "repo-name", label: "Name", value: store.form["repo-name"] ?? "" }) +
+        kit.textInput({ id: "repo-path", label: "Folder (local dir or USB path)", value: store.form["repo-path"] ?? "", width: 280 }) +
+        `<div class="dd-row">${kit.button({ id: "repo-browse", label: "Browse…", action: "repo:browse" })}</div>` +
+        pwInput("repo-pw", "Encryption passphrase") +
+        pwInput("repo-pw2", "Confirm passphrase") + err + foot });
+    case "new-plan":
+      return kit.modal({ id: "modal", title: "New Backup Plan", open: true, html:
+        kit.textInput({ id: "plan-name", label: "Name", value: store.form["plan-name"] ?? "" }) +
+        kit.textInput({ id: "plan-src", label: "Source folder", value: store.form["plan-src"] ?? "", width: 280 }) +
+        `<div class="dd-row">${kit.button({ id: "src-browse", label: "Browse…", action: "src:browse" })}</div>` +
+        `<div class="dd-field"><div class="dd-lbl">Repository</div>` +
+        kit.dropdown({ id: "plan-repo", options: store.repositories.map((r) => r.name), selected: Number(store.form["plan-repo-i"] ?? 0) }) + `</div>` +
+        kit.numberField({ id: "plan-min", label: "Keep at least N snapshots", value: store.form["plan-min"] ?? "3", min: 1, max: 100 }) +
+        kit.numberField({ id: "plan-maxage", label: "Delete snapshots older than (days, 0 = keep)", value: store.form["plan-maxage"] ?? "0", min: 0, max: 36500 }) + err + foot });
+    case "restore": {
+      const snapId = store.modalPayload.snapshotId ?? "";
+      return kit.modal({ id: "modal", title: "Restore Snapshot", open: true, html:
+        kit.kvTable([["Snapshot", snapId.slice(0, 12)], ["Source", store.modalPayload.source ?? ""]]) +
+        kit.textInput({ id: "restore-dir", label: "Restore into folder", value: store.form["restore-dir"] ?? "", width: 280 }) +
+        `<div class="dd-row">${kit.button({ id: "restore-browse", label: "Browse…", action: "restore:browse" })}</div>` + err + foot });
+    }
+    case "unlock-repo":
+      return kit.modal({ id: "modal", title: `Unlock “${store.modalPayload.name ?? ""}”`, open: true, html:
+        pwInput("unlock-pw", "Passphrase") + err + foot });
+    default:
+      return "";
+  }
 }

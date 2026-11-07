@@ -5,8 +5,13 @@
 //! storage checks, sync jobs. The Downdraft app connects over the unix-socket
 //! JSON-RPC link (ipc.rs); this binary also runs fine standalone.
 
+mod bins;
 mod config;
+mod engine;
 mod ipc;
+mod jobs;
+mod keybox;
+mod secrets;
 
 use std::sync::Arc;
 
