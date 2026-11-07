@@ -98,3 +98,67 @@ describe("linkifyMessage — no nested OSC 8", () => {
         expect(visible).not.toContain("8;;");
     });
 });
+
+describe("structured dump highlighting", () => {
+    function capture(fn: (logger: ReturnType<typeof createLogger>) => void): string {
+        const origWrite = process.stdout.write.bind(process.stdout);
+        let captured = "";
+        process.stdout.write = ((chunk: any) => {
+            captured += chunk.toString();
+            return true;
+        }) as any;
+        try {
+            fn(createLogger("trace"));
+        } finally {
+            process.stdout.write = origWrite;
+        }
+        return captured;
+    }
+    const strip = (s: string) => s
+        .replace(/\x1b\[[0-9;]*m/g, "")
+        .replace(/\x1b\][^\x07]*\x07/g, "");
+
+    it("colors stack frames, sections, and kv rows without altering text", () => {
+        const msg = [
+            "Unhandled Rejection:",
+            "ReferenceError: navIcon is not defined",
+            "    at navHtml (shell.ts:186:167)",
+            "    at forEach (native:1:11)",
+            "",
+            "--- System ---",
+            "os       linux 7.0.0-38-generic (x64)",
+            "sab      yes",
+            "",
+            "--- Environment ---",
+            "appId=anableps",
+            "pid=2935833 uptime=599.2s",
+            "",
+            "--- Feature Log ---",
+            "dd1|sv=1|scope=host|v=0.10.0|mode=dev",
+        ].join("\n");
+
+        const raw = capture((l) => l.fatal("native-error-handlers", msg));
+        const visible = strip(raw);
+
+        // Text round-trips verbatim — highlighting must not drop/mangle content.
+        for (const line of msg.split("\n").filter((l) => l.trim())) {
+            expect(visible).toContain(line);
+        }
+
+        // `at` + frames: dim "at", colored fn + filename.
+        expect(raw).toMatch(/\x1b\[[0-9;]+mat \x1b\[0m\x1b\[[0-9;]+mnavHtml\x1b\[0m/);
+        expect(raw).toMatch(/\x1b\[[0-9;]+mshell\.ts\x1b\[[0-9;]+m:186:167\x1b\[0m/);
+        // Section headers and feature-log blobs are fully dimmed.
+        expect(raw).toMatch(/\x1b\[[0-9;]+m--- System ---\x1b\[0m/);
+        expect(raw).toMatch(/\x1b\[[0-9;]+mdd1\|sv=1\|scope=host/);
+        // kv keys colored, `=` left plain.
+        expect(raw).toMatch(/\x1b\[[0-9;]+mappId\x1b\[0m=anableps/);
+    });
+
+    it("leaves plain messages on the generic highlighter", () => {
+        const raw = capture((l) => l.warn("test", "loaded 5 chunks"));
+        // numbers still highlighted via the generic pass
+        expect(raw).toMatch(/\x1b\[[0-9;]+m5\x1b\[0m/);
+        expect(strip(raw)).toContain("loaded 5 chunks");
+    });
+});

@@ -231,6 +231,9 @@ function getJsonColors(theme: "light" | "dark") {
         boolean: t.jsonBoolean,
         null: t.jsonNull,
         brace: t.jsonBrace,
+        error: t.error,
+        module: t.module,
+        gray: t.gray,
     };
 }
 
@@ -344,6 +347,82 @@ function highlightText(text: string): string {
     return out;
 }
 
+// ── Structured dumps ─────────────────────────────────────────────────────────
+// Stack traces and crash reports get role-based coloring — the generic
+// number/string pass reduces them to confetti (version strings, pids, byte
+// sizes, :line:col offsets all colored as "numbers"). A message qualifies when
+// it contains a stack frame or a "--- section ---" header (crash reports
+// carry both); everything else keeps the generic highlighter.
+
+const REPORT_LIKE_RE = /^[ \t]*at\s+\S|^[ \t]*-{3,}[^\n]*-{3,}[ \t]*$/m;
+const STACK_LINE_RE = /^([ \t]*)at[ \t]+(.*)$/;
+const SECTION_LINE_RE = /^[ \t]*-{3,}[^\n]*-{3,}[ \t]*$/;
+const FEATURE_LOG_LINE_RE = /^dd\d*\|/;
+const ERROR_HEAD_RE = /^((?:Unhandled|Uncaught)[ \t]+(?:Rejection|Exception|Error)|(?:[A-Za-z_$][\w.$]*)?(?:Error|Exception|Rejection|Warning)):[ \t]?(.*)$/;
+const KV_LINE_RE = /^[A-Za-z_][\w.$]*=/;
+const KV_KEY_RE = /(^|[\s:=])([A-Za-z_][\w.$]*)(?=[=:])/g;
+const LABEL_LINE_RE = /^([A-Za-z_][\w.$]*)([ \t]{2,})(\S.*)$/;
+
+type LogColors = ReturnType<typeof getJsonColors>;
+
+function highlightStackLocation(loc: string, c: LogColors): string {
+    // __LINK_n__ placeholders (absolute paths already linkified) render as
+    // links — tint their visible text and leave the token intact.
+    if (/^__LINK_\d+__$/.test(loc)) return `${c.module}${loc}${reset}`;
+    if (/^__JSON_\d+__$/.test(loc)) return loc;
+    const m = loc.match(/^(.*?):(\d+(?::\d+)?)$/);
+    // "native:1:11" / "<anonymous>" / bare words aren't files — dim them.
+    if (!m || m[1] === "native") return `${c.gray}${loc}${reset}`;
+    return `${c.module}${m[1]}${c.gray}:${m[2]}${reset}`;
+}
+
+function highlightReportLine(line: string, c: LogColors): string {
+    if (!line.trim()) return line;
+    if (SECTION_LINE_RE.test(line)) return `${c.gray}${line}${reset}`;
+    if (FEATURE_LOG_LINE_RE.test(line)) return `${c.gray}${line}${reset}`;
+
+    // "    at fn (file:line:col)" — `at` + parens dim, fn in key color, the
+    // location in module color with a dim :line:col.
+    const stack = line.match(STACK_LINE_RE);
+    if (stack) {
+        let rest = stack[2].trimEnd();
+        let loc: string | null = null;
+        const paren = rest.match(/^(.*?)[ \t]*\(([^()]*)\)[ \t]*$/);
+        if (paren) {
+            rest = paren[1].trimEnd();
+            loc = paren[2];
+        } else if (/:\d|__LINK_\d+__/.test(rest)) {
+            loc = rest;
+            rest = "";
+        }
+        const fn = rest && rest !== "<anonymous>"
+            ? `${c.key}${rest}${reset}`
+            : `${c.gray}${rest || "<anonymous>"}${reset}`;
+        const locPart = loc === null ? "" : ` ${c.gray}(${reset}${highlightStackLocation(loc, c)}${c.gray})${reset}`;
+        return `${stack[1]}${c.gray}at ${reset}${fn}${locPart}`;
+    }
+
+    // "ReferenceError: message" / "Unhandled Rejection:" — bold-red head.
+    const head = line.match(ERROR_HEAD_RE);
+    if (head) return `${bold}${c.error}${head[1]}:${reset}${head[2] ? " " + highlightText(head[2]) : ""}`;
+
+    // "key=value key=value" environment rows — keys in key color, values plain.
+    if (KV_LINE_RE.test(line)) {
+        return line.replace(KV_KEY_RE, (_m, pre: string, k: string) => `${pre}${c.key}${k}${reset}`);
+    }
+
+    // "os       linux …" label columns — padded key in key color, value plain.
+    const label = line.match(LABEL_LINE_RE);
+    if (label) return `${c.key}${label[1]}${reset}${label[2]}${label[3]}`;
+
+    return highlightText(line);
+}
+
+function highlightReport(msg: string): string {
+    const c = jsonColors();
+    return msg.split("\n").map((line) => highlightReportLine(line, c)).join("\n");
+}
+
 function extractJsonBlobs(msg: string): { text: string; start: number; end: number }[] {
     const blobs: { text: string; start: number; end: number }[] = [];
     for (let i = 0; i < msg.length; i++) {
@@ -420,8 +499,9 @@ function linkifyMessage(msg: string): string {
         return `__LINK_${links.length - 1}__`;
     });
 
-    // Highlight numbers and quoted strings in remaining text
-    msg = highlightText(msg);
+    // Highlight numbers and quoted strings in remaining text — stack dumps
+    // and crash reports get the structured pass instead.
+    msg = REPORT_LIKE_RE.test(msg) ? highlightReport(msg) : highlightText(msg);
 
     // Restore linkified spans after highlightText so color codes don't
     // corrupt the OSC 8 escape sequences inside the links.
