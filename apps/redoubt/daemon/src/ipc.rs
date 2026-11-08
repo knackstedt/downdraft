@@ -116,6 +116,111 @@ fn status(state: &DaemonState) -> Value {
     })
 }
 
+impl DaemonState {
+    /// Look up a repository by id — public for the scheduler.
+    pub fn get_repository(&self, id: &str) -> anyhow::Result<Repository> {
+        get_repository(self, id)
+    }
+
+    /// Repo password without an interactive passphrase — cache → keyring.
+    pub fn repo_password_any(&self, repo_id: &str) -> anyhow::Result<Zeroizing<String>> {
+        self.repo_password(repo_id, None)
+    }
+
+    /// True when a job is currently running for `plan_id`.
+    pub fn job_running_for(&self, plan_id: &str) -> bool {
+        self.jobs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|j| j.plan_id.as_deref() == Some(plan_id) && matches!(j.state, crate::jobs::JobState::Running | crate::jobs::JobState::Queued))
+    }
+}
+
+/// Shared backup-run entry: storage pre-flight → per-source snapshot job →
+/// post-run (last_run_at + retention cull). Used by plan.runNow (manual,
+/// `force` per param) and the scheduler (automatic).
+pub async fn run_plan(state: &Arc<DaemonState>, plan: &Plan, force: bool) -> anyhow::Result<String> {
+    let repo = get_repository(state, &plan.repository_id)?;
+    let pw = state.repo_password_any(&repo.id)?;
+    let engine = state.engine()?;
+
+    // Storage pre-flight: estimate the delta and compare to free space.
+    let sources: Vec<String> = plan.sources.iter().map(|s| s.path.clone()).collect();
+    let last_bytes = engine
+        .snapshot_list(&repo, &pw)
+        .await
+        .ok()
+        .and_then(|snaps| {
+            snaps
+                .iter()
+                .filter(|s| plan.sources.iter().any(|src| s.source == src.path))
+                .map(|s| s.size_bytes)
+                .max()
+        });
+    let estimate = crate::storage::estimate_delta(&sources, last_bytes);
+    let check = crate::storage::check(&repo.location, estimate, force).await;
+    if check.warn {
+        state.emit("storage.warning", crate::storage::warning_event(&repo.location, &check));
+    }
+    if !check.ok {
+        bail!("{}", check.reason);
+    }
+
+    let plan2 = plan.clone();
+    let st = Arc::clone(state);
+    let job_id = jobs::spawn(state, "backup", Some(plan.id.clone()), move |st2, jid| {
+        let engine = Arc::clone(&engine);
+        let repo = repo.clone();
+        let plan = plan2.clone();
+        let pw = pw.clone();
+        let st3 = Arc::clone(&st);
+        async move {
+            let cfg_excludes = {
+                let cfg = st2.config.lock().unwrap();
+                cfg.exclusion_profiles.clone()
+            };
+            let mut created: Vec<SnapshotInfo> = Vec::new();
+            let n = plan.sources.len();
+            for (i, src) in plan.sources.iter().enumerate() {
+                jobs::report(&st2, &jid, i as f32 / n as f32, &format!("snapshotting {}", src.path));
+                let patterns: Vec<String> = cfg_excludes
+                    .iter()
+                    .find(|p| p.id == src.exclude_profile_id)
+                    .map(|p| {
+                        p.categories
+                            .iter()
+                            .filter(|c| c.enabled)
+                            .flat_map(|c| c.patterns.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let mut patterns = patterns;
+                patterns.extend(src.extra_excludes.clone());
+                let tags = vec![("plan".to_string(), plan.name.clone())];
+                let snap = engine
+                    .snapshot_create(&repo, &src.path, &pw, &tags, &patterns)
+                    .await?;
+                created.push(snap);
+            }
+            jobs::report(&st2, &jid, 1.0, "done");
+            crate::scheduler::post_run(&st3, &plan).await;
+            let _ = crate::notify::send(
+                "Redoubt backup complete",
+                &format!("{}: {} snapshot(s)", plan.name, created.len()),
+            )
+            .await;
+            Ok(json!({ "snapshots": created }))
+        }
+    });
+    Ok(job_id)
+}
+
+/// now_ms exposed for scheduler/retention modules.
+pub fn now_ms_pub() -> u64 {
+    now_ms()
+}
+
 fn get_repository(state: &DaemonState, id: &str) -> anyhow::Result<Repository> {
     let cfg = state.config.lock().unwrap();
     cfg.repositories
@@ -304,48 +409,11 @@ async fn plan_run_now(state: &Arc<DaemonState>, params: &Value) -> anyhow::Resul
     if !plan.enabled {
         bail!("plan {id} is disabled");
     }
-    let repo = get_repository(state, &plan.repository_id)?;
-    let pw = state.repo_password(&repo.id, params.get("passphrase").and_then(Value::as_str))?;
-    let engine = state.engine()?;
-    let st = Arc::clone(state);
-    let job_id = jobs::spawn(state, "backup", Some(id.clone()), move |st2, jid| {
-        let engine = Arc::clone(&engine);
-        let repo = repo.clone();
-        let plan = plan.clone();
-        let pw = pw.clone();
-        let _ = st;
-        async move {
-            let cfg_excludes = {
-                let cfg = st2.config.lock().unwrap();
-                cfg.exclusion_profiles.clone()
-            };
-            let mut created: Vec<SnapshotInfo> = Vec::new();
-            let n = plan.sources.len();
-            for (i, src) in plan.sources.iter().enumerate() {
-                jobs::report(&st2, &jid, i as f32 / n as f32, &format!("snapshotting {}", src.path));
-                let patterns: Vec<String> = cfg_excludes
-                    .iter()
-                    .find(|p| p.id == src.exclude_profile_id)
-                    .map(|p| {
-                        p.categories
-                            .iter()
-                            .filter(|c| c.enabled)
-                            .flat_map(|c| c.patterns.clone())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let mut patterns = patterns;
-                patterns.extend(src.extra_excludes.clone());
-                let tags = vec![("plan".to_string(), plan.name.clone())];
-                let snap = engine
-                    .snapshot_create(&repo, &src.path, &pw, &tags, &patterns)
-                    .await?;
-                created.push(snap);
-            }
-            jobs::report(&st2, &jid, 1.0, "done");
-            Ok(json!({ "snapshots": created }))
-        }
-    });
+    if let Some(p) = params.get("passphrase").and_then(Value::as_str) {
+        let _ = state.repo_password(&plan.repository_id, Some(p))?;
+    }
+    let force = params.get("force").and_then(Value::as_bool).unwrap_or(false);
+    let job_id = run_plan(state, &plan, force).await?;
     Ok(json!({ "jobId": job_id }))
 }
 

@@ -179,8 +179,21 @@ export const appModule: AppModule = {
       store.daemonConnected = connected;
       if (connected) void refreshAll(); else store.notify();
     });
-    client.onEvent((method) => {
+    client.onEvent((method, params) => {
       if (method.startsWith("job.")) void refreshAll();
+      if (method === "job.done") {
+        const j = (params as { job?: { state?: string; kind?: string } } | undefined)?.job;
+        if (j?.kind === "backup") toast(j.state === "done" ? "backup finished" : `backup ${j.state}`, j.state === "done" ? "good" : "bad");
+      }
+      if (method === "storage.warning") {
+        store.storageWarn = String((params as { reason?: string })?.reason ?? "storage running low");
+        toast(`storage warning: ${store.storageWarn}`, "warn");
+      }
+      if (method === "password.due") {
+        const id = String((params as { repositoryId?: string })?.repositoryId ?? "");
+        if (id && !store.passwordDue.includes(id)) store.passwordDue.push(id);
+        toast("repository password check due", "warn");
+      }
     });
 
     ctx.renderer.useRendererModule?.(
@@ -211,6 +224,7 @@ export const appModule: AppModule = {
               if (kind === "input" || kind === "number") store.form[id] = String(value);
               else if (kind === "choice") {
                 if (id === "plan-repo") store.form["plan-repo-i"] = String(store.repositories.findIndex((r) => r.name === value));
+                if (id === "plan-sched") store.form["plan-sched-i"] = String(["manual", "hourly", "daily", "every N minutes"].indexOf(String(value)));
                 if (id === "snap-plan") {
                   const p = store.plans.find((x) => x.name === value);
                   if (p) { store.snapshotsPlanId = p.id; void loadSnapshots(); }
@@ -295,8 +309,14 @@ export const appModule: AppModule = {
                 if (!f["plan-src"]) return formErr("source folder required");
                 const repo = store.repositories[Number(f["plan-repo-i"] ?? 0)];
                 if (!repo) return formErr("create a repository first (Targets page)");
+                const schedIdx = Number(f["plan-sched-i"] ?? 0);
+                const schedRule = schedIdx === 1 ? { kind: "hourly" }
+                  : schedIdx === 2 ? { kind: "daily", hour: 2, minute: 0 }
+                  : schedIdx === 3 ? { kind: "interval", everyMinutes: Number(f["plan-sched-min"]) || 60 }
+                  : null;
+                const schedule = schedRule ? { rule: schedRule, onTargetAvailable: false, onAcOnly: false } : null;
                 store.busy = true; refresh?.();
-                await client.rpc("plan.create", { id: "", name: f["plan-name"], sources: [{ path: f["plan-src"], excludeProfileId: "default", extraExcludes: [] }], repositoryId: repo.id, retention: { minCount: Number(f["plan-min"] ?? 3) || 3, maxAgeDays: Number(f["plan-maxage"]) || null }, enabled: true, schedule: null });
+                await client.rpc("plan.create", { id: "", name: f["plan-name"], sources: [{ path: f["plan-src"], excludeProfileId: "default", extraExcludes: [] }], repositoryId: repo.id, retention: { minCount: Number(f["plan-min"] ?? 3) || 3, maxAgeDays: Number(f["plan-maxage"]) || null }, enabled: true, schedule });
                 toast("plan created", "good"); closeModal(); await refreshAll();
               } else if (store.modal === "restore") {
                 const dir = f["restore-dir"];
@@ -307,8 +327,15 @@ export const appModule: AppModule = {
                 toast(`restore started → ${dir}`, "good"); closeModal();
               } else if (store.modal === "unlock-repo") {
                 store.busy = true; refresh?.();
-                await client.rpc("repo.unlock", { id: store.modalPayload.id, passphrase: f["unlock-pw"] });
-                toast("repository unlocked", "good"); closeModal(); await refreshAll();
+                if (store.modalPayload.verify === "1") {
+                  const r = await client.rpc<{ ok: boolean }>("repo.passwordVerify", { id: store.modalPayload.id, passphrase: f["unlock-pw"] });
+                  if (!r.ok) { store.busy = false; return formErr("wrong passphrase"); }
+                  store.passwordDue = store.passwordDue.filter((x) => x !== store.modalPayload.id);
+                  toast("passphrase confirmed", "good"); closeModal(); await refreshAll();
+                } else {
+                  await client.rpc("repo.unlock", { id: store.modalPayload.id, passphrase: f["unlock-pw"] });
+                  toast("repository unlocked", "good"); closeModal(); await refreshAll();
+                }
               }
             } catch (e) {
               store.busy = false;
@@ -378,7 +405,13 @@ export const appModule: AppModule = {
               case "restore:browse": void pickInto("restore-dir"); break;
               case "modal:ok": void submitModal(); break;
               case "modal:cancel": closeModal(); break;
-              default: break;
+              default:
+                if (verb.startsWith("pw:verify:")) {
+                  const id = verb.slice("pw:verify:".length);
+                  const repo = store.repositories.find((r) => r.id === id);
+                  if (repo) openModal("unlock-repo", { id, name: repo.name, verify: "1" });
+                }
+                break;
             }
           }
         },

@@ -59,6 +59,9 @@ pub struct Plan {
     pub retention: Retention,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Last successful run (ms epoch) — scheduler's reference point.
+    #[serde(default)]
+    pub last_run_at: Option<u64>,
 }
 
 fn default_true() -> bool {

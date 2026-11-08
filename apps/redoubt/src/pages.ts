@@ -66,12 +66,34 @@ function sidebarHtml(): string {
 
 function overviewPage(): string {
   const jobs = store.jobs.filter((j) => j.state === "running" || j.state === "queued");
+  const banners = [
+    ...store.passwordDue.map((id) => {
+      const repo = store.repositories.find((r) => r.id === id);
+      return `<div class="rd-card" style="border-color:#c99a3a">
+        <div class="rd-card-t">Password check due — ${esc(repo?.name ?? id.slice(0, 8))}</div>
+        <div class="rd-card-m">Re-enter the passphrase to confirm you remember it.</div>
+        <div class="dd-row">${kit.button({ id: `pw-verify-${id}`, label: "Verify now", action: `pw:verify:${id}` })}</div>
+      </div>`;
+    }),
+    ...(store.storageWarn
+      ? [`<div class="rd-card" style="border-color:#c99a3a">
+          <div class="rd-card-t">Storage warning</div>
+          <div class="rd-card-m">${esc(store.storageWarn)}</div></div>`]
+      : []),
+  ].join("");
   const planCards = store.plans.map((p) => {
     const repo = store.repositories.find((r) => r.id === p.repositoryId);
+    const r = p.schedule?.rule;
+    const sched = !r ? "manual"
+      : r.kind === "interval" ? `every ${r.everyMinutes}m`
+      : r.kind === "hourly" ? "hourly"
+      : r.kind === "daily" ? `daily ${r.hour}:${String(r.minute).padStart(2, "0")}`
+      : `weekly`;
+    const last = p.lastRunAt ? new Date(p.lastRunAt).toLocaleString() : "never";
     return `<div class="rd-card">
       <div class="rd-card-t">${esc(p.name)}</div>
       <div class="rd-card-m">${p.sources.length} source${p.sources.length === 1 ? "" : "s"} → ${esc(repo?.name ?? "?")}</div>
-      <div class="rd-card-m">keep ≥${p.retention.minCount}${p.retention.maxAgeDays ? ` · ≤${p.retention.maxAgeDays}d` : ""}</div>
+      <div class="rd-card-m">${sched} · last ${last} · keep ≥${p.retention.minCount}${p.retention.maxAgeDays ? ` · ≤${p.retention.maxAgeDays}d` : ""}</div>
     </div>`;
   }).join("");
   const active = jobs.length
@@ -80,6 +102,7 @@ function overviewPage(): string {
         <div class="rd-card-m">${esc(j.message)}</div></div>`).join("")
     : `<div class="rd-empty">No jobs running.</div>`;
   return `<div class="rd-h">Overview</div>
+    ${banners ? `<div class="rd-cards">${banners}</div>` : ""}
     ${kit.sectionLabel("Active jobs")}
     <div class="rd-cards">${active}</div>
     ${kit.spacer(8)}
@@ -264,6 +287,9 @@ function modalHtml(): string {
         `<div class="dd-row">${kit.button({ id: "src-browse", label: "Browse…", action: "src:browse" })}</div>` +
         `<div class="dd-field"><div class="dd-lbl">Repository</div>` +
         kit.dropdown({ id: "plan-repo", options: store.repositories.map((r) => r.name), selected: Number(store.form["plan-repo-i"] ?? 0) }) + `</div>` +
+        `<div class="dd-field"><div class="dd-lbl">Schedule</div>` +
+        kit.dropdown({ id: "plan-sched", options: ["manual", "hourly", "daily", "every N minutes"], selected: Number(store.form["plan-sched-i"] ?? 0) }) + `</div>` +
+        kit.numberField({ id: "plan-sched-min", label: "Run every N minutes (when 'every N' selected)", value: store.form["plan-sched-min"] ?? "60", min: 5, max: 10080 }) +
         kit.numberField({ id: "plan-min", label: "Keep at least N snapshots", value: store.form["plan-min"] ?? "3", min: 1, max: 100 }) +
         kit.numberField({ id: "plan-maxage", label: "Delete snapshots older than (days, 0 = keep)", value: store.form["plan-maxage"] ?? "0", min: 0, max: 36500 }) + err + foot });
     case "restore": {

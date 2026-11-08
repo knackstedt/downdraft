@@ -86,6 +86,7 @@ export interface Plan {
   schedule: Schedule | null;
   retention: Retention;
   enabled: boolean;
+  lastRunAt?: number;
 }
 
 export interface Target {

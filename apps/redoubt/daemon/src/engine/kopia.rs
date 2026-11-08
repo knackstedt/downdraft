@@ -215,7 +215,16 @@ impl EngineAdapter for KopiaAdapter {
         args.push("repository".into());
         args.push("create".into());
         args.extend(location_args(&repo.location, "create", &self.rclone));
-        run(&self.bin, &args, password).await.map(|_| ())
+        match run(&self.bin, &args, password).await {
+            Ok(_) => Ok(()),
+            // A repo already lives there — adopt it by connecting instead of
+            // failing. The caller's keybox is authoritative: if `password`
+            // doesn't match the existing repo the connect errors honestly.
+            Err(e) if format!("{e}").contains("existing data") || format!("{e}").contains("invalid repository password") => {
+                self.connect(repo, password).await
+            }
+            Err(e) => Err(e),
+        }
     }
 
     async fn connect(&self, repo: &Repository, password: &str) -> anyhow::Result<()> {

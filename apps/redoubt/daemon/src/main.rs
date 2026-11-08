@@ -11,8 +11,11 @@ mod engine;
 mod ipc;
 mod jobs;
 mod keybox;
+mod notify;
 mod rclone;
+mod scheduler;
 mod secrets;
+mod storage;
 
 use std::sync::Arc;
 
@@ -63,5 +66,6 @@ async fn run() -> anyhow::Result<()> {
     let cfg = config::DaemonConfig::load();
     let state = Arc::new(ipc::DaemonState::new(cfg));
     tracing::info!("redoubtd {} starting", env!("CARGO_PKG_VERSION"));
+    tokio::spawn(scheduler::run(Arc::clone(&state)));
     ipc::serve(state).await
 }

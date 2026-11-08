@@ -58,6 +58,11 @@ class UiStore {
   /** Cached per-remote free-space readouts from target.about. */
   about: Record<string, { total?: number; used?: number; free?: number } | "error"> = {};
 
+  /** Latest daemon storage warning (storage.warning event), shown as a banner. */
+  storageWarn: string | null = null;
+  /** Repository ids whose password revalidation is due (password.due events). */
+  passwordDue: string[] = [];
+
   private listeners: Listener[] = [];
 
   subscribe(cb: Listener): () => void {
