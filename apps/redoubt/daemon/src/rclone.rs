@@ -317,9 +317,28 @@ pub async fn authorize_poll(id: u64) -> anyhow::Result<Value> {
     Ok(json!({ "state": "waiting" }))
 }
 
-/// `rclone sync / bisync` runners land in phase 6 — the rclone module is
-/// ready for them via base_cmd().
-#[allow(dead_code)]
-pub fn sync_cmd() -> anyhow::Result<Command> {
-    base_cmd()
+/// `rclone sync <src> <dst>` — mirror src onto dst (destructive on dst).
+/// `to_remote=false` runs remote→local.
+pub async fn sync(local: &str, remote: &str, to_remote: bool) -> anyhow::Result<()> {
+    let (src, dst) = if to_remote { (local.to_string(), remote.to_string()) } else { (remote.to_string(), local.to_string()) };
+    let out = base_cmd()?.args(["sync", &src, &dst, "--create-empty-src-dirs"]).output().await?;
+    if !out.status.success() {
+        bail!("rclone sync {src} → {dst}: {}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    Ok(())
+}
+
+/// `rclone bisync <local> <remote>` — two-way sync with conflict handling.
+/// First run needs `--resync` to seed state.
+pub async fn bisync(local: &str, remote: &str, resync: bool) -> anyhow::Result<()> {
+    let mut cmd = base_cmd()?;
+    cmd.args(["bisync", local, remote, "--create-empty-src-dirs"]);
+    if resync {
+        cmd.arg("--resync");
+    }
+    let out = cmd.output().await?;
+    if !out.status.success() {
+        bail!("rclone bisync: {}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    Ok(())
 }

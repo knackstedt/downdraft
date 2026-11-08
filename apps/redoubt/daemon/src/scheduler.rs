@@ -15,7 +15,9 @@ use std::time::Duration;
 use serde_json::json;
 use tokio::time::interval;
 
-use crate::config::{Plan, ScheduleRule};
+use std::collections::HashMap;
+
+use crate::config::{Plan, RepoLocation, ScheduleRule, SyncJob};
 use crate::engine::{EngineAdapter, SnapshotInfo};
 use crate::ipc::{run_plan, DaemonState};
 use crate::notify;
@@ -137,6 +139,8 @@ pub async fn run(state: Arc<DaemonState>) {
     tokio::time::sleep(Duration::from_secs(5)).await;
     let mut tick = interval(Duration::from_secs(TICK_SECS));
     let mut reminder_at = 0u64;
+    let mut sync_last: HashMap<String, u64> = HashMap::new();
+    let mut target_avail: HashMap<String, bool> = HashMap::new();
     loop {
         tick.tick().await;
         let now = crate::ipc::now_ms_pub();
@@ -152,8 +156,8 @@ pub async fn run(state: Arc<DaemonState>) {
             cfg.plans.iter().filter(|p| p.enabled && p.schedule.is_some()).cloned().collect()
         };
         for plan in plans {
-            let Some(rule) = plan.schedule.as_ref().map(|s| s.rule.clone()) else { continue };
-            let Some(wait) = due_in_ms(&rule, plan.last_run_at.unwrap_or(0), now) else { continue };
+            let Some(sched) = plan.schedule.as_ref() else { continue };
+            let Some(wait) = due_in_ms(&sched.rule, plan.last_run_at.unwrap_or(0), now) else { continue };
             if wait > TICK_SECS * 1000 {
                 continue;
             }
@@ -169,6 +173,46 @@ pub async fn run(state: Arc<DaemonState>) {
                 }
             }
         }
+
+        // Sync schedules — same rule evaluation as plans.
+        let syncs: Vec<SyncJob> = {
+            let cfg = state.config.lock().unwrap();
+            cfg.syncs.iter().filter(|s| s.enabled && s.schedule.is_some()).cloned().collect()
+        };
+        for job in syncs {
+            let Some(sched) = job.schedule.as_ref() else { continue };
+            let last = sync_last.get(&job.id).copied().unwrap_or(0);
+            let Some(wait) = due_in_ms(&sched.rule, last, now) else { continue };
+            if wait > TICK_SECS * 1000 || state.job_running_for(&job.id) {
+                continue;
+            }
+            match crate::ipc::run_sync(&state, &job).await {
+                Ok(_) => { sync_last.insert(job.id.clone(), now); }
+                Err(e) => tracing::warn!("scheduler: sync {} failed to start: {e}", job.name),
+            }
+        }
+
+        // USB mount triggers — poll repo paths for unavailable→available
+        // transitions on plans that opted into onTargetAvailable.
+        let usb_plans: Vec<(Plan, RepoLocation)> = {
+            let cfg = state.config.lock().unwrap();
+            cfg.plans
+                .iter()
+                .filter(|p| p.enabled && p.schedule.as_ref().map(|s| s.on_target_available).unwrap_or(false))
+                .filter_map(|p| cfg.repositories.iter().find(|r| r.id == p.repository_id).map(|r| (p.clone(), r.location.clone())))
+                .collect()
+        };
+        for (plan, loc) in usb_plans {
+            let RepoLocation::Filesystem { path } = &loc else { continue };
+            let avail = std::path::Path::new(path).exists();
+            let key = plan.id.clone();
+            let was = target_avail.get(&key).copied().unwrap_or(avail);
+            if avail && !was && !state.job_running_for(&plan.id) {
+                tracing::info!("scheduler: target {path} appeared — running plan {}", plan.name);
+                let _ = run_plan(&state, &plan, false).await;
+            }
+            target_avail.insert(key, avail);
+        }
     }
 }
 
@@ -183,5 +227,13 @@ pub async fn post_run(state: &Arc<DaemonState>, plan: &Plan) {
     }
     if let Err(e) = retention_pass(state, plan).await {
         tracing::warn!("retention pass failed for {}: {e}", plan.name);
+    }
+    // Mirror fan-out after a successful run — multiplexing to N targets.
+    if let Ok(repo) = state.get_repository(&plan.repository_id) {
+        if !repo.mirrors.is_empty() {
+            if let Err(e) = crate::ipc::run_mirrors(state, &repo).await {
+                tracing::warn!("mirror fan-out failed for {}: {e}", repo.name);
+            }
+        }
     }
 }

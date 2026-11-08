@@ -254,13 +254,19 @@ function filesPage(): string {
 }
 
 function syncPage(): string {
-  const rows = store.syncs.map((s) => [s.name, s.localPath, s.remote, s.direction, s.enabled ? "enabled" : "disabled"]);
+  const rows = store.syncs.map((s) => [s.name, s.localPath, s.remote,
+    s.direction === "twoway" ? "two-way" : (s.remoteIsSource ? "pull ←" : "push →"),
+    s.enabled ? "enabled" : "disabled"]);
   return `<div class="rd-h">Sync Jobs</div>
     ${store.syncs.length
       ? kit.dataTable({ id: "sync-table", cols: ["Name", "Local", "Remote", "Mode", "State"], rows })
-      : `<div class="rd-empty">No sync jobs configured.</div>`}
+      : `<div class="rd-empty">No sync jobs configured — a sync keeps a folder and a remote in step rather than taking snapshots.</div>`}
     ${kit.spacer(8)}
-    ${kit.button({ id: "btn-new-sync", label: "New Sync…", kind: "accent", action: "sync:new" })}`;
+    <div class="dd-row" style="gap:8px">
+      ${kit.button({ id: "btn-new-sync", label: "New Sync…", kind: "accent", action: "sync:new" })}
+      ${kit.button({ id: "btn-run-sync", label: "Run Selected", action: "sync:run", disabled: !store.syncs.length })}
+      ${kit.button({ id: "btn-del-sync", label: "Delete Selected", action: "sync:delete", disabled: !store.syncs.length })}
+    </div>`;
 }
 
 function settingsPage(): string {
@@ -372,6 +378,23 @@ function modalHtml(): string {
     case "unlock-repo":
       return kit.modal({ id: "modal", title: `Unlock “${store.modalPayload.name ?? ""}”`, open: true, html:
         pwInput("unlock-pw", "Passphrase") + err + foot });
+    case "new-sync": {
+      const remoteNames = store.targets.filter((t) => t.kind === "rclone").map((t) => t.name);
+      const dir = store.form["sync-dir"] ?? "oneway";
+      return kit.modal({ id: "modal", title: "New Sync", open: true, html:
+        kit.textInput({ id: "sync-name", label: "Name", value: store.form["sync-name"] ?? "" }) +
+        kit.textInput({ id: "sync-local", label: "Local folder", value: store.form["sync-local"] ?? "", width: 280 }) +
+        `<div class="dd-row">${kit.button({ id: "sync-browse", label: "Browse…", action: "sync:browse" })}</div>` +
+        `<div class="dd-field"><div class="dd-lbl">Remote</div>` +
+        kit.dropdown({ id: "sync-remote", options: remoteNames, selected: Number(store.form["sync-remote-i"] ?? 0), placeholder: "pick remote" }) + `</div>` +
+        kit.textInput({ id: "sync-rpath", label: "Path on remote", value: store.form["sync-rpath"] ?? "sync", width: 280 }) +
+        `<div class="dd-field"><div class="dd-lbl">Mode</div>` +
+        kit.dropdown({ id: "sync-dir", options: ["one-way (mirror)", "two-way (bisync)"], selected: dir === "twoway" ? 1 : 0 }) + `</div>` +
+        (dir !== "twoway"
+          ? `<div class="dd-field"><div class="dd-lbl">Direction</div>` +
+            kit.dropdown({ id: "sync-to", options: ["local → remote (push)", "remote → local (pull)"], selected: Number(store.form["sync-to-i"] ?? 0) }) + `</div>`
+          : "") + err + foot });
+    }
     case "browse": {
       const crumbs = store.browseStack.map((b) => b.name).join(" / ") || "/";
       const rows = store.browseItems.map((e) => [

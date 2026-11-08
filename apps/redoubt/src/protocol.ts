@@ -103,6 +103,7 @@ export interface SyncJob {
   localPath: string;
   remote: string;
   direction: "oneway" | "twoway";
+  remoteIsSource?: boolean;
   schedule: Schedule | null;
   enabled: boolean;
 }

@@ -146,6 +146,10 @@ pub struct SyncJob {
     pub remote: String,
     #[serde(default)]
     pub direction: SyncDirection,
+    /// false = local→remote (backup-style push); true = remote→local pull.
+    /// Ignored for Twoway (bisync is symmetric).
+    #[serde(default)]
+    pub remote_is_source: bool,
     #[serde(default)]
     pub schedule: Option<Schedule>,
     #[serde(default = "default_true")]

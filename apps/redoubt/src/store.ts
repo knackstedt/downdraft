@@ -5,7 +5,7 @@
 
 import type { DaemonStatus, JobInfo, Plan, Repository, SnapshotInfo, SyncJob, Target } from "./protocol";
 
-export type ModalKind = "new-repo" | "new-plan" | "restore" | "unlock-repo" | "new-remote" | "browse";
+export type ModalKind = "new-repo" | "new-plan" | "restore" | "unlock-repo" | "new-remote" | "browse" | "new-sync";
 
 export interface SunNode {
   name: string;
@@ -79,6 +79,7 @@ class UiStore {
   browseRepoId = "";
   mounts: Record<string, string> = {};
   selectedBrowseIdx = 0;
+  selectedSyncIdx = 0;
 
   /** Latest daemon storage warning (storage.warning event), shown as a banner. */
   storageWarn: string | null = null;

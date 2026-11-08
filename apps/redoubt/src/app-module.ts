@@ -235,13 +235,16 @@ export const appModule: AppModule = {
                   refresh?.();
                 }
                 if (id === "repo-prov") { store.form["repo-prov"] = String(value); refresh?.(); }
-                if (id === "repo-remote") {
+                if (id === "repo-remote" || id === "sync-remote") {
                   const remotes = store.targets.filter((t) => t.kind === "rclone");
-                  store.form["repo-remote-i"] = String(remotes.findIndex((t) => t.name === value));
+                  store.form[`${id}-i`] = String(remotes.findIndex((t) => t.name === value));
                 }
+                if (id === "sync-dir") { store.form["sync-dir"] = String(value).startsWith("two") ? "twoway" : "oneway"; refresh?.(); }
+                if (id === "sync-to") store.form["sync-to-i"] = String(value).startsWith("remote") ? "1" : "0";
               } else if (kind === "select") {
                 if (id === "snap-table") store.selectedSnapIdx = Number(value);
                 if (id === "browse-table") store.selectedBrowseIdx = Number(value);
+                if (id === "sync-table") store.selectedSyncIdx = Number(value);
                 if (id === "viz-snap") store.form["viz-snap-i"] = String(snapListIndexForLabel(String(value)));
               }
             },
@@ -338,6 +341,21 @@ export const appModule: AppModule = {
                   await client.rpc("target.addRemote", { name: f["remote-name"], type: sel.type, params });
                 }
                 toast(`remote ${f["remote-name"]} added`, "good"); closeModal(); await refreshAll();
+              } else if (store.modal === "new-sync") {
+                if (!f["sync-name"]) return formErr("name required");
+                if (!f["sync-local"]) return formErr("local folder required");
+                const remotes = store.targets.filter((t) => t.kind === "rclone");
+                const remote = remotes[Number(f["sync-remote-i"] ?? 0)];
+                if (!remote) return formErr("pick an rclone remote");
+                store.busy = true; refresh?.();
+                await client.rpc("sync.create", {
+                  name: f["sync-name"], localPath: f["sync-local"],
+                  remote: `${remote.name}:${f["sync-rpath"] || "sync"}`,
+                  direction: f["sync-dir"] === "twoway" ? "twoway" : "oneway",
+                  remoteIsSource: f["sync-to-i"] === "1",
+                  schedule: null, enabled: true,
+                });
+                toast("sync created", "good"); closeModal(); await refreshAll();
               } else if (store.modal === "new-plan") {
                 if (!f["plan-name"]) return formErr("name required");
                 if (!f["plan-src"]) return formErr("source folder required");
@@ -425,7 +443,22 @@ export const appModule: AppModule = {
                   } catch (e) { store.authState = null; formErr(`authorize: ${e}`); }
                 })();
                 break;
-              case "sync:new": toast("sync editor lands in phase 6", "info"); break;
+              case "sync:new": openModal("new-sync"); break;
+              case "sync:browse": void pickInto("sync-local"); break;
+              case "sync:run": {
+                const s = store.syncs[store.selectedSyncIdx ?? 0];
+                if (!s) { toast("select a sync", "warn"); break; }
+                void client.rpc("sync.runNow", { id: s.id }).then(() => toast(`sync ${s.name} started`, "info"))
+                  .catch((e) => toast(`sync: ${e}`, "bad"));
+                break;
+              }
+              case "sync:delete": {
+                const s = store.syncs[store.selectedSyncIdx ?? 0];
+                if (!s) { toast("select a sync", "warn"); break; }
+                void client.rpc("sync.delete", { id: s.id }).then(() => refreshAll())
+                  .catch((e) => toast(`delete: ${e}`, "bad"));
+                break;
+              }
               case "snap:refresh": void loadSnapshots(); break;
               case "snap:mount": {
                 const plan = store.plans.find((p) => p.id === store.snapshotsPlanId);

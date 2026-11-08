@@ -219,6 +219,61 @@ pub async fn run_plan(state: &Arc<DaemonState>, plan: &Plan, force: bool) -> any
     Ok(job_id)
 }
 
+/// Shared sync-run entry: oneway → `rclone sync`, twoway → `rclone bisync`
+/// (`remote_is_source` flips direction for oneway). Used by sync.runNow and
+/// the scheduler's sync evaluation.
+pub async fn run_sync(state: &Arc<DaemonState>, job: &crate::config::SyncJob) -> anyhow::Result<String> {
+    let local = job.local_path.clone();
+    let remote = job.remote.clone();
+    let direction = job.direction;
+    let from_remote = job.remote_is_source;
+    let name = job.name.clone();
+    let job_id = jobs::spawn(state, "sync", Some(job.id.clone()), move |st2, jid| {
+        async move {
+            jobs::report(&st2, &jid, 0.1, &format!("syncing {name}"));
+            match direction {
+                crate::config::SyncDirection::Oneway => {
+                    crate::rclone::sync(&local, &remote, !from_remote).await?;
+                }
+                crate::config::SyncDirection::Twoway => {
+                    crate::rclone::bisync(&local, &remote, false).await?;
+                }
+            }
+            jobs::report(&st2, &jid, 1.0, "done");
+            let _ = crate::notify::send("Redoubt sync complete", &name).await;
+            Ok(json!({ "synced": name }))
+        }
+    });
+    Ok(job_id)
+}
+
+/// Fan-out mirroring: `kopia repository sync-to` the repo to each of its
+/// configured mirror locations — the "one backup, N destinations" half of
+/// multiplexing.
+pub async fn run_mirrors(state: &Arc<DaemonState>, repo: &Repository) -> anyhow::Result<String> {
+    if repo.mirrors.is_empty() {
+        bail!("no mirrors configured");
+    }
+    let pw = state.repo_password_any(&repo.id)?;
+    let engine = state.engine()?;
+    let repo = repo.clone();
+    let job_id = jobs::spawn(state, "mirror", Some(repo.id.clone()), move |st2, jid| {
+        let engine = Arc::clone(&engine);
+        let repo = repo.clone();
+        let pw = pw.clone();
+        async move {
+            let n = repo.mirrors.len();
+            for (i, m) in repo.mirrors.iter().enumerate() {
+                jobs::report(&st2, &jid, i as f32 / n as f32, &format!("mirroring → {:?}", m.location));
+                engine.sync_to(&repo, &m.location, &pw).await?;
+            }
+            jobs::report(&st2, &jid, 1.0, "done");
+            Ok(json!({ "mirrored": n }))
+        }
+    });
+    Ok(job_id)
+}
+
 /// now_ms exposed for scheduler/retention modules.
 pub fn now_ms_pub() -> u64 {
     now_ms()
@@ -772,6 +827,41 @@ async fn dispatch(state: &Arc<DaemonState>, method: &str, params: &Value) -> any
             });
             Ok(json!({ "jobId": job_id }))
         }
+        "sync.create" => {
+            let mut v = params.clone();
+            v.as_object_mut().map(|o| o.entry("id").or_insert(json!("")));
+            let mut job: crate::config::SyncJob = serde_json::from_value(v)?;
+            job.id = uuid::Uuid::new_v4().to_string();
+            let mut cfg = state.config.lock().unwrap();
+            cfg.syncs.push(job.clone());
+            cfg.save()?;
+            state.emit("config.changed", json!({}));
+            Ok(serde_json::to_value(&job)?)
+        }
+        "sync.delete" => {
+            let id = p_str(params, "id")?;
+            let mut cfg = state.config.lock().unwrap();
+            cfg.syncs.retain(|s| s.id != id);
+            cfg.save()?;
+            state.emit("config.changed", json!({}));
+            Ok(json!({ "deleted": id }))
+        }
+        "sync.runNow" => {
+            let id = p_str(params, "id")?;
+            let job = {
+                let cfg = state.config.lock().unwrap();
+                cfg.syncs.iter().find(|s| s.id == id).cloned().context("no such sync")?
+            };
+            let job_id = run_sync(state, &job).await?;
+            Ok(json!({ "jobId": job_id }))
+        }
+        "mirror.run" => {
+            let repo_id = p_str(params, "repositoryId")?.to_string();
+            let repo = get_repository(state, &repo_id)?;
+            let job_id = run_mirrors(state, &repo).await?;
+            Ok(json!({ "jobId": job_id }))
+        }
+
         "disk.scan" => {
             let paths: Vec<String> = params
                 .get("paths")
