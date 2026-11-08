@@ -6,7 +6,7 @@
 // ============================================================================
 
 import * as kit from "@downdraft/engine/libraries/html-ui-kit";
-import { PAGES, store, type PageId } from "./store";
+import { PAGES, store, type PageId, type SunNode } from "./store";
 
 export const APP_CSS = `
   .rd-shell { display:flex; flex-direction:row; width:100%; height:100%; }
@@ -181,7 +181,77 @@ function snapshotsPage(): string {
     ${kit.spacer(8)}
     ${list}
     ${kit.spacer(8)}
-    ${kit.button({ id: "btn-snap-restore", label: "Restore Selected…", action: "snap:restore", disabled: !store.snapshots.length })}`;
+    <div class="dd-row" style="gap:8px">
+      ${kit.button({ id: "btn-snap-restore", label: "Restore Selected…", action: "snap:restore", disabled: !store.snapshots.length })}
+      ${kit.button({ id: "btn-snap-browse", label: "Browse…", action: "snap:browse", disabled: !store.snapshots.length })}
+      ${kit.button({ id: "btn-snap-mount", label: "Mount All", action: "snap:mount", disabled: !store.snapshotsPlanId })}
+      ${kit.button({ id: "btn-snap-catalog", label: "Index Contents", action: "snap:catalog", disabled: !store.snapshots.length })}
+    </div>`;
+}
+
+// ── Filelight-style sunburst ──
+
+const SUN_COLORS = ["#5b8def", "#4fc08d", "#e2b33c", "#e06c60", "#9d6bdf", "#56b6c2", "#d19a66", "#c678dd"];
+
+function arcPath(cx: number, cy: number, r0: number, r1: number, a0: number, a1: number): string {
+  const rad = (a: number) => (a - 90) * Math.PI / 180;
+  const p = (r: number, a: number) => `${cx + r * Math.cos(rad(a))},${cy + r * Math.sin(rad(a))}`;
+  const large = a1 - a0 > 180 ? 1 : 0;
+  return `M${p(r1, a0)} A${r1} ${r1} 0 ${large} 1 ${p(r1, a1)} L${p(r0, a1)} A${r0} ${r0} 0 ${large} 0 ${p(r0, a0)} Z`;
+}
+
+function sunburstSvg(nodes: SunNode[], size = 300): string {
+  const cx = size / 2, cy = size / 2;
+  const ringW = (size / 2 - 40) / 3;
+  const total = nodes.reduce((a, n) => a + Math.max(n.size, 0), 0) || 1;
+  let svg = `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">`;
+  svg += `<circle cx="${cx}" cy="${cy}" r="${40}" fill="#2a2e33"/>`;
+  const emit = (list: SunNode[], a0: number, a1: number, ring: number, hueShift: number): void => {
+    if (ring > 3) return;
+    const sum = list.reduce((a, n) => a + Math.max(n.size, 0), 0) || 1;
+    let a = a0;
+    list.forEach((n, i) => {
+      const span = (a1 - a0) * (Math.max(n.size, 0) / sum);
+      const r0 = 40 + ring * ringW;
+      const r1 = r0 + ringW - 2;
+      const color = SUN_COLORS[(i + hueShift) % SUN_COLORS.length];
+      svg += `<path d="${arcPath(cx, cy, r0, r1, a, a + span)}" fill="${color}" opacity="${0.9 - ring * 0.15}"><title>${esc(n.name)} — ${fmtBytes(n.size)}</title></path>`;
+      if (n.children?.length && span > 4) emit(n.children, a, a + span, ring + 1, i + hueShift);
+      a += span;
+    });
+  };
+  emit(nodes, 0, 360, 0, 0);
+  svg += `</svg>`;
+  return svg;
+}
+
+function filesPage(): string {
+  const snapList = store.plans.length ? store.snapshots : [];
+  const snapOpts = snapList.map((s) => `${new Date(s.startTime).toLocaleString()} (${s.id.slice(0, 8)})`);
+  const snapSection = store.snapshots.length
+    ? `<div class="dd-row" style="gap:8px;align-items:center">
+        ${kit.dropdown({ id: "viz-snap", options: snapOpts, placeholder: "Pick snapshot…" })}
+        ${kit.button({ id: "btn-viz-snap", label: "Visualize", action: "viz:snap" })}
+      </div>
+      ${store.snapTree.length
+        ? `<div class="dd-row" style="gap:12px;align-items:flex-start">
+            <div>${sunburstSvg(store.snapTree)}</div>
+            <div>${kit.dataTable({ id: "viz-table", cols: ["Name", "Size"], rows: store.snapTree.slice(0, 14).map((n) => [n.name, fmtBytes(n.size)]) })}</div>
+          </div>`
+        : `<div class="rd-empty">Pick a snapshot and visualize its contents.</div>`}`
+    : `<div class="rd-empty">No snapshots yet — run a backup first.</div>`;
+  return `<div class="rd-h">Files</div>
+    ${kit.sectionLabel("Backup contents")}
+    ${snapSection}
+    ${kit.spacer(14)}
+    ${kit.sectionLabel("Local disk")}
+    <div class="dd-row" style="gap:8px;align-items:center">
+      ${kit.textInput({ id: "disk-path", value: store.diskScanPath || "/home", width: 220 })}
+      ${kit.button({ id: "btn-disk-scan", label: "Scan", action: "disk:scan" })}
+      ${store.diskTree ? `<div class="dd-label">${fmtBytes(store.diskTree.total)}</div>` : ""}
+    </div>
+    ${store.diskTree ? `<div class="dd-row" style="gap:12px;align-items:flex-start"><div>${sunburstSvg(store.diskTree.roots)}</div>
+      <div>${kit.dataTable({ id: "disk-table", cols: ["Path", "Size"], rows: store.diskTree.roots.slice(0, 14).map((n) => [n.name, fmtBytes(n.size)]) })}</div></div>` : `<div class="rd-empty">Scan a folder to see what's eating disk space (backup exclusions applied).</div>`}`;
 }
 
 function syncPage(): string {
@@ -217,6 +287,7 @@ export function pageInnerHtml(page: PageId): string {
     case "plans": return plansPage();
     case "targets": return targetsPage();
     case "snapshots": return snapshotsPage();
+    case "files": return filesPage();
     case "sync": return syncPage();
     case "settings": return settingsPage();
   }
@@ -302,6 +373,23 @@ function modalHtml(): string {
     case "unlock-repo":
       return kit.modal({ id: "modal", title: `Unlock “${store.modalPayload.name ?? ""}”`, open: true, html:
         pwInput("unlock-pw", "Passphrase") + err + foot });
+    case "browse": {
+      const crumbs = store.browseStack.map((b) => b.name).join(" / ") || "/";
+      const rows = store.browseItems.map((e) => [
+        e.isDir ? `${e.name}/` : e.name,
+        fmtBytes(e.size),
+        e.isDir ? "dir" : "file",
+      ]);
+      return kit.modal({ id: "modal", title: `Browse — ${crumbs}`, open: true, html:
+        `<div class="dd-row" style="gap:8px;margin-bottom:8px">
+          ${kit.button({ id: "browse-up", label: "↑ Up", action: "browse:up", disabled: !store.browseStack.length })}
+          ${kit.button({ id: "browse-enter", label: "Open dir", action: "browse:enter" })}
+          ${kit.button({ id: "browse-restore", label: "Restore selected…", action: "browse:restore" })}
+        </div>` +
+        (rows.length
+          ? kit.dataTable({ id: "browse-table", cols: ["Name", "Size", "Type"], rows })
+          : `<div class="rd-empty">${store.busy ? "loading…" : "empty"}</div>`) + err + foot });
+    }
     default:
       return "";
   }

@@ -6,7 +6,9 @@
 //! JSON-RPC link (ipc.rs); this binary also runs fine standalone.
 
 mod bins;
+mod catalog;
 mod config;
+mod diskscan;
 mod engine;
 mod ipc;
 mod jobs;

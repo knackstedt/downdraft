@@ -16,7 +16,7 @@ use tokio::process::Command;
 use crate::bins::{self, Tool};
 use crate::config::{data_dir, RepoLocation, Repository};
 
-use super::{EngineAdapter, MountHandle, SnapshotInfo};
+use super::{EngineAdapter, FsEntry, MountHandle, SnapshotInfo};
 
 pub struct KopiaAdapter {
     bin: PathBuf,
@@ -205,6 +205,69 @@ impl From<KSnapshot> for SnapshotInfo {
     }
 }
 
+/// Parse `kopia ls -l` / `ls -r -l` output:
+/// `drwxrwxr-x            9 2026-11-07 19:09:26 EST k1d2e…   sub/deep/`
+/// `-rw-rw-r--            6 2026-11-07 18:49:39 EST 71e19…   f.txt`
+/// Fields: perms size date time tz objid path… (paths may contain spaces).
+fn parse_ls(text: &str) -> Vec<FsEntry> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() || (!t.starts_with('d') && !t.starts_with('-')) {
+            continue;
+        }
+        let is_dir = t.starts_with('d');
+        // First 6 fields are whitespace-separated; the rest is the path.
+        let mut fields: Vec<&str> = Vec::new();
+        let mut rest = t;
+        for _ in 0..6 {
+            let r = rest.trim_start();
+            match r.find(char::is_whitespace) {
+                Some(end) => {
+                    fields.push(&r[..end]);
+                    rest = &r[end..];
+                }
+                None => break,
+            }
+        }
+        let path = rest.trim_start().trim_end_matches('/');
+        if fields.len() < 6 || path.is_empty() {
+            continue;
+        }
+        let size: u64 = fields[1].parse().unwrap_or(0);
+        let mtime = parse_ls_datetime(fields[2], fields[3]);
+        let name = path.rsplit('/').next().unwrap_or(path).to_string();
+        out.push(FsEntry {
+            name,
+            path: path.to_string(),
+            size,
+            object_id: fields[5].to_string(),
+            is_dir,
+            mtime,
+        });
+    }
+    out
+}
+
+/// `2026-11-07` + `18:49:39` → rough ms epoch (tz ignored — display only).
+fn parse_ls_datetime(date: &str, time: &str) -> u64 {
+    let d: Vec<i64> = date.split('-').filter_map(|p| p.parse().ok()).collect();
+    let t: Vec<u64> = time.split(':').filter_map(|p| p.parse().ok()).collect();
+    if d.len() < 3 || t.len() < 3 {
+        return 0;
+    }
+    let (mut y, m, day) = (d[0], d[1], d[2]);
+    if m <= 2 {
+        y -= 1;
+    }
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let days = era * 146097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
+    (days.max(0) as u64) * 86_400_000 + (t[0] * 3600 + t[1] * 60 + t[2]) * 1000
+}
+
 #[async_trait::async_trait]
 impl EngineAdapter for KopiaAdapter {
     async fn create_repository(&self, repo: &Repository, password: &str) -> anyhow::Result<()> {
@@ -303,6 +366,25 @@ impl EngineAdapter for KopiaAdapter {
         let mut args = base_args(repo);
         args.extend(["repository".into(), "status".into()]);
         run(&self.bin, &args, password).await
+    }
+
+    async fn browse(&self, repo: &Repository, object_id: &str, password: &str) -> anyhow::Result<Vec<FsEntry>> {
+        let mut args = base_args(repo);
+        args.extend(["ls".into(), "-l".into(), object_id.into()]);
+        Ok(parse_ls(&run(&self.bin, &args, password).await?))
+    }
+
+    async fn catalog_dump(&self, repo: &Repository, snapshot_id: &str, password: &str) -> anyhow::Result<Vec<FsEntry>> {
+        let mut args = base_args(repo);
+        args.extend(["ls".into(), "-r".into(), "-l".into(), snapshot_id.into()]);
+        Ok(parse_ls(&run(&self.bin, &args, password).await?))
+    }
+
+    async fn restore_object(&self, repo: &Repository, object_id: &str, target_dir: &Path, password: &str) -> anyhow::Result<()> {
+        std::fs::create_dir_all(target_dir)?;
+        let mut args = base_args(repo);
+        args.extend(["restore".into(), object_id.into(), target_dir.to_string_lossy().into_owned()]);
+        run(&self.bin, &args, password).await.map(|_| ())
     }
 
     async fn maintenance(&self, repo: &Repository, password: &str) -> anyhow::Result<()> {

@@ -5,7 +5,16 @@
 
 import type { DaemonStatus, JobInfo, Plan, Repository, SnapshotInfo, SyncJob, Target } from "./protocol";
 
-export type ModalKind = "new-repo" | "new-plan" | "restore" | "unlock-repo" | "new-remote";
+export type ModalKind = "new-repo" | "new-plan" | "restore" | "unlock-repo" | "new-remote" | "browse";
+
+export interface SunNode {
+  name: string;
+  path: string;
+  size: number;
+  objectId?: string;
+  isDir?: boolean;
+  children?: SunNode[];
+}
 
 export interface RemoteTypeDef {
   type: string;
@@ -14,13 +23,14 @@ export interface RemoteTypeDef {
   params: { key: string; label: string; secret: boolean; optional?: boolean }[];
 }
 
-export type PageId = "overview" | "plans" | "targets" | "snapshots" | "sync" | "settings";
+export type PageId = "overview" | "plans" | "targets" | "snapshots" | "files" | "sync" | "settings";
 
 export const PAGES: { id: PageId; title: string }[] = [
   { id: "overview", title: "Overview" },
   { id: "plans", title: "Backup Plans" },
   { id: "targets", title: "Targets" },
   { id: "snapshots", title: "Snapshots" },
+  { id: "files", title: "Files" },
   { id: "sync", title: "Sync" },
   { id: "settings", title: "Settings" },
 ];
@@ -57,6 +67,18 @@ class UiStore {
   authState: { flowId: number; state: "waiting" | "done"; token?: string } | null = null;
   /** Cached per-remote free-space readouts from target.about. */
   about: Record<string, { total?: number; used?: number; free?: number } | "error"> = {};
+
+  /** Files page: sunburst trees (snapshot catalog / local disk scan). */
+  snapTree: SunNode[] = [];
+  snapTreeLabel = "";
+  diskTree: { total: number; roots: SunNode[] } | null = null;
+  diskScanPath = "";
+  /** Browse modal state: objectId stack + current listing. */
+  browseStack: { objectId: string; name: string }[] = [];
+  browseItems: { name: string; path: string; objectId: string; size: number; isDir: boolean }[] = [];
+  browseRepoId = "";
+  mounts: Record<string, string> = {};
+  selectedBrowseIdx = 0;
 
   /** Latest daemon storage warning (storage.warning event), shown as a banner. */
   storageWarn: string | null = null;

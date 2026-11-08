@@ -40,11 +40,33 @@ pub struct RepoStats {
     pub raw: serde_json::Value,
 }
 
-/// A live FUSE mount child — dropping/killing it unmounts (phase 5).
+/// A filesystem entry inside a snapshot (browse/catalog row).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FsEntry {
+    pub name: String,
+    /// Path relative to the snapshot root ("" = root itself).
+    pub path: String,
+    pub size: u64,
+    /// kopia content/object id — doubles as the address for `ls <objId>`
+    /// and selective `restore <objId>`.
+    pub object_id: String,
+    pub is_dir: bool,
+    /// ms epoch
+    pub mtime: u64,
+}
+
+/// A live FUSE mount child — killing it on drop unmounts.
 #[allow(dead_code)]
 pub struct MountHandle {
     pub child: tokio::process::Child,
     pub dir: std::path::PathBuf,
+}
+
+impl Drop for MountHandle {
+    fn drop(&mut self) {
+        let _ = self.child.start_kill();
+    }
 }
 
 #[async_trait::async_trait]
@@ -76,6 +98,17 @@ pub trait EngineAdapter: Send + Sync {
 
     /// `kopia repository status` — raw text + parsed headline numbers.
     async fn repository_status(&self, repo: &Repository, password: &str) -> Result<String>;
+
+    /// List one directory level inside a snapshot — `kopia ls -l <objId>`.
+    async fn browse(&self, repo: &Repository, object_id: &str, password: &str) -> Result<Vec<FsEntry>>;
+
+    /// Full recursive listing — `kopia ls -r -l <snapshotId>` — feeds the
+    /// catalog/sunburst. Returns flat entries with relative paths.
+    async fn catalog_dump(&self, repo: &Repository, snapshot_id: &str, password: &str) -> Result<Vec<FsEntry>>;
+
+    /// `kopia restore <objectId> <dir>` — restore one object (file or dir
+    /// subtree) rather than a whole snapshot.
+    async fn restore_object(&self, repo: &Repository, object_id: &str, target_dir: &Path, password: &str) -> Result<()>;
 
     /// `kopia maintenance run` — compaction/GC after retention culls (phase 4).
     #[allow(dead_code)]

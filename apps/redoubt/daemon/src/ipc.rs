@@ -42,6 +42,8 @@ pub struct DaemonState {
     pub repo_keys: Mutex<HashMap<String, Zeroizing<String>>>,
     /// Lazily constructed after bins.ensure lands the kopia binary.
     pub engine: Mutex<Option<Arc<KopiaAdapter>>>,
+    /// Live FUSE mounts: repository id → mount child.
+    pub mounts: Mutex<HashMap<String, crate::engine::MountHandle>>,
 }
 
 impl DaemonState {
@@ -55,6 +57,7 @@ impl DaemonState {
             job_counter: AtomicU64::new(1),
             repo_keys: Mutex::new(HashMap::new()),
             engine: Mutex::new(None),
+            mounts: Mutex::new(HashMap::new()),
         }
     }
 
@@ -219,6 +222,23 @@ pub async fn run_plan(state: &Arc<DaemonState>, plan: &Plan, force: bool) -> any
 /// now_ms exposed for scheduler/retention modules.
 pub fn now_ms_pub() -> u64 {
     now_ms()
+}
+
+/// Try fusermount3 → fusermount → umount to detach a FUSE mount.
+async fn fusermount(dir: &std::path::Path) -> anyhow::Result<()> {
+    for bin in ["fusermount3", "fusermount"] {
+        if tokio::process::Command::new(bin)
+            .args(["-u", &dir.to_string_lossy()])
+            .status()
+            .await
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
+    }
+    let _ = tokio::process::Command::new("umount").arg(dir).status().await;
+    Ok(())
 }
 
 fn get_repository(state: &DaemonState, id: &str) -> anyhow::Result<Repository> {
@@ -471,6 +491,7 @@ async fn snapshot_delete(state: &Arc<DaemonState>, params: &Value) -> anyhow::Re
     let repo = get_repository(state, repo_id)?;
     let pw = state.repo_password(repo_id, params.get("passphrase").and_then(Value::as_str))?;
     state.engine()?.snapshot_delete(&repo, snap, &pw).await?;
+    let _ = crate::catalog::drop_snapshot(snap);
     Ok(json!({ "deleted": snap }))
 }
 
@@ -649,6 +670,129 @@ async fn dispatch(state: &Arc<DaemonState>, method: &str, params: &Value) -> any
             let cfg = state.config.lock().unwrap();
             Ok(serde_json::to_value(&cfg.syncs)?)
         }
+        // ── phase 5: browse / catalog / mounts / selective restore ──
+        "browse.ls" => {
+            let repo_id = p_str(params, "repositoryId")?.to_string();
+            let obj = p_str(params, "objectId")?;
+            let repo = get_repository(state, &repo_id)?;
+            let pw = state.repo_password_any(&repo.id)?;
+            let entries = state.engine()?.browse(&repo, obj, &pw).await?;
+            Ok(serde_json::to_value(entries)?)
+        }
+        "catalog.build" => {
+            let repo_id = p_str(params, "repositoryId")?.to_string();
+            let snap_id = p_str(params, "snapshotId")?.to_string();
+            let repo = get_repository(state, &repo_id)?;
+            let pw = state.repo_password_any(&repo.id)?;
+            let engine = state.engine()?;
+            let job_id = jobs::spawn(state, "catalog", Some(snap_id.clone()), move |st2, jid| {
+                let engine = Arc::clone(&engine);
+                let repo = repo.clone();
+                let snap = snap_id.clone();
+                let pw = pw.clone();
+                async move {
+                    jobs::report(&st2, &jid, 0.2, "walking snapshot…");
+                    let entries = engine.catalog_dump(&repo, &snap, &pw).await?;
+                    jobs::report(&st2, &jid, 0.8, "indexing…");
+                    let n = crate::catalog::store(&snap, &entries)?;
+                    jobs::report(&st2, &jid, 1.0, "done");
+                    Ok(json!({ "entries": n }))
+                }
+            });
+            Ok(json!({ "jobId": job_id }))
+        }
+        "catalog.tree" => {
+            let snap_id = p_str(params, "snapshotId")?;
+            let prefix = params.get("prefix").and_then(Value::as_str).unwrap_or("");
+            Ok(json!({ "children": crate::catalog::children(snap_id, prefix)? }))
+        }
+        "catalog.built" => {
+            let snap_id = p_str(params, "snapshotId")?;
+            Ok(json!({ "built": crate::catalog::has(snap_id)? }))
+        }
+        "mount.start" => {
+            let repo_id = p_str(params, "repositoryId")?.to_string();
+            let repo = get_repository(state, &repo_id)?;
+            let pw = state.repo_password_any(&repo.id)?;
+            let dir = std::env::temp_dir()
+                .join(format!("redoubt-mount-{}", &repo.id[..8.min(repo.id.len())]));
+            if state.mounts.lock().unwrap().contains_key(&repo.id) {
+                bail!("already mounted at {}", dir.display());
+            }
+            let h = state.engine()?.mount(&repo, &dir, &pw).await?;
+            state.mounts.lock().unwrap().insert(repo.id.clone(), h);
+            Ok(json!({ "mountPoint": dir }))
+        }
+        "mount.stop" => {
+            let repo_id = p_str(params, "repositoryId")?;
+            let h = state.mounts.lock().unwrap().remove(repo_id)
+                .context("not mounted")?;
+            let _ = fusermount(&h.dir).await;
+            drop(h);
+            Ok(json!({ "stopped": repo_id }))
+        }
+        "mount.list" => {
+            let mounts = state.mounts.lock().unwrap();
+            Ok(json!({
+                "mounts": mounts.iter().map(|(id, h)| json!({
+                    "repositoryId": id, "mountPoint": h.dir,
+                })).collect::<Vec<_>>()
+            }))
+        }
+        "restore.selective" => {
+            let repo_id = p_str(params, "repositoryId")?.to_string();
+            let repo = get_repository(state, &repo_id)?;
+            let pw = state.repo_password_any(&repo.id)?;
+            let target = p_str(params, "targetDir")?.to_string();
+            let items: Vec<(String, String)> = params
+                .get("items")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|v| {
+                    Some((v.get("objectId")?.as_str()?.to_string(), v.get("name")?.as_str()?.to_string()))
+                }).collect())
+                .unwrap_or_default();
+            if items.is_empty() {
+                bail!("items[] required");
+            }
+            let engine = state.engine()?;
+            let job_id = jobs::spawn(state, "restore", None, move |st2, jid| {
+                let engine = Arc::clone(&engine);
+                let repo = repo.clone();
+                let pw = pw.clone();
+                async move {
+                    let n = items.len();
+                    for (i, (obj, name)) in items.iter().enumerate() {
+                        let dest = std::path::Path::new(&target).join(name);
+                        jobs::report(&st2, &jid, i as f32 / n as f32, &format!("restoring {name}"));
+                        engine.restore_object(&repo, obj, &dest, &pw).await?;
+                    }
+                    jobs::report(&st2, &jid, 1.0, "done");
+                    Ok(json!({ "restored": items.len(), "to": target }))
+                }
+            });
+            Ok(json!({ "jobId": job_id }))
+        }
+        "disk.scan" => {
+            let paths: Vec<String> = params
+                .get("paths")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect())
+                .unwrap_or_default();
+            if paths.is_empty() {
+                bail!("paths[] required");
+            }
+            let patterns: Vec<String> = {
+                let cfg = state.config.lock().unwrap();
+                cfg.exclusion_profiles
+                    .iter()
+                    .flat_map(|p| p.categories.iter())
+                    .filter(|c| c.enabled)
+                    .flat_map(|c| c.patterns.clone())
+                    .collect()
+            };
+            Ok(crate::diskscan::scan(&paths, &patterns))
+        }
+
         "exclusions.list" => {
             let cfg = state.config.lock().unwrap();
             Ok(serde_json::to_value(&cfg.exclusion_profiles)?)

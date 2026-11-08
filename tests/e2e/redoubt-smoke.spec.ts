@@ -175,5 +175,39 @@ describe.skipIf(!appAvailable(APP))("redoubt", () => {
         expect(rj.state).toBe("done");
         expect(readFileSync(join(restoreDir, "hello.txt"), "utf8")).toBe("e2e-payload-1");
         expect(readFileSync(join(restoreDir, "sub", "deep.txt"), "utf8")).toBe("e2e-payload-2");
+
+        // ── Phase 5: catalog → tree → browse → selective restore ──
+        r = await drpc("catalog.built", { snapshotId: snapId });
+        expect(r.result.built).toBe(false);
+        r = await drpc("catalog.build", { repositoryId: repoId, snapshotId: snapId });
+        const cj = await waitJob(r.result.jobId);
+        expect(cj.state).toBe("done");
+        r = await drpc("catalog.built", { snapshotId: snapId });
+        expect(r.result.built).toBe(true);
+
+        r = await drpc("catalog.tree", { snapshotId: snapId });
+        const names = r.result.children.map((c: any) => c.name);
+        expect(names).toContain("hello.txt");
+        expect(names).toContain("sub");
+
+        // browse.ls: snapshotId at root, dir objectId one level down
+        r = await drpc("browse.ls", { repositoryId: repoId, objectId: snapId });
+        const rootEntries = r.result as any[];
+        expect(rootEntries.some((e) => e.name === "sub" && e.isDir)).toBe(true);
+        const sub = rootEntries.find((e) => e.name === "sub");
+        r = await drpc("browse.ls", { repositoryId: repoId, objectId: sub.objectId });
+        expect(r.result.some((e) => e.name === "deep.txt")).toBe(true);
+
+        // selective restore of just the sub dir
+        rmSync(join(testRoot, "sel"), { recursive: true, force: true });
+        r = await drpc("restore.selective", {
+            repositoryId: repoId,
+            items: [{ objectId: sub.objectId, name: "sub" }],
+            targetDir: join(testRoot, "sel"),
+        });
+        const sj = await waitJob(r.result.jobId);
+        expect(sj.state).toBe("done");
+        expect(readFileSync(join(testRoot, "sel", "sub", "deep.txt"), "utf8")).toBe("e2e-payload-2");
+        expect(existsSync(join(testRoot, "sel", "hello.txt"))).toBe(false);
     }, 180_000);
 });

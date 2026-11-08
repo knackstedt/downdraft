@@ -16,7 +16,7 @@ import { createHtmlUi } from "@downdraft/engine/modules/html-ui";
 import { AppWindow } from "@downdraft/platform-native";
 import { DaemonClient, ensureDaemon } from "./daemon-client";
 import { APP_CSS, shellHtml } from "./pages";
-import { PAGES, store, type PageId } from "./store";
+import { PAGES, store, type PageId, type SunNode } from "./store";
 import type { JobInfo, Plan, Repository, SyncJob, Target } from "./protocol";
 
 // ── menu model ──
@@ -241,6 +241,8 @@ export const appModule: AppModule = {
                 }
               } else if (kind === "select") {
                 if (id === "snap-table") store.selectedSnapIdx = Number(value);
+                if (id === "browse-table") store.selectedBrowseIdx = Number(value);
+                if (id === "viz-snap") store.form["viz-snap-i"] = String(snapListIndexForLabel(String(value)));
               }
             },
           });
@@ -261,6 +263,38 @@ export const appModule: AppModule = {
           }
           function closeModal(): void { store.modal = null; store.busy = false; refresh?.(); }
           function formErr(msg: string): void { store.formError = msg; refresh?.(); }
+
+          function snapListIndexForLabel(_label: string): number {
+            return -1;
+          }
+
+          async function browseTo(objectId: string, name: string | null): Promise<void> {
+            store.busy = true; refresh?.();
+            try {
+              const items = await client.rpc<typeof store.browseItems>("browse.ls", { repositoryId: store.browseRepoId, objectId });
+              store.browseItems = items;
+              if (name !== null) store.browseStack.push({ objectId, name });
+            } catch (e) { formErr(String(e)); }
+            store.busy = false; refresh?.();
+          }
+
+          async function vizSnapshot(idx: number): Promise<void> {
+            const s = store.snapshots[idx];
+            if (!s) return;
+            const plan = store.plans.find((p) => p.id === store.snapshotsPlanId);
+            if (!plan) return;
+            try {
+              const built = await client.rpc<{ built: boolean }>("catalog.built", { snapshotId: s.id });
+              if (!built.built) {
+                const r = await client.rpc<{ jobId: string }>("catalog.build", { repositoryId: plan.repositoryId, snapshotId: s.id });
+                toast(`indexing snapshot… (job ${r.jobId})`, "info");
+              }
+              const t = await client.rpc<{ children: SunNode[] }>("catalog.tree", { snapshotId: s.id });
+              store.snapTree = t.children;
+              store.snapTreeLabel = s.id.slice(0, 8);
+              store.notify();
+            } catch (e) { toast(`catalog: ${e}`, "warn"); }
+          }
 
           async function pickInto(field: string): Promise<void> {
             const p = await downdraft.pickFolder?.({});
@@ -393,6 +427,83 @@ export const appModule: AppModule = {
                 break;
               case "sync:new": toast("sync editor lands in phase 6", "info"); break;
               case "snap:refresh": void loadSnapshots(); break;
+              case "snap:mount": {
+                const plan = store.plans.find((p) => p.id === store.snapshotsPlanId);
+                if (!plan) { toast("pick a plan", "warn"); break; }
+                void (async () => {
+                  try {
+                    const r = await client.rpc<{ mountPoint: string }>("mount.start", { repositoryId: plan.repositoryId });
+                    store.mounts[plan.repositoryId] = r.mountPoint;
+                    toast(`mounted at ${r.mountPoint}`, "good");
+                  } catch (e) { toast(`mount: ${e}`, "bad"); }
+                  store.notify();
+                })();
+                break;
+              }
+              case "snap:catalog": {
+                const s = store.snapshots[store.selectedSnapIdx ?? 0];
+                const plan = store.plans.find((p) => p.id === store.snapshotsPlanId);
+                if (!s || !plan) { toast("select a snapshot", "warn"); break; }
+                void vizSnapshot(store.selectedSnapIdx ?? 0);
+                break;
+              }
+              case "snap:browse": {
+                const s = store.snapshots[store.selectedSnapIdx ?? 0];
+                const plan = store.plans.find((p) => p.id === store.snapshotsPlanId);
+                if (!s || !plan) { toast("select a snapshot", "warn"); break; }
+                store.browseRepoId = plan.repositoryId;
+                store.browseStack = [];
+                store.browseItems = [];
+                openModal("browse");
+                void browseTo(s.id, s.id.slice(0, 8));
+                break;
+              }
+              case "browse:up": {
+                store.browseStack.pop();
+                const top = store.browseStack[store.browseStack.length - 1];
+                if (top) void browseTo(top.objectId, null);
+                break;
+              }
+              case "browse:enter": {
+                const e = store.browseItems[store.selectedBrowseIdx ?? 0];
+                if (!e?.isDir) { toast("pick a directory", "warn"); break; }
+                void browseTo(e.objectId, e.name);
+                break;
+              }
+              case "browse:restore": {
+                const e = store.browseItems[store.selectedBrowseIdx ?? 0];
+                if (!e) { toast("select an entry", "warn"); break; }
+                void (async () => {
+                  const dest = await downdraft.pickFolder?.({});
+                  const dir = dest?.[0];
+                  if (!dir) return;
+                  try {
+                    await client.rpc("restore.selective", {
+                      repositoryId: store.browseRepoId,
+                      items: [{ objectId: e.objectId, name: e.name }],
+                      targetDir: dir,
+                    });
+                    toast(`restoring ${e.name} → ${dir}`, "good"); closeModal();
+                  } catch (x) { formErr(String(x)); }
+                })();
+                break;
+              }
+              case "viz:snap": {
+                const idx = Number(store.form["viz-snap-i"] ?? store.selectedSnapIdx ?? 0);
+                void vizSnapshot(idx);
+                break;
+              }
+              case "disk:scan": {
+                const path = store.form["disk-path"] ?? store.diskScanPath ?? "/home";
+                store.diskScanPath = path;
+                void (async () => {
+                  try {
+                    store.diskTree = await client.rpc("disk.scan", { paths: [path] }) as never;
+                  } catch (e) { toast(`scan: ${e}`, "bad"); }
+                  store.notify();
+                })();
+                break;
+              }
               case "snap:restore": {
                 const s = store.snapshots[store.selectedSnapIdx ?? 0];
                 if (!s) { toast("select a snapshot row first", "warn"); break; }
