@@ -200,6 +200,23 @@ pub async fn run_plan(state: &Arc<DaemonState>, plan: &Plan, force: bool) -> any
                     .unwrap_or_default();
                 let mut patterns = patterns;
                 patterns.extend(src.extra_excludes.clone());
+                // `~/x/**` means "under home" — kopia's gitignore rules are
+                // source-relative, so the literal ~ never matches. Strip it
+                // to an unanchored form when this source sits inside home.
+                let home = dirs::home_dir().map(|d| d.display().to_string()).unwrap_or_default();
+                if !home.is_empty() && src.path.starts_with(&home) {
+                    patterns = patterns
+                        .into_iter()
+                        .map(|p| {
+                            if let Some(rest) = p.strip_prefix("~/") {
+                                // anchored-to-source-root relative form
+                                format!("{rest}")
+                            } else {
+                                p
+                            }
+                        })
+                        .collect();
+                }
                 let tags = vec![("plan".to_string(), plan.name.clone())];
                 let snap = engine
                     .snapshot_create(&repo, &src.path, &pw, &tags, &patterns)
