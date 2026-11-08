@@ -131,8 +131,15 @@ pub fn resolve(tool: Tool) -> Option<PathBuf> {
 fn sha256_file(path: &Path) -> anyhow::Result<String> {
     let mut f = fs::File::open(path)?;
     let mut h = Sha256::new();
-    std::io::copy(&mut f, &mut h)?;
-    Ok(format!("{:x}", h.finalize()))
+    let mut buf = [0u8; 1 << 20];
+    loop {
+        let n = std::io::Read::read(&mut f, &mut buf)?;
+        if n == 0 {
+            break;
+        }
+        Digest::update(&mut h, &buf[..n]);
+    }
+    Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// Download + verify + extract the pinned build into the data dir.

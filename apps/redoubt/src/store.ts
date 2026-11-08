@@ -5,7 +5,7 @@
 
 import type { DaemonStatus, JobInfo, Plan, Repository, SnapshotInfo, SyncJob, Target } from "./protocol";
 
-export type ModalKind = "new-repo" | "new-plan" | "restore" | "unlock-repo" | "new-remote" | "browse" | "new-sync";
+export type ModalKind = "new-repo" | "new-plan" | "restore" | "unlock-repo" | "new-remote" | "browse" | "new-sync" | "recovery";
 
 export interface SunNode {
   name: string;

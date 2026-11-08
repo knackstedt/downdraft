@@ -356,6 +356,17 @@ export const appModule: AppModule = {
                   schedule: null, enabled: true,
                 });
                 toast("sync created", "good"); closeModal(); await refreshAll();
+              } else if (store.modal === "recovery") {
+                if (store.form["recovery-key"]) { closeModal(); return; }
+                const repo = store.repositories[Number(f["rec-repo-i"] ?? 0)];
+                if (!repo) return formErr("pick a repository");
+                store.busy = true; refresh?.();
+                const r = await client.rpc<{ recoveryKey: string }>("keybox.addRecipient", {
+                  repositoryId: repo.id, label: f["rec-label"] || "recovery",
+                });
+                store.busy = false;
+                store.form["recovery-key"] = r.recoveryKey;
+                refresh?.();
               } else if (store.modal === "new-plan") {
                 if (!f["plan-name"]) return formErr("name required");
                 if (!f["plan-src"]) return formErr("source folder required");
@@ -399,6 +410,7 @@ export const appModule: AppModule = {
             switch (verb) {
               case "daemon:reconnect": void ensureDaemon(client).then(refreshAll); break;
               case "repo:new": openModal("new-repo"); break;
+              case "repo:recovery": openModal("recovery"); break;
               case "plan:new": openModal("new-plan"); break;
               case "target:new":
                 void (async () => {

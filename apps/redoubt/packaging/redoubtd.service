@@ -1,0 +1,21 @@
+# Redoubt backup daemon — systemd user service.
+# Install:  cp redoubtd.service ~/.config/systemd/user/
+# Enable:   systemctl --user daemon-reload && systemctl --user enable --now redoubtd
+# The daemon is self-spawning when the UI opens; this unit makes backups
+# run without the UI being started once per session.
+[Unit]
+Description=Redoubt backup daemon
+Documentation=https://github.com/your-org/redoubt
+After=default.target
+
+[Service]
+Type=simple
+# Adjust to where the daemon binary actually lives.
+ExecStart=%h/.local/bin/redoubtd run
+Restart=on-failure
+RestartSec=10s
+# Keep going through logout only if the user enables lingering:
+#   loginctl enable-linger $USER
+
+[Install]
+WantedBy=default.target

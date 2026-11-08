@@ -827,6 +827,34 @@ async fn dispatch(state: &Arc<DaemonState>, method: &str, params: &Value) -> any
             });
             Ok(json!({ "jobId": job_id }))
         }
+        "keybox.addRecipient" => {
+            // Mint a hybrid X25519+ML-KEM-768 recovery slot for a repo —
+            // the recovery key string is returned ONCE for the user to save.
+            let repo_id = p_str(params, "repositoryId")?.to_string();
+            let label = params.get("label").and_then(Value::as_str).unwrap_or("recovery").to_string();
+            let pw = state.repo_password_any(&repo_id)?;
+            let mut box_ = crate::keybox::load(&repo_id)?;
+            let recovery = crate::keybox::add_recipient(&mut box_, &label, &pw)?;
+            crate::keybox::save(&repo_id, &box_)?;
+            if let Ok(repo) = get_repository(state, &repo_id) {
+                if let crate::config::RepoLocation::Filesystem { path } = &repo.location {
+                    let _ = crate::keybox::export_into_repo(&repo_id, path);
+                }
+            }
+            Ok(json!({ "recoveryKey": recovery, "slotCount": box_.kem_slots.len() }))
+        }
+        "keybox.recover" => {
+            // Unlock a repo with a recovery key instead of the passphrase.
+            let repo_id = p_str(params, "repositoryId")?.to_string();
+            let recovery = p_str(params, "recoveryKey")?;
+            let box_ = crate::keybox::load(&repo_id)?;
+            let pw = crate::keybox::unlock_with_recovery(&box_, recovery)?;
+            state.repo_keys.lock().unwrap().insert(repo_id.clone(), pw.clone());
+            let _ = crate::secrets::store(&repo_id, &pw);
+            state.emit("repo.unlocked", json!({ "id": repo_id, "via": "recovery" }));
+            Ok(json!({ "unlocked": repo_id }))
+        }
+
         "sync.create" => {
             let mut v = params.clone();
             v.as_object_mut().map(|o| o.entry("id").or_insert(json!("")));

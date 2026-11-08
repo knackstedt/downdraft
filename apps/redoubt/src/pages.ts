@@ -141,7 +141,10 @@ function targetsPage(): string {
       ? kit.dataTable({ id: "repos-table", cols: ["Name", "Location"], rows: repoRows })
       : `<div class="rd-empty">No repositories yet.</div>`}
     ${kit.spacer(6)}
-    ${kit.button({ id: "btn-new-repo", label: "New Repository…", kind: "accent", action: "repo:new" })}
+    <div class="dd-row" style="gap:8px">
+      ${kit.button({ id: "btn-new-repo", label: "New Repository…", kind: "accent", action: "repo:new" })}
+      ${kit.button({ id: "btn-recovery", label: "Recovery Key…", action: "repo:recovery", disabled: !store.repositories.length })}
+    </div>
     ${kit.spacer(10)}
     ${kit.sectionLabel("Rclone remotes / folders")}
     ${tgtRows.length
@@ -394,6 +397,18 @@ function modalHtml(): string {
           ? `<div class="dd-field"><div class="dd-lbl">Direction</div>` +
             kit.dropdown({ id: "sync-to", options: ["local → remote (push)", "remote → local (pull)"], selected: Number(store.form["sync-to-i"] ?? 0) }) + `</div>`
           : "") + err + foot });
+    }
+    case "recovery": {
+      const key = store.form["recovery-key"];
+      return kit.modal({ id: "modal", title: "Recovery Key", open: true, html:
+        key
+          ? `<div class="dd-field"><div class="dd-lbl">Save this recovery key — it is shown ONCE.</div>
+             <div class="dd-label" style="font-size:11px">A hybrid X25519 + ML-KEM-768 recipient slot was added to the keybox. Anyone with this key can unlock the repository without the passphrase.</div>
+             <pre class="dd-input" style="white-space:pre-wrap;word-break:break-all;user-select:all;max-height:140px;overflow:auto">${esc(key)}</pre></div>` + err + foot
+          : `<div class="dd-field"><div class="dd-lbl">Repository</div>` +
+            kit.dropdown({ id: "rec-repo", options: store.repositories.map((r) => r.name), selected: Number(store.form["rec-repo-i"] ?? 0) }) + `</div>` +
+            kit.textInput({ id: "rec-label", label: "Label (e.g. 'safety deposit')", value: store.form["rec-label"] ?? "recovery" }) +
+            `<div class="dd-label" style="font-size:11px">Generates a post-quantum recovery slot and shows the key once.</div>` + err + foot });
     }
     case "browse": {
       const crumbs = store.browseStack.map((b) => b.name).join(" / ") || "/";
