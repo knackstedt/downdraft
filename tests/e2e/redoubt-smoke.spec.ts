@@ -142,6 +142,7 @@ describe.skipIf(!appAvailable(APP))("redoubt", () => {
             name: "e2e-repo", passphrase: "e2e-pass",
             location: { provider: "filesystem", path: repoDir },
         });
+        expect(r.error ?? null).toBe(null);
         expect(r.ok).toBe(true);
         const repoId = r.result.id;
 

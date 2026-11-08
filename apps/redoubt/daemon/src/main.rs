@@ -11,6 +11,7 @@ mod engine;
 mod ipc;
 mod jobs;
 mod keybox;
+mod rclone;
 mod secrets;
 
 use std::sync::Arc;

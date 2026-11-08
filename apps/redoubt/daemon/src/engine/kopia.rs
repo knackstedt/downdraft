@@ -57,9 +57,12 @@ fn location_args(loc: &RepoLocation, verb: &str, rclone: &Option<PathBuf>) -> Ve
             if let Some(bin) = rclone {
                 v.push(format!("--rclone-exe={}", bin.display()));
             }
-            if let Ok(cfg) = std::env::var("RCLONE_CONFIG") {
-                v.push(format!("--rclone-args=--config={cfg}"));
-            }
+            // Always point at the daemon-managed rclone.conf — never the
+            // user's default file.
+            v.push(format!(
+                "--rclone-args=--config={}",
+                crate::rclone::config_path().display()
+            ));
             let _ = verb;
             v
         }

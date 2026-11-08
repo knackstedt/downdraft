@@ -5,7 +5,14 @@
 
 import type { DaemonStatus, JobInfo, Plan, Repository, SnapshotInfo, SyncJob, Target } from "./protocol";
 
-export type ModalKind = "new-repo" | "new-plan" | "restore" | "unlock-repo";
+export type ModalKind = "new-repo" | "new-plan" | "restore" | "unlock-repo" | "new-remote";
+
+export interface RemoteTypeDef {
+  type: string;
+  label: string;
+  oauth: boolean;
+  params: { key: string; label: string; secret: boolean; optional?: boolean }[];
+}
 
 export type PageId = "overview" | "plans" | "targets" | "snapshots" | "sync" | "settings";
 
@@ -44,6 +51,12 @@ class UiStore {
   form: Record<string, string> = {};
   formError: string | null = null;
   busy = false;
+
+  /** Add-remote wizard: type catalog + OAuth progress. */
+  remoteTypes: RemoteTypeDef[] = [];
+  authState: { flowId: number; state: "waiting" | "done"; token?: string } | null = null;
+  /** Cached per-remote free-space readouts from target.about. */
+  about: Record<string, { total?: number; used?: number; free?: number } | "error"> = {};
 
   private listeners: Listener[] = [];
 

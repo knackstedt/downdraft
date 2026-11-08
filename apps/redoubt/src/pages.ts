@@ -107,7 +107,11 @@ function targetsPage(): string {
     r.name,
     r.location.provider === "filesystem" ? `fs: ${r.location.path}` : `rclone: ${r.location.remote}:${r.location.path}`,
   ]);
-  const tgtRows = store.targets.map((t) => [t.name, t.kind, t.ref]);
+  const tgtRows = store.targets.map((t) => {
+    const a = store.about[t.ref];
+    const space = a === "error" ? "error" : a && a.free !== undefined ? `${fmtBytes(a.free)} free of ${fmtBytes(a.total)}` : "—";
+    return [t.name, t.kind, t.ref, space];
+  });
   return `<div class="rd-h">Targets</div>
     ${kit.sectionLabel("Repositories (backup destinations)")}
     ${repoRows.length
@@ -118,10 +122,14 @@ function targetsPage(): string {
     ${kit.spacer(10)}
     ${kit.sectionLabel("Rclone remotes / folders")}
     ${tgtRows.length
-      ? kit.dataTable({ id: "targets-table", cols: ["Name", "Kind", "Remote / Path"], rows: tgtRows })
+      ? kit.dataTable({ id: "targets-table", cols: ["Name", "Kind", "Remote / Path", "Space"], rows: tgtRows })
       : `<div class="rd-empty">No rclone remotes or folders configured.</div>`}
     ${kit.spacer(8)}
-    ${kit.button({ id: "btn-new-target", label: "Add Remote…", kind: "accent", action: "target:new" })}`;
+    <div class="dd-row" style="gap:8px">
+      ${kit.button({ id: "btn-new-target", label: "Add Remote…", kind: "accent", action: "target:new" })}
+      ${kit.button({ id: "btn-import-conf", label: "Import rclone.conf", action: "target:import" })}
+      ${kit.button({ id: "btn-about", label: "Check free space", action: "target:about", disabled: !store.targets.length })}
+    </div>`;
 }
 
 function snapshotsPage(): string {
@@ -210,13 +218,45 @@ function modalHtml(): string {
     ${kit.button({ id: "modal-ok", label: store.busy ? "Working…" : "OK", kind: "accent", action: "modal:ok", disabled: store.busy })}
   </div>`;
   switch (store.modal) {
-    case "new-repo":
+    case "new-repo": {
+      const remoteNames = store.targets.filter((t) => t.kind === "rclone").map((t) => t.name);
+      const prov = store.form["repo-prov"] ?? "filesystem";
+      const locFields = prov === "filesystem"
+        ? kit.textInput({ id: "repo-path", label: "Folder (local dir or USB path)", value: store.form["repo-path"] ?? "", width: 280 }) +
+          `<div class="dd-row">${kit.button({ id: "repo-browse", label: "Browse…", action: "repo:browse" })}</div>`
+        : `<div class="dd-field"><div class="dd-lbl">Remote</div>` +
+          kit.dropdown({ id: "repo-remote", options: remoteNames, selected: Number(store.form["repo-remote-i"] ?? 0), placeholder: "pick remote" }) + `</div>` +
+          kit.textInput({ id: "repo-rpath", label: "Path on remote", value: store.form["repo-rpath"] ?? "redoubt", width: 280 });
       return kit.modal({ id: "modal", title: "New Repository", open: true, html:
         kit.textInput({ id: "repo-name", label: "Name", value: store.form["repo-name"] ?? "" }) +
-        kit.textInput({ id: "repo-path", label: "Folder (local dir or USB path)", value: store.form["repo-path"] ?? "", width: 280 }) +
-        `<div class="dd-row">${kit.button({ id: "repo-browse", label: "Browse…", action: "repo:browse" })}</div>` +
+        `<div class="dd-field"><div class="dd-lbl">Location</div>` +
+        kit.dropdown({ id: "repo-prov", options: ["filesystem", "rclone"], selected: prov === "rclone" ? 1 : 0 }) + `</div>` +
+        locFields +
         pwInput("repo-pw", "Encryption passphrase") +
         pwInput("repo-pw2", "Confirm passphrase") + err + foot });
+    }
+    case "new-remote": {
+      const types = store.remoteTypes;
+      const tIdx = Number(store.form["remote-type-i"] ?? 0);
+      const sel = types[tIdx];
+      const fields = sel ? sel.params.map((p) =>
+        p.secret
+          ? pwInput(`rp-${p.key}`, p.label)
+          : kit.textInput({ id: `rp-${p.key}`, label: p.label, value: store.form[`rp-${p.key}`] ?? "", width: 280 })
+      ).join("") : "";
+      const oauthBlock = sel?.oauth
+        ? `<div class="dd-row" style="gap:8px;align-items:center">
+            ${kit.button({ id: "btn-authorize", label: store.authState?.state === "waiting" ? "Waiting for browser auth…" : "Authorize in browser", action: "target:authorize", disabled: store.authState?.state === "waiting" })}
+            ${store.authState?.state === "done" ? kit.badge({ label: "authorized", kind: "good" }) : ""}
+          </div>
+          <div class="dd-label" style="font-size:10px">rclone opens your browser; complete the sign-in, then finish below.</div>`
+        : "";
+      return kit.modal({ id: "modal", title: "Add Remote", open: true, html:
+        kit.textInput({ id: "remote-name", label: "Name", value: store.form["remote-name"] ?? "" }) +
+        `<div class="dd-field"><div class="dd-lbl">Type</div>` +
+        kit.dropdown({ id: "remote-type", options: types.map((t) => t.label), selected: tIdx }) + `</div>` +
+        fields + oauthBlock + err + foot });
+    }
     case "new-plan":
       return kit.modal({ id: "modal", title: "New Backup Plan", open: true, html:
         kit.textInput({ id: "plan-name", label: "Name", value: store.form["plan-name"] ?? "" }) +

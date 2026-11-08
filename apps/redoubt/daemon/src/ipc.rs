@@ -468,6 +468,115 @@ async fn dispatch(state: &Arc<DaemonState>, method: &str, params: &Value) -> any
             let cfg = state.config.lock().unwrap();
             Ok(serde_json::to_value(&cfg.targets)?)
         }
+        "target.types" => Ok(crate::rclone::remote_types()),
+        "target.remotes" => Ok(serde_json::to_value(crate::rclone::list_remotes().await?)?),
+        "target.about" => {
+            let remote = p_str(params, "remote")?;
+            Ok(crate::rclone::about(remote).await?)
+        }
+        "target.test" => {
+            let remote = p_str(params, "remote")?;
+            crate::rclone::test_remote(remote).await?;
+            Ok(json!({ "ok": true }))
+        }
+        "target.addRemote" => {
+            let name = p_str(params, "name")?.to_string();
+            let rtype = p_str(params, "type")?.to_string();
+            let params_map: std::collections::HashMap<String, String> =
+                serde_json::from_value(params.get("params").cloned().unwrap_or(json!({})))?;
+            // Obscure password-ish fields before they hit the conf file.
+            let mut obscured = std::collections::HashMap::new();
+            for (k, v) in &params_map {
+                if v.is_empty() {
+                    continue;
+                }
+                if k.contains("pass") || k.contains("secret") || k == "key" {
+                    obscured.insert(k.clone(), crate::rclone::obscure(v).await?);
+                } else {
+                    obscured.insert(k.clone(), v.clone());
+                }
+            }
+            crate::rclone::config_create(&name, &rtype, &obscured).await?;
+            let mut cfg = state.config.lock().unwrap();
+            cfg.targets.push(crate::config::Target {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: name.clone(),
+                kind: crate::config::TargetKind::Rclone,
+                ref_: name.clone(),
+            });
+            cfg.save()?;
+            Ok(json!({ "added": name }))
+        }
+        "target.addLocal" => {
+            let name = p_str(params, "name")?.to_string();
+            let path = p_str(params, "path")?.to_string();
+            let mut cfg = state.config.lock().unwrap();
+            cfg.targets.push(crate::config::Target {
+                id: uuid::Uuid::new_v4().to_string(),
+                name,
+                kind: crate::config::TargetKind::Local,
+                ref_: path,
+            });
+            cfg.save()?;
+            Ok(json!({ "added": true }))
+        }
+        "target.remove" => {
+            let id = p_str(params, "id")?;
+            let t = {
+                let mut cfg = state.config.lock().unwrap();
+                let pos = cfg.targets.iter().position(|t| t.id == id).context("no such target")?;
+                cfg.targets.remove(pos)
+            };
+            if matches!(t.kind, crate::config::TargetKind::Rclone) {
+                let _ = crate::rclone::config_delete(&t.ref_).await;
+            }
+            state.config.lock().unwrap().save()?;
+            Ok(json!({ "removed": id }))
+        }
+        "target.importConf" => {
+            let imported = crate::rclone::import_user_conf().await?;
+            let mut cfg = state.config.lock().unwrap();
+            for name in &imported {
+                if !cfg.targets.iter().any(|t| t.ref_ == *name) {
+                    cfg.targets.push(crate::config::Target {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        name: name.clone(),
+                        kind: crate::config::TargetKind::Rclone,
+                        ref_: name.clone(),
+                    });
+                }
+            }
+            cfg.save()?;
+            Ok(json!({ "imported": imported }))
+        }
+        "target.authorizeStart" => {
+            let rtype = p_str(params, "type")?;
+            let id = crate::rclone::authorize_start(rtype).await?;
+            Ok(json!({ "flowId": id }))
+        }
+        "target.authorizePoll" => {
+            let id = params.get("flowId").and_then(Value::as_u64).context("flowId")?;
+            crate::rclone::authorize_poll(id).await
+        }
+        "target.authorizeFinish" => {
+            // After an OAuth flow completes, create the named remote with the
+            // captured token.
+            let name = p_str(params, "name")?.to_string();
+            let rtype = p_str(params, "type")?.to_string();
+            let token = p_str(params, "token")?.to_string();
+            let mut params_map = std::collections::HashMap::new();
+            params_map.insert("token".into(), token);
+            crate::rclone::config_create(&name, &rtype, &params_map).await?;
+            let mut cfg = state.config.lock().unwrap();
+            cfg.targets.push(crate::config::Target {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: name.clone(),
+                kind: crate::config::TargetKind::Rclone,
+                ref_: name.clone(),
+            });
+            cfg.save()?;
+            Ok(json!({ "added": name }))
+        }
         "sync.list" => {
             let cfg = state.config.lock().unwrap();
             Ok(serde_json::to_value(&cfg.syncs)?)

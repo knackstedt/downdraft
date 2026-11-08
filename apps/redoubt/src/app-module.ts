@@ -215,6 +215,16 @@ export const appModule: AppModule = {
                   const p = store.plans.find((x) => x.name === value);
                   if (p) { store.snapshotsPlanId = p.id; void loadSnapshots(); }
                 }
+                if (id === "remote-type") {
+                  store.form["remote-type-i"] = String(store.remoteTypes.findIndex((t) => t.label === value));
+                  store.authState = null;
+                  refresh?.();
+                }
+                if (id === "repo-prov") { store.form["repo-prov"] = String(value); refresh?.(); }
+                if (id === "repo-remote") {
+                  const remotes = store.targets.filter((t) => t.kind === "rclone");
+                  store.form["repo-remote-i"] = String(remotes.findIndex((t) => t.name === value));
+                }
               } else if (kind === "select") {
                 if (id === "snap-table") store.selectedSnapIdx = Number(value);
               }
@@ -248,12 +258,38 @@ export const appModule: AppModule = {
             try {
               if (store.modal === "new-repo") {
                 if (!f["repo-name"]) return formErr("name required");
-                if (!f["repo-path"]) return formErr("folder required");
+                let location: Record<string, unknown>;
+                if ((f["repo-prov"] ?? "filesystem") === "rclone") {
+                  const remotes = store.targets.filter((t) => t.kind === "rclone");
+                  const remote = remotes[Number(f["repo-remote-i"] ?? 0)];
+                  if (!remote) return formErr("pick an rclone remote (add one below)");
+                  location = { provider: "rclone", remote: remote.name, path: f["repo-rpath"] || "redoubt" };
+                } else {
+                  if (!f["repo-path"]) return formErr("folder required");
+                  location = { provider: "filesystem", path: f["repo-path"] };
+                }
                 if (!f["repo-pw"]) return formErr("passphrase required");
                 if (f["repo-pw"] !== f["repo-pw2"]) return formErr("passphrases don't match");
                 store.busy = true; refresh?.();
-                await client.rpc("repo.create", { name: f["repo-name"], passphrase: f["repo-pw"], location: { provider: "filesystem", path: f["repo-path"] } });
+                await client.rpc("repo.create", { name: f["repo-name"], passphrase: f["repo-pw"], location });
                 toast("repository created", "good"); closeModal(); await refreshAll();
+              } else if (store.modal === "new-remote") {
+                if (!f["remote-name"]) return formErr("name required");
+                const sel = store.remoteTypes[Number(f["remote-type-i"] ?? 0)];
+                if (!sel) return formErr("pick a type");
+                store.busy = true; refresh?.();
+                if (sel.oauth) {
+                  if (store.authState?.state !== "done" || !store.authState.token) {
+                    store.busy = false;
+                    return formErr("finish browser authorization first");
+                  }
+                  await client.rpc("target.authorizeFinish", { name: f["remote-name"], type: sel.type, token: store.authState.token });
+                } else {
+                  const params: Record<string, string> = {};
+                  sel.params.forEach((p) => { const v = f[`rp-${p.key}`]; if (v) params[p.key] = v; });
+                  await client.rpc("target.addRemote", { name: f["remote-name"], type: sel.type, params });
+                }
+                toast(`remote ${f["remote-name"]} added`, "good"); closeModal(); await refreshAll();
               } else if (store.modal === "new-plan") {
                 if (!f["plan-name"]) return formErr("name required");
                 if (!f["plan-src"]) return formErr("source folder required");
@@ -285,7 +321,49 @@ export const appModule: AppModule = {
               case "daemon:reconnect": void ensureDaemon(client).then(refreshAll); break;
               case "repo:new": openModal("new-repo"); break;
               case "plan:new": openModal("new-plan"); break;
-              case "target:new": toast("remote wizard lands in phase 3", "info"); break;
+              case "target:new":
+                void (async () => {
+                  if (!store.remoteTypes.length) {
+                    try { store.remoteTypes = await client.rpc("target.types") as typeof store.remoteTypes; } catch { /* daemon old */ }
+                  }
+                  openModal("new-remote");
+                })();
+                break;
+              case "target:import":
+                void client.rpc("target.importConf").then((r) => {
+                  const n = (r as { imported?: string[] }).imported?.length ?? 0;
+                  toast(n ? `imported ${n} remote(s)` : "nothing new to import", n ? "good" : "info");
+                  void refreshAll();
+                }).catch((e) => toast(`import: ${e}`, "bad"));
+                break;
+              case "target:about":
+                void (async () => {
+                  for (const t of store.targets) {
+                    const remote = t.kind === "rclone" ? t.ref : `local:${t.ref}`;
+                    try { store.about[t.ref] = await client.rpc("target.about", { remote }) as never; }
+                    catch { store.about[t.ref] = "error"; }
+                  }
+                  store.notify();
+                })();
+                break;
+              case "target:authorize":
+                void (async () => {
+                  try {
+                    const sel = store.remoteTypes[Number(store.form["remote-type-i"] ?? 0)];
+                    if (!sel) return;
+                    const r = await client.rpc<{ flowId: number }>("target.authorizeStart", { type: sel.type });
+                    store.authState = { flowId: r.flowId, state: "waiting" }; refresh?.();
+                    for (let i = 0; i < 150; i++) {
+                      await new Promise((res) => setTimeout(res, 2000));
+                      const p = await client.rpc<{ state: string; token?: string }>("target.authorizePoll", { flowId: r.flowId });
+                      if (p.state === "done") {
+                        store.authState = { flowId: r.flowId, state: "done", token: p.token };
+                        refresh?.(); return;
+                      }
+                    }
+                  } catch (e) { store.authState = null; formErr(`authorize: ${e}`); }
+                })();
+                break;
               case "sync:new": toast("sync editor lands in phase 6", "info"); break;
               case "snap:refresh": void loadSnapshots(); break;
               case "snap:restore": {
