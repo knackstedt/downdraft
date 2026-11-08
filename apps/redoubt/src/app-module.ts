@@ -399,11 +399,11 @@ export const appModule: AppModule = {
                 break;
               case "target:about":
                 void (async () => {
-                  for (const t of store.targets) {
+                  await Promise.all(store.targets.map(async (t) => {
                     const remote = t.kind === "rclone" ? t.ref : `local:${t.ref}`;
                     try { store.about[t.ref] = await client.rpc("target.about", { remote }) as never; }
                     catch { store.about[t.ref] = "error"; }
-                  }
+                  }));
                   store.notify();
                 })();
                 break;

@@ -203,7 +203,6 @@ function arcPath(cx: number, cy: number, r0: number, r1: number, a0: number, a1:
 function sunburstSvg(nodes: SunNode[], size = 300): string {
   const cx = size / 2, cy = size / 2;
   const ringW = (size / 2 - 40) / 3;
-  const total = nodes.reduce((a, n) => a + Math.max(n.size, 0), 0) || 1;
   let svg = `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">`;
   svg += `<circle cx="${cx}" cy="${cy}" r="${40}" fill="#2a2e33"/>`;
   const emit = (list: SunNode[], a0: number, a1: number, ring: number, hueShift: number): void => {
