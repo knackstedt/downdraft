@@ -31,7 +31,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 zeroize = { version = "1", features = ["derive"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 ml-kem = "0.3.4"
 x25519-dalek = { version = "3.0.0", features = ["static_secrets", "zeroize", "getrandom"] }
 hkdf = "0.13.0"
