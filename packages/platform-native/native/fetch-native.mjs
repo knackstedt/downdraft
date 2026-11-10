@@ -15,23 +15,41 @@
 import { execFileSync, execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const nativeDir = dirname(fileURLToPath(import.meta.url));
 
 // Shared crate table lives in the monorepo's scripts/. When this file runs
-// from an installed npm package (postinstall), only the platform crate's
-// destination is known — the engine cdylibs ship inside @downdraft/engine.
-let CRATES = [
-  {
-    pkg: "downdraft-platform",
-    dest: join(nativeDir, ".."),
-  },
-];
+// from an installed npm package (postinstall) the monorepo table isn't
+// reachable — fall back to absolute dests resolved through node: the
+// platform lib and its optional sidecars land in native/<plat>-<arch>/
+// (what resolveNativeLibrary searches), engine cdylibs go to the resolved
+// @downdraft/engine package's per-crate dist/ (what their crateDir
+// resolution searches). Missing bundle entries are skipped below.
+let CRATES;
 try {
   ({ CRATES } = await import("../../../scripts/native-crates.mjs"));
-} catch { /* published package — platform lib only */ }
+} catch {
+  CRATES = [
+    { pkg: "downdraft-platform", dest: nativeDir },
+    { pkg: "downdraft-controller", dest: nativeDir },
+    { pkg: "downdraft-secrets", dest: nativeDir },
+  ];
+  try {
+    const req = createRequire(import.meta.url);
+    const engineRoot = dirname(req.resolve("@downdraft/engine/package.json"));
+    const lib = (...p) => join(engineRoot, "libraries", ...p, "dist");
+    CRATES.push(
+      { pkg: "downdraft-physics", dest: lib("physics-native", "native") },
+      { pkg: "downdraft-blitz-osr", dest: lib("blitz-ui", "native-osr") },
+      { pkg: "downdraft-audio", dest: lib("audio-kira", "native") },
+      { pkg: "downdraft-webui-cef", dest: lib("webui", "native-cef") },
+      { pkg: "downdraft-webui-wpe", dest: lib("webui", "native-wpe") },
+    );
+  } catch { /* @downdraft/engine not installed — platform libs only */ }
+}
 
 function download(url, dest) {
   console.log(`  GET ${url}`);

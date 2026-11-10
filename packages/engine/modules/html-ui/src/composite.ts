@@ -1,8 +1,10 @@
 // ============================================================================
 // composite.ts — draws panel textures over the frame inside AppRenderer's
-// end-of-frame surface pass. Sampling goes through an rgba8unorm-srgb view so
-// supersampled docs resolve in LINEAR space, then re-encodes on write (the
-// swapchain is gamma-space *8unorm). Premultiplied-alpha blend.
+// end-of-frame surface pass. Panels sampled through an -srgb view resolve in
+// LINEAR space and the shader re-encodes on write (the swapchain is
+// gamma-space *8unorm); unorm views return already-encoded bytes and pass
+// through (flags.x selects — required on STORAGE_BINDING textures, where
+// wgpu rejects srgb view formats). Premultiplied-alpha blend.
 // ============================================================================
 
 import { createValidatedShaderModule } from "@downdraft/engine/render/shader-validator";
@@ -12,7 +14,7 @@ struct Uniforms {
   dstRect: vec4<f32>,     // x, y, w, h in surface px
   srcUV: vec4<f32>,       // u0, v0, u1, v1 — texture subregion (GPU scroll)
   surfaceSize: vec2<f32>,
-  pad: vec2<f32>,
+  flags: vec2<f32>,       // x: 1 = -srgb view (linear samples, re-encode); 0 = unorm view (encoded passthrough)
   modulate: vec4<f32>,    // premul color/alpha multiplier (caret tint+blink)
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -46,8 +48,11 @@ fn srgb_encode(l: f32) -> f32 {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-  let c = textureSample(uiTex, samp, input.uv); // -srgb view → linear premul
-  return vec4<f32>(srgb_encode(c.r), srgb_encode(c.g), srgb_encode(c.b), c.a) * u.modulate;
+  var c = textureSample(uiTex, samp, input.uv);
+  if (u.flags.x > 0.5) { // -srgb view → linear premul → re-encode
+    c = vec4<f32>(srgb_encode(c.r), srgb_encode(c.g), srgb_encode(c.b), c.a);
+  }
+  return c * u.modulate;
 }
 `;
 
@@ -65,6 +70,11 @@ export interface CompositePanel {
   /** Premultiplied color/alpha multiplier — defaults to [1,1,1,1]. Overlay
    *  quads (the animated caret) drive color + blink alpha through this. */
   modulate?: [number, number, number, number];
+  /** True when bindGroup's texture view is an -srgb reinterpret — samples
+   *  decode to linear so the shader re-encodes on write. Leave unset for
+   *  unorm views — required on STORAGE_BINDING textures, where wgpu
+   *  rejects srgb view formats outright. */
+  srgbView?: boolean;
 }
 
 export class PanelBlitPass {
@@ -111,7 +121,10 @@ export class PanelBlitPass {
   /** Bind group for a panel texture — call when the texture is (re)created.
    *  `format` is the view format; defaults to rgba8unorm-srgb (Blitz docs).
    *  Browser-backed panels pass bgra8unorm-srgb for BGRA sources — srgb
-   *  reinterprets of rgba8unorm/bgra8unorm are both legal. */
+   *  reinterprets of rgba8unorm/bgra8unorm are both legal, EXCEPT on
+   *  STORAGE_BINDING textures where wgpu rejects srgb views outright:
+   *  those must pass the unorm base format (and draw with srgbView unset —
+   *  the stored bytes are already display-encoded). */
   createBindGroup(texture: GPUTexture, ubo: GPUBuffer, format: GPUTextureFormat = "rgba8unorm-srgb"): GPUBindGroup {
     return this.device.createBindGroup({
       layout: this.bindGroupLayout,
@@ -132,7 +145,7 @@ export class PanelBlitPass {
       const m = p.modulate;
       uni.set([p.rect.x, p.rect.y, p.rect.w, p.rect.h,
         s?.[0] ?? 0, s?.[1] ?? 0, s?.[2] ?? 1, s?.[3] ?? 1,
-        surfaceW, surfaceH, 0, 0,
+        surfaceW, surfaceH, p.srgbView ? 1 : 0, 0,
         m?.[0] ?? 1, m?.[1] ?? 1, m?.[2] ?? 1, m?.[3] ?? 1]);
       this.device.queue.writeBuffer(p.ubo, 0, uni);
       pass.setBindGroup(0, p.bindGroup);

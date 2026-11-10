@@ -882,7 +882,7 @@ export class HtmlUiHost {
     // writeBuffer clobber the panel's uniforms (see field note above).
     if (!p.spriteUbo) p.spriteUbo = this.blit.createUbo();
     if (!p.spriteBg || p.spriteBgTex !== p.texture) {
-      p.spriteBg = this.blit.createBindGroup(p.texture, p.spriteUbo);
+      p.spriteBg = this.blit.createBindGroup(p.texture, p.spriteUbo, "rgba8unorm");
       p.spriteBgTex = p.texture;
     }
     draw.push({ bindGroup: p.spriteBg, ubo: p.spriteUbo, rect: { x: dx, y: dy, w: dw, h: dh }, src: [u0, v0, u1, v1], modulate: s.modulate });
@@ -937,7 +937,7 @@ export class HtmlUiHost {
     if (!a.ubo) a.ubo = this.blit.createUbo();
     if (!a.bg) a.bg = this.blit.createBindGroup(a.tex, a.ubo);
     const [r, g, b] = HtmlUiHost.CARET_RGB;
-    draw.push({ bindGroup: a.bg, ubo: a.ubo, rect: { x: cx, y: cy, w: dw, h: dh }, src: [0, 0, 1, 1], modulate: [r, g, b, 1] });
+    draw.push({ bindGroup: a.bg, ubo: a.ubo, rect: { x: cx, y: cy, w: dw, h: dh }, src: [0, 0, 1, 1], modulate: [r, g, b, 1], srgbView: true });
   }
 
   /** Compositor surface for AppRenderer's end-of-frame UI pass. */
@@ -1466,11 +1466,13 @@ export class HtmlUiHost {
     p.texture = this.device.createTexture({
       size: { width: tw, height: th },
       format: "rgba8unorm",
-      viewFormats: ["rgba8unorm-srgb"],
       // STORAGE_BINDING lets the ui worker shade the doc's vello scene
       // straight into this texture (wgpu_shim_vello_render); rgba8unorm is
       // a mandatory storage format so no adapter check is needed. The
-      // CPU-path COPY_DST uploads are unaffected.
+      // CPU-path COPY_DST uploads are unaffected. No viewFormats — wgpu
+      // rejects srgb-format views on storage textures, so the blit pass
+      // samples through the unorm base view (srgbView unset: doc bytes
+      // are already display-encoded).
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.STORAGE_BINDING,
     } as GPUTextureDescriptor);
     // Zero-fill — dirty-rect uploads only cover painted regions, so
@@ -1485,7 +1487,7 @@ export class HtmlUiHost {
     p.texW = w;
     p.texH = h;
     if (!p.ubo) p.ubo = this.blit.createUbo();
-    p.bindGroup = this.blit.createBindGroup(p.texture, p.ubo);
+    p.bindGroup = this.blit.createBindGroup(p.texture, p.ubo, "rgba8unorm");
   }
 
   private send(msg: Parameters<DocBackend["post"]>[0], transfer?: Transferable[]): void {

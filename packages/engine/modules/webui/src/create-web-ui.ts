@@ -298,6 +298,7 @@ export function createWebUi(options: WebUiOptions): RendererModule {
           ubo,
           bindGroup: blit.createBindGroup(src.getTexture(), ubo, src.srgbFormat),
           rect: { ...spec.rect },
+          srgbView: true,
         };
         const unsubs: Array<() => void> = [];
         if (spec.onMessage) unsubs.push(bridge.onMessage(id, spec.onMessage));
